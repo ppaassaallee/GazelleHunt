@@ -9,6 +9,9 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 - English/Spanish language choice before the assessment
 - Separate experienced and first-job context branches of equal length
 - 27 items per candidate path
+- Three adaptive, bilingual job scenarios with a deterministic fallback
+- Five-paragraph English and Spanish GPT-5.5 recruiter narratives
+- Recruiter-controlled report language and client-generated PDF download
 - Three equally weighted scored constructs:
   - role reality alignment
   - stay intention
@@ -21,6 +24,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 - Item-level scoring trace with raw response, transformation, timing, and inclusion rule
 - Persistent candidate, invitation, assessment, response, audit, and email-event records
 - Real Mailgun REST API integration with signed delivery webhooks
+- OpenAI Responses API integration with strict structured outputs and `store: false`
 - CSV import and authenticated admin attribution
 
 ## Transparent scoring
@@ -38,6 +42,8 @@ Tenure Potential Index = mean(
 ```
 
 Support leverage and context have a weight of zero. No automatic rejection or retention probability is produced.
+
+Scenario responses and the GPT-5.5 narrative also have a weight of zero. They are separate, auditable evidence for structured human review and never change the index.
 
 See [docs/scoring-and-validation.md](docs/scoring-and-validation.md) for the complete interpretation and validation contract.
 
@@ -64,9 +70,17 @@ Recommended setup order:
 4. Register `https://YOUR_APP_DOMAIN/api/mailgun/webhook` for accepted, delivered, temporary fail, permanent fail, complained, and unsubscribed events.
 5. Refresh Settings, send a connection test, and confirm both Mailgun acceptance and the delivered webhook event.
 
+## OpenAI configuration
+
+Set `OPENAI_API_KEY` as a hosted secret. `OPENAI_MODEL` is optional and defaults to the pinned `gpt-5.5-2026-04-23` snapshot so report regeneration is reproducible.
+
+The server sends deidentified, job-related assessment evidence to the Responses API. Candidate name, email, and phone are excluded. Both scenario generation and report analysis use strict JSON schemas; API storage is disabled with `store: false`. Scenario and analysis prompts are separately versioned, and the stored report includes the provider response ID plus SHA-256 hashes of its evidence and output.
+
+The AI narrative is advisory only. It is prohibited from diagnosing the candidate, inferring protected or sensitive characteristics, estimating retention probability, ranking candidates, or recommending hire/reject decisions. A trained person must review it with other job-related evidence.
+
 ## Candidate access
 
-Invitation links use `/assessment?invite=...` and open a candidate-only interface. The first interactive screen always asks `Choose your language · Elige tu idioma`; the suggested email language never bypasses this choice.
+Invitation links use `/assessment?invite=...` and open a candidate-only interface. The first interactive screen always asks `Choose your language · Elige tu idioma`; the suggested email language never bypasses this choice. Consent explicitly describes the three scenario questions and AI-assisted recruiter report before any response is recorded.
 
 The hosting access policy must allow the intended candidates to reach `/assessment`. A private owner-only deployment is suitable for internal review but not for external candidate delivery.
 

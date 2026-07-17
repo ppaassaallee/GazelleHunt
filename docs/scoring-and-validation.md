@@ -24,6 +24,10 @@ Each construct contributes one-third of the pilot index.
 
 **Commitment context** contains four branch-specific items. Experienced candidates answer work-history items; first-job candidates answer questions about sustained non-work commitments. This context is reported separately because equal length does not establish psychometric equivalence.
 
+**Scenario evidence** contains three job-related, behaviorally anchored responses selected after scoring. Questions cover role-reality sustainability, reliability/recovery, and realistic persistence. They are displayed separately and contribute zero weight to the index.
+
+**GPT-5.5 recruiter narrative** contains exactly five paragraphs in English and five equivalent paragraphs in Spanish. It summarizes evidence, identifies employer-controlled support, and proposes structured human follow-up. It contributes zero weight, cannot alter the score, and cannot produce a hire/reject recommendation.
+
 ## Item scoring
 
 All items use a 1–5 agreement scale.
@@ -57,8 +61,19 @@ The server canonicalizes and hashes:
 - start/completion timestamps and duration
 - item responses and timings
 - complete score object and scoring trace
+- scenario identifiers, responses, language, and timing
 
 The SHA-256 digest is stored with the result. A changed input or scoring result produces a different digest.
+
+AI provenance is stored separately: model snapshot, prompt version, provider response ID, evidence hash, output hash, generation status, and timestamp. This separation makes it possible to reproduce the transparent score without depending on a generative model and to audit a regenerated narrative independently.
+
+## AI use boundary
+
+- Candidate free text is treated as untrusted evidence, never as model instructions.
+- Candidate identity and contact fields are excluded from model input.
+- Diagnosis, deception judgments, protected-trait inference, ranking, and automated employment decisions are prohibited.
+- The narrative must distinguish observed evidence, interpretation, and missing evidence.
+- Human review with other job-related information is mandatory.
 
 ## Validation gates
 
