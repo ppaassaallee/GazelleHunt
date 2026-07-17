@@ -1434,9 +1434,16 @@ async function configureBrevoWebhook(request, env, user) {
     const payload = brevoWebhookPayload(config, webhookUrl);
     let webhookId = existing?.id || null;
     let action = 'created';
-    if (existing) {
-      await brevoApiRequest(config, `/webhooks/${encodeURIComponent(existing.id)}`, { method: 'PUT', body: payload });
-      action = 'updated';
+    if (existing?.id != null) {
+      try {
+        await brevoApiRequest(config, `/webhooks/${encodeURIComponent(existing.id)}`, { method: 'PUT', body: payload });
+        action = 'updated';
+      } catch (error) {
+        if (error.providerStatus !== 400 || !/does not exist/i.test(error.providerMessage || '')) throw error;
+        const created = await brevoApiRequest(config, '/webhooks', { method: 'POST', body: payload });
+        webhookId = created.id || null;
+        action = 'recreated';
+      }
     } else {
       const created = await brevoApiRequest(config, '/webhooks', { method: 'POST', body: payload });
       webhookId = created.id || null;
