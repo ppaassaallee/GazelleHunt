@@ -1,8 +1,8 @@
-const STORAGE_KEY = 'gazelle-assessment-live-v1';
+const engine = globalThis.GazelleAssessmentEngine;
 
 const icons = {
   home: '<path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>',
-  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
   upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
   send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -19,90 +19,64 @@ const icons = {
   briefcase: '<rect width="20" height="14" x="2" y="7" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M2 12h20"/>',
   calendar: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   headphones: '<path d="M4 14a8 8 0 0 1 16 0"/><path d="M18 19c0 1.7-1.3 3-3 3h-3"/><path d="M4 14v4a2 2 0 0 0 2 2h1v-8H6a2 2 0 0 0-2 2ZM20 14v4a2 2 0 0 1-2 2h-1v-8h1a2 2 0 0 1 2 2Z"/>',
-  dollar: '<circle cx="12" cy="12" r="9"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8M12 6v12"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0 2 5.3"/><path d="M20 4v7h-7"/>',
 };
-
-function icon(name, label = '') {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="${label ? 'false' : 'true'}"${label ? ` aria-label="${label}"` : ''}>${icons[name] || ''}</svg>`;
-}
 
 const navItems = [
-  ['home', 'Home', 'home'],
-  ['candidates', 'Candidates', 'users'],
-  ['import', 'Import CSV', 'upload'],
-  ['send', 'Send Test', 'send'],
-  ['progress', 'Test Progress', 'clock'],
-  ['reports', 'Results & Reports', 'file'],
-  ['settings', 'Settings', 'settings'],
+  ['home', 'Home', 'home'], ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'],
+  ['send', 'Send Test', 'send'], ['progress', 'Test Progress', 'clock'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
 ];
 
-const testQuestions = [
-  { id: 'history_1', dimension: 'Work history', text: 'Across your two most recent roles, how consistently did you complete the work commitments you accepted?' },
-  { id: 'history_2', dimension: 'Work history', text: 'How often have you stayed in a role long enough to become fully independent in the work?' },
-  { id: 'traits_1', dimension: 'Reliability traits', text: 'When work becomes repetitive, how consistently do you maintain the same level of care?' },
-  { id: 'traits_2', dimension: 'Reliability traits', text: 'How comfortable are you asking for support before a small work problem becomes a larger one?' },
-  { id: 'fit_1', dimension: 'Job reality fit', text: 'This role includes rotating evening or weekend shifts. How workable is that schedule for you?' },
-  { id: 'fit_2', dimension: 'Job reality fit', text: 'This role involves back-to-back customer conversations and measured performance targets. How well does that match the work you want?' },
-  { id: 'intent_1', dimension: 'Intention to stay', text: 'If the schedule, pay, and work conditions match what was described, how likely are you to remain for at least six months?' },
-  { id: 'intent_2', dimension: 'Intention to stay', text: 'How interested are you in building experience in this type of customer operations role?' },
-];
-
-const initialState = {
-  view: 'home',
-  reportTab: 'individual',
-  search: '',
-  statusFilter: 'All',
-  reportCandidateId: 1,
-  selectedToSend: [5],
-  csv: null,
-  settings: {
-    company: 'Gazelle Assessment',
-    defaultRole: 'Bilingual Customer Care',
-    site: 'Guatemala City',
-    assessmentLanguage: 'English',
-    humanReview: true,
-    fairnessMonitoring: true,
-    autoReject: false,
-  },
-  candidates: [
-    { id: 1, name: 'Maya Torres', email: 'maya.torres@example.com', phone: '+502 5550 0192', role: 'Bilingual Customer Care', site: 'Guatemala City', status: 'Report ready', invitation: 'Delivered', progress: 100, score: 4.2, updated: 'Today, 9:40 AM', dimensions: { history: 4.0, traits: 4.4, fit: 4.3, intent: 4.1 } },
-    { id: 2, name: 'Jordan Lee', email: 'jordan.lee@example.com', phone: '+57 315 555 0134', role: 'Customer Retention', site: 'Bogota', status: 'In progress', invitation: 'Delivered', progress: 50, score: null, updated: 'Today, 8:15 AM' },
-    { id: 3, name: 'Elena Ruiz', email: 'elena.ruiz@example.com', phone: '+52 55 5550 0188', role: 'Customer Care', site: 'Mexico City', status: 'Invitation sent', invitation: 'Delivered', progress: 0, score: null, updated: 'Yesterday, 4:22 PM' },
-    { id: 4, name: 'Chris Morgan', email: 'chris.morgan@example.com', phone: '+502 5550 0107', role: 'Bilingual Customer Care', site: 'Guatemala City', status: 'Email failed', invitation: 'Failed', progress: 0, score: null, updated: 'Yesterday, 2:05 PM' },
-    { id: 5, name: 'Ari Patel', email: 'ari.patel@example.com', phone: '+57 315 555 0151', role: 'Chat Support', site: 'Medellin', status: 'Ready to send', invitation: 'Not sent', progress: 0, score: null, updated: 'Today, 10:10 AM' },
-  ],
+const state = {
+  view: 'home', reportTab: 'report', reportLocale: 'en', candidates: [], filteredStatus: 'All', search: '',
+  health: { database: false, email: { configured: false, provider: 'Mailgun', region: 'US', domain: null, from: null } },
+  loading: true, busy: false, error: '', csv: null, reportCandidateId: null, previewReport: null, runner: null,
 };
 
-function loadState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return saved ? { ...initialState, ...saved, settings: { ...initialState.settings, ...saved.settings } } : structuredClone(initialState);
-  } catch {
-    return structuredClone(initialState);
+function icon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || ''}</svg>`;
+}
+
+function esc(value = '') {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' })[character]);
+}
+
+function initials(name = '') { return name.split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase() || 'TP'; }
+function formatDate(value) { return value ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'; }
+function formatDuration(ms) { const seconds = Math.round(Number(ms || 0) / 1000); return seconds ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : '—'; }
+
+async function fetchJson(url, options) {
+  const response = await fetch(url, { ...options, headers: { 'content-type': 'application/json', ...(options?.headers || {}) } });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(body.error || 'The request could not be completed.');
+    error.code = body.code;
+    error.status = response.status;
+    throw error;
   }
+  return body;
 }
 
-let state = loadState();
-let runner = null;
-
-function persist() {
-  const safe = { ...state, csv: null, view: 'home' };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
-}
-
-function setState(patch, shouldPersist = true) {
-  state = { ...state, ...patch };
-  if (shouldPersist) persist();
+async function loadWorkspace() {
+  state.loading = true;
   render();
-}
-
-function initials(name) { return name.split(/\s+/).map((word) => word[0]).slice(0, 2).join('').toUpperCase(); }
-function esc(value = '') { return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' })[character]); }
-
-function statusBadge(status) {
-  const tone = status === 'Report ready' ? 'teal' : status === 'Email failed' ? 'red' : status === 'In progress' || status === 'Invitation sent' ? 'orange' : 'neutral';
-  return `<span class="badge badge-${tone}">${esc(status)}</span>`;
+  try {
+    state.health = await fetchJson('/api/health');
+    if (state.health.database) {
+      const data = await fetchJson('/api/candidates');
+      state.candidates = data.candidates || [];
+      if (!state.reportCandidateId && state.candidates.some((candidate) => candidate.assessment_id)) {
+        state.reportCandidateId = state.candidates.find((candidate) => candidate.assessment_id).id;
+      }
+    }
+    state.error = '';
+  } catch (error) {
+    state.error = error.message;
+  } finally {
+    state.loading = false;
+    render();
+  }
 }
 
 function toast(message) {
@@ -111,306 +85,298 @@ function toast(message) {
   element.className = 'toast';
   element.textContent = message;
   region.appendChild(element);
-  window.setTimeout(() => element.remove(), 3200);
+  setTimeout(() => element.remove(), 3800);
+}
+
+function statusBadge(status) {
+  const value = status || 'Not invited';
+  const tone = ['completed', 'delivered'].includes(value) ? 'teal' : ['failed', 'permanent_fail', 'complained'].includes(value) ? 'red' : ['accepted', 'sending'].includes(value) ? 'orange' : 'neutral';
+  return `<span class="badge badge-${tone}">${esc(value.replaceAll('_', ' '))}</span>`;
 }
 
 function shell(content) {
   const current = navItems.find(([id]) => id === state.view) || navItems[0];
-  return `
-    <div class="app-shell">
-      <aside class="sidebar" id="sidebar">
-        <div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Assessment</strong><span>Early-tenure pilot</span></div></div>
-        <nav class="nav" aria-label="Main navigation">
-          ${navItems.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}
-        </nav>
-        <div class="sidebar-footer"><div class="workspace"><div class="avatar">AP</div><div><strong>Recruiter Admin</strong><span>Pilot workspace</span></div></div></div>
-      </aside>
-      <main class="main">
-        <header class="topbar">
-          <div class="topbar-left">
-            <button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button>
-            <div><h1>${current[1]}</h1><p>Tenure Prediction Test — Expanded Stability Model</p></div>
-          </div>
-          <div class="top-actions"><span class="badge badge-orange">Pilot · Week 4 of 13</span><button class="button button-secondary icon-button" data-action="open-settings" aria-label="Open settings">${icon('settings')}</button></div>
-        </header>
-        <div class="page">${content}</div>
-      </main>
-    </div>
-    ${runner ? renderRunner() : ''}`;
+  return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Assessment</strong><span>Tenure Potential</span></div></div><nav class="nav" aria-label="Main navigation">${navItems.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">AP</div><div><strong>Research pilot</strong><span>${engine.ASSESSMENT_VERSION}</span></div></div></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${current[1]}</h1><p>Tenure Potential Assessment · ${engine.MODEL_VERSION}</p></div></div><div class="top-actions"><span class="badge badge-${state.health.database ? 'teal' : 'orange'}">${state.health.database ? 'Audit database active' : 'Database unavailable'}</span><button class="button button-secondary icon-button" data-action="reload" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}`;
 }
 
 function pageIntro(kicker, title, description, action = '') {
   return `<div class="page-intro"><div><p class="eyebrow">${kicker}</p><h2>${title}</h2><p>${description}</p></div>${action}</div>`;
 }
 
-function renderHome() {
-  const counts = {
-    candidates: state.candidates.length,
-    sent: state.candidates.filter((c) => c.invitation !== 'Not sent').length,
-    progress: state.candidates.filter((c) => c.status === 'In progress').length,
-    reports: state.candidates.filter((c) => c.status === 'Report ready').length,
-  };
-  const dimensions = [
-    ['Work history', '25%', 'Structured evidence about reliability, tenure, and work commitments.'],
-    ['Reliability traits', '25%', 'Persistence, consistency, support-seeking, and steady work behavior.'],
-    ['Job reality fit', '30%', 'Alignment with the actual schedule, customer intensity, metrics, and work setting.'],
-    ['Intention to stay', '20%', 'Near-term commitment when the stated job conditions are accurate.'],
-  ];
-  return `
-    <div class="stack">
-      <section class="card mission-panel">
-        <div class="mission-copy"><span class="badge badge-teal">90-day pilot</span><h2>Make early tenure measurable, explainable, and fair.</h2><p>Run one focused stability assessment for high-volume BPO hiring. Use the result as structured evidence alongside interviews, job simulation, account fit, and human judgment.</p><div class="mission-actions"><button class="button button-primary" data-action="import">${icon('upload')}Import candidates</button><button class="button button-secondary" data-action="send-view">${icon('send')}Send assessment</button></div></div>
-        <div class="pilot-panel"><div><p class="eyebrow">Pilot readiness</p><div class="pilot-meta"><strong>4 of 6 controls</strong><span>Before launch</span></div></div><div class="meter"><span style="width:66.7%"></span></div><p>Complete the local validity plan and email setup before using results in a live selection process.</p><button class="button button-teal" data-action="pilot-review">Review pilot controls</button></div>
-      </section>
-      <section class="grid grid-4">
-        ${metric('Candidates', counts.candidates, 'Pilot workspace', 'users')}
-        ${metric('Invitations', counts.sent, 'Delivered or attempted', 'send')}
-        ${metric('In progress', counts.progress, 'Candidate activity', 'clock')}
-        ${metric('Reports ready', counts.reports, 'Human review required', 'file')}
-      </section>
-      <div class="section-title"><div><h3>Expanded Stability Model</h3><p>Four interpretable dimensions, weighted for early-tenure relevance.</p></div><span class="badge badge-neutral">10–12 minutes</span></div>
-      <section class="grid grid-4">${dimensions.map(([title, weight, text]) => `<article class="card dimension-card"><div class="dimension-head"><h3>${title}</h3><span>${weight}</span></div><p>${text}</p></article>`).join('')}</section>
-      <section class="grid grid-2">
-        <article class="card"><div class="card-header"><div><h3>Next actions</h3><p>Tasks that move the pilot toward a defensible launch.</p></div></div><div class="card-body action-list">
-          ${actionItem(1, 'Confirm realistic job preview', 'Schedule, pay, metrics, supervision, and work setting.', 'send-view', 'Review')}
-          ${actionItem(2, 'Set local validation cohorts', 'Baseline, assessment, assessment + preview, internal model.', 'pilot-review', 'Configure')}
-          ${actionItem(3, 'Connect a verified sender', 'Production invitations need an authenticated company domain.', 'open-settings', 'Set up')}
-        </div></article>
-        <article class="card"><div class="card-header"><div><h3>Decision boundary</h3><p>What this assessment may and may not do.</p></div>${icon('shield')}</div><div class="card-body stack"><div class="notice"><strong>No automatic rejection.</strong> The score is a structured tenure-confidence signal, not a hiring decision or a promise that someone will stay.</div><div class="guardrail-list"><div class="guardrail"><div><strong>Use with</strong><span>Structured interview, job simulation, account fit, and local evidence.</span></div><span class="badge badge-teal">Required</span></div><div class="guardrail"><div><strong>Revalidate</strong><span>Every 6–12 months by country, site, account, and role family.</span></div><span class="badge badge-orange">Planned</span></div></div></div></article>
-      </section>
-    </div>`;
-}
-
 function metric(label, value, note, iconName) {
   return `<article class="card metric"><div class="metric-top"><span>${label}</span>${icon(iconName)}</div><strong>${value}</strong><small>${note}</small></article>`;
 }
 
-function actionItem(number, title, description, action, label) {
-  return `<div class="action-item"><div class="action-index">${number}</div><div><strong>${title}</strong><span>${description}</span></div><button class="button button-quiet" data-action="${action}">${label}</button></div>`;
+function renderHome() {
+  const completed = state.candidates.filter((candidate) => candidate.assessment_id).length;
+  const active = state.candidates.filter((candidate) => candidate.invitation_id && !candidate.assessment_id).length;
+  return `<div class="stack"><section class="card mission-panel"><div class="mission-copy"><span class="badge badge-teal">Evidence-first redesign</span><h2>Measure Tenure Potential, then learn what actually predicts staying.</h2><p>The candidate score is a transparent pilot index, not a probability or a hidden risk label. It separates observed fit, stay intention, and work reliability from the support conditions the employer can improve.</p><div class="mission-actions"><button class="button button-primary" data-action="preview">${icon('file')}Preview bilingual assessment</button><button class="button button-secondary" data-nav="send">${icon('send')}Send real invitation</button></div></div><div class="pilot-panel"><div><p class="eyebrow">Model status</p><div class="pilot-meta"><strong>Pilot · uncalibrated</strong><span>${engine.ASSESSMENT_VERSION}</span></div></div><p>No 90-day or 180-day probability is shown until local outcome data supports calibration. Every completed result stores its item responses, transformations, version, timing, quality flags, and cryptographic audit hash.</p></div></section>
+    <section class="grid grid-4">${metric('Candidates', state.candidates.length, 'Persistent records', 'users')}${metric('Active invitations', active, 'Provider and delivery states', 'send')}${metric('Audited results', completed, 'Server-scored assessments', 'shield')}${metric('Email connection', state.health.email?.configured ? 'Ready' : 'Open', state.health.email?.configured ? 'Mailgun configured' : 'Credentials required', 'send')}</section>
+    <div class="section-title"><div><h3>What the assessment measures</h3><p>Three scored constructs plus one separate employer-action profile.</p></div><span class="badge badge-neutral">27 items per branch</span></div>
+    <section class="grid grid-4">${dimensionCard('Role reality alignment', '33⅓%', 'Schedule, location, compensation model, work intensity, and performance expectations.')}${dimensionCard('Stay intention', '33⅓%', 'Current commitment to train, invest, and stay if the stated conditions are honored.')}${dimensionCard('Work reliability', '33⅓%', 'Follow-through, recovery, self-regulation, and asking for help before problems grow.')}${dimensionCard('Support leverage', 'Not scored', 'Clear expectations, coaching, schedule notice, feedback, and psychological safety.')}</section>
+    <section class="grid grid-2"><article class="card"><div class="card-header"><div><h3>Reverse-engineering result</h3><p>What the four legacy reports reveal.</p></div></div><div class="card-body stack"><div class="evidence-row"><strong>Composite</strong><span>The supplied overall scores match the rounded arithmetic mean of available subscales within 0.5 points.</span></div><div class="evidence-row"><strong>No-experience branch</strong><span>The prior-behavior measure is displayed as zero but appears excluded from the overall calculation.</span></div><div class="evidence-row"><strong>Missing evidence</strong><span>No item trace, reliability estimate, uncertainty interval, scoring version, or local validity result is shown.</span></div><button class="button button-secondary" data-action="method">Open method review</button></div></article><article class="card"><div class="card-header"><div><h3>Scientific boundary</h3><p>What makes the new system honest.</p></div>${icon('shield')}</div><div class="card-body stack"><div class="notice"><strong>No pass/fail rule.</strong> The index summarizes current responses. It does not claim that a person will stay.</div><div class="guardrail-list">${guardrail('Criterion validation', 'Link assessment versions to voluntary 90-day and 180-day outcomes.', 'Required')}${guardrail('Bilingual equivalence', 'Cognitive interviews, measurement invariance, and differential item functioning.', 'Required')}${guardrail('Adverse-impact review', 'Monitor by role and lawful groups without using protected data in scoring.', 'Required')}</div></div></article></section></div>`;
 }
+
+function dimensionCard(title, weight, text) { return `<article class="card dimension-card"><div class="dimension-head"><h3>${title}</h3><span>${weight}</span></div><p>${text}</p></article>`; }
+function guardrail(title, text, badge) { return `<div class="guardrail"><div><strong>${title}</strong><span>${text}</span></div><span class="badge badge-orange">${badge}</span></div>`; }
 
 function filteredCandidates() {
   return state.candidates.filter((candidate) => {
-    const text = `${candidate.name} ${candidate.email} ${candidate.role} ${candidate.site}`.toLowerCase();
-    return text.includes(state.search.toLowerCase()) && (state.statusFilter === 'All' || candidate.status === state.statusFilter);
+    const status = candidate.assessment_id ? 'Completed' : candidate.invitation_status || 'Not invited';
+    const text = `${candidate.name} ${candidate.email} ${candidate.role} ${candidate.site || ''}`.toLowerCase();
+    return text.includes(state.search.toLowerCase()) && (state.filteredStatus === 'All' || status.toLowerCase() === state.filteredStatus.toLowerCase());
   });
 }
 
 function renderCandidates() {
-  const statuses = ['All', 'Ready to send', 'Invitation sent', 'In progress', 'Report ready', 'Email failed'];
-  return `${pageIntro('Candidate operations', 'Candidates', 'One list for import, delivery, completion, and report status.', `<button class="button button-primary" data-action="import">${icon('plus')}Add candidates</button>`)}
-    <section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search candidates" aria-label="Search candidates"></div><select class="select" id="status-filter" aria-label="Filter by status">${statuses.map((status) => `<option ${state.statusFilter === status ? 'selected' : ''}>${status}</option>`).join('')}</select></div><span class="badge badge-neutral">${filteredCandidates().length} shown</span></div>${candidateTable(filteredCandidates())}</section>`;
+  const candidates = filteredCandidates();
+  return `${pageIntro('Persistent candidate records', 'Candidates', 'Candidate, invitation, and assessment states come from the audit database.', `<button class="button button-primary" data-nav="import">${icon('plus')}Import candidates</button>`)}<section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search candidates"></div><select class="select" id="candidate-status"><option>All</option><option>Not invited</option><option>accepted</option><option>delivered</option><option>Completed</option><option>failed</option></select></div><span class="badge badge-neutral">${candidates.length} records</span></div>${candidateTable(candidates)}</section>`;
 }
 
-function candidateTable(candidates, compact = false) {
-  if (!candidates.length) return `<div class="card-body"><div class="notice">No candidates match the current filters.</div></div>`;
-  return `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Role / site</th><th>Status</th><th>Progress</th>${compact ? '' : '<th>Updated</th>'}<th>Action</th></tr></thead><tbody>${candidates.map((candidate) => `<tr><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.site)}</span></td><td>${statusBadge(candidate.status)}</td><td><div class="progress"><div class="progress-track"><span style="width:${candidate.progress}%"></span></div><small>${candidate.progress}%</small></div></td>${compact ? '' : `<td>${esc(candidate.updated)}</td>`}<td><div class="row-actions">${candidateAction(candidate)}</div></td></tr>`).join('')}</tbody></table></div>`;
+function candidateTable(candidates) {
+  if (!candidates.length) return `<div class="empty-panel"><h3>No candidate records yet</h3><p>Import a CSV or send a real invitation to create the first durable record.</p></div>`;
+  return `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Role / site</th><th>Invitation</th><th>Assessment</th><th>Updated</th><th></th></tr></thead><tbody>${candidates.map((candidate) => `<tr><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.site || 'No site')}</span></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td>${formatDate(candidate.updated_at)}</td><td><div class="row-actions">${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open audited report</button>` : `<button class="row-button" data-send-candidate="${candidate.id}">Invite</button>`}</div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
-function candidateAction(candidate) {
-  if (candidate.status === 'Report ready') return `<button class="row-button" data-report="${candidate.id}">Open report</button>`;
-  if (candidate.status === 'In progress') return `<button class="row-button" data-runner="${candidate.id}">Continue test</button>`;
-  if (candidate.status === 'Invitation sent' || candidate.status === 'Email failed') return `<button class="row-button" data-resend="${candidate.id}">Resend</button>`;
-  return `<button class="row-button" data-select-send="${candidate.id}">Select to send</button>`;
+function parseCsv(text) {
+  const rows = []; let row = []; let field = ''; let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"' && quoted && text[index + 1] === '"') { field += '"'; index += 1; }
+    else if (character === '"') quoted = !quoted;
+    else if (character === ',' && !quoted) { row.push(field.trim()); field = ''; }
+    else if ((character === '\n' || character === '\r') && !quoted) { if (character === '\r' && text[index + 1] === '\n') index += 1; row.push(field.trim()); field = ''; if (row.some(Boolean)) rows.push(row); row = []; }
+    else field += character;
+  }
+  row.push(field.trim()); if (row.some(Boolean)) rows.push(row);
+  return { headers: rows[0] || [], rows: rows.slice(1).filter((entry) => entry.some(Boolean)) };
+}
+
+function guessedMapping(header) {
+  const value = header.toLowerCase();
+  if (value.includes('name') || value.includes('nombre')) return 'name';
+  if (value.includes('mail') || value.includes('correo')) return 'email';
+  if (value.includes('phone') || value.includes('mobile') || value.includes('tel')) return 'phone';
+  if (value.includes('role') || value.includes('position') || value.includes('puesto') || value.includes('opening')) return 'role';
+  if (value.includes('site') || value.includes('location') || value.includes('sede')) return 'site';
+  return 'ignore';
 }
 
 function renderImport() {
   const csv = state.csv;
-  const mappings = csv?.headers?.map((header, index) => {
-    const lower = header.toLowerCase();
-    const target = lower.includes('name') ? 'name' : lower.includes('mail') ? 'email' : lower.includes('phone') || lower.includes('mobile') ? 'phone' : lower.includes('role') || lower.includes('opening') ? 'role' : lower.includes('site') || lower.includes('location') ? 'site' : 'ignore';
-    return [header, target, csv.rows[0]?.[index] || ''];
-  }) || [['Full Name', 'name', 'Nia Brooks'], ['Email Address', 'email', 'nia.brooks@example.com'], ['Mobile', 'phone', '+502 5550 0166'], ['Opening', 'role', 'Bilingual Customer Care'], ['Location', 'site', 'Guatemala City']];
-  return `${pageIntro('CSV import', 'Import candidates', 'Upload a CSV, verify the field mapping, then add clean candidate records.', '')}
-    <div class="grid grid-2"><section class="card card-body"><div class="dropzone">${icon('upload')}<div><h3>${csv ? esc(csv.name) : 'Choose a candidate CSV'}</h3><p>${csv ? `${csv.rows.length} rows detected. Review the mapping before import.` : 'CSV only · first row must contain column names'}</p><label class="button button-secondary" for="csv-file">${csv ? 'Choose another file' : 'Browse files'}</label><input class="file-input" id="csv-file" type="file" accept=".csv,text/csv"></div></div></section>
-    <section class="card"><div class="card-header"><div><h3>Import checks</h3><p>Required fields and quality rules.</p></div>${icon('shield')}</div><div class="card-body guardrail-list"><div class="guardrail"><div><strong>Name and email</strong><span>Required for every candidate.</span></div><span class="badge badge-teal">Required</span></div><div class="guardrail"><div><strong>Duplicate handling</strong><span>Existing email addresses will be skipped.</span></div><span class="badge badge-neutral">On</span></div><div class="guardrail"><div><strong>Protected data</strong><span>Do not import sensitive demographic fields into scoring.</span></div><span class="badge badge-orange">Guardrail</span></div></div></section></div>
-    <section class="card"><div class="card-header"><div><h3>Column mapping</h3><p>Source columns are mapped to candidate fields.</p></div><button class="button button-primary" data-action="confirm-import">${icon('check')}Import ${csv ? csv.rows.length : 1} candidate${csv?.rows?.length === 1 ? '' : 's'}</button></div><div class="card-body mapping-list">${mappings.map(([source, target, sample], index) => `<div class="mapping-row"><div class="source-column"><strong>${esc(source)}</strong><small>Sample: ${esc(sample)}</small></div><span>→</span><select class="select mapping-select" data-column="${index}"><option value="name" ${target === 'name' ? 'selected' : ''}>Candidate name</option><option value="email" ${target === 'email' ? 'selected' : ''}>Email</option><option value="phone" ${target === 'phone' ? 'selected' : ''}>Phone</option><option value="role" ${target === 'role' ? 'selected' : ''}>Role</option><option value="site" ${target === 'site' ? 'selected' : ''}>Site</option><option value="ignore" ${target === 'ignore' ? 'selected' : ''}>Ignore</option></select></div>`).join('')}</div></section>`;
+  return `${pageIntro('Persistent CSV import', 'Import candidates', 'Parse locally, verify the mapping, then write valid candidate rows to the audit database.', '')}<div class="grid grid-2"><section class="card card-body"><div class="dropzone">${icon('upload')}<div><h3>${csv ? esc(csv.name) : 'Choose a candidate CSV'}</h3><p>${csv ? `${csv.rows.length} rows detected` : 'Required: name, email, and role'}</p><label class="button button-secondary" for="csv-file">${csv ? 'Choose another file' : 'Browse files'}</label><input class="file-input" id="csv-file" type="file" accept=".csv,text/csv"></div></div></section><section class="card"><div class="card-header"><div><h3>Data boundaries</h3><p>Import only data needed for the workflow.</p></div>${icon('shield')}</div><div class="card-body guardrail-list">${guardrail('Do not score protected data', 'Birth date, sex, race, ethnicity, disability, and family status stay outside the assessment model.', 'Blocked')}${guardrail('Duplicate control', 'Email is the unique candidate key; existing records are updated.', 'Active')}${guardrail('Audit event', 'Each import records the authenticated actor and accepted row count.', 'Active')}</div></section></div>${csv ? `<section class="card"><div class="card-header"><div><h3>Column mapping</h3><p>Confirm fields before writing records.</p></div><button class="button button-primary" data-action="confirm-import" ${state.busy ? 'disabled' : ''}>${icon('check')}Import ${csv.rows.length}</button></div><div class="card-body mapping-list">${csv.headers.map((header, index) => `<div class="mapping-row"><div class="source-column"><strong>${esc(header)}</strong><small>Sample: ${esc(csv.rows[0]?.[index] || '')}</small></div><span>→</span><select class="select mapping-select" data-column="${index}">${['name','email','phone','role','site','ignore'].map((target) => `<option value="${target}" ${guessedMapping(header) === target ? 'selected' : ''}>${target}</option>`).join('')}</select></div>`).join('')}</div></section>` : ''}`;
 }
 
-function renderSend() {
-  const available = state.candidates.filter((candidate) => ['Ready to send', 'Email failed'].includes(candidate.status));
-  return `${pageIntro('Assessment delivery', 'Send Tenure Prediction Test', 'Confirm the real job conditions before asking candidates whether the role fits.', `<button class="button button-primary" data-action="send-selected" ${state.selectedToSend.length ? '' : 'disabled'}>${icon('send')}Send ${state.selectedToSend.length || ''} invitation${state.selectedToSend.length === 1 ? '' : 's'}</button>`)}
-    <div class="stack"><section class="card test-summary"><div class="test-main"><p class="eyebrow">Candidate-facing name</p><h3>Tenure Prediction Test</h3><p>Measures work-history signals, reliability traits, job-reality fit, and intention to stay. Results create a 1–5 tenure-confidence score with dimension-level explanations.</p><div class="notice"><strong>Internal name:</strong> Tenure Prediction Test — Expanded Stability Model. Never show turnover-risk language to candidates.</div></div><div class="test-facts"><div class="fact"><span>Estimated time</span><strong>10–12 minutes</strong></div><div class="fact"><span>Production item count</span><strong>24 questions</strong></div><div class="fact"><span>Decision mode</span><strong>Human review only</strong></div><div class="fact"><span>Recommended cadence</span><strong>Revalidate every 6–12 months</strong></div></div></section>
-    <section class="card"><div class="card-header"><div><h3>Realistic job preview</h3><p>These conditions appear before the test begins.</p></div><span class="badge badge-teal">Required</span></div><div class="card-body reality-list">${reality('calendar', 'Schedule', 'Rotating evening or weekend shifts; schedule confirmed before offer.')} ${reality('headphones', 'Work intensity', 'Back-to-back customer conversations with quality and productivity targets.')} ${reality('briefcase', 'Work setting', 'Site and remote eligibility vary by account and training phase.')} ${reality('dollar', 'Compensation', 'Recruiter must confirm base pay, variable pay, and attendance requirements.')}</div></section>
-    <section class="card"><div class="card-header"><div><h3>Select candidates</h3><p>Ready candidates and failed deliveries can be included.</p></div><span class="badge badge-neutral">${available.length} available</span></div><div class="card-body stack">${available.length ? available.map((candidate) => `<label class="candidate-check"><input type="checkbox" data-send-check="${candidate.id}" ${state.selectedToSend.includes(candidate.id) ? 'checked' : ''}><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)} · ${esc(candidate.status)}</span></div></div></label>`).join('') : '<div class="notice">No candidates are waiting for an invitation.</div>'}</div></section></div>`;
+function renderSend(prefill = {}) {
+  const emailReady = state.health.email?.configured;
+  return `${pageIntro('Transactional email', 'Send Tenure Potential Assessment', 'The server creates a one-time token, stores its hash, and reports success only after Mailgun accepts the message.', `<button class="button button-secondary" data-action="preview">${icon('file')}Preview test</button>`)}<div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Candidate invitation</h3><p>English or Spanish can be suggested; the candidate chooses before starting.</p></div>${statusBadge(emailReady ? 'delivered' : 'Not configured')}</div><form class="card-body form-grid" id="invite-form"><div class="field"><label for="invite-name">Candidate name</label><input class="input" id="invite-name" required value="${esc(prefill.name || '')}"></div><div class="field"><label for="invite-email">Email</label><input class="input" id="invite-email" type="email" required value="${esc(prefill.email || '')}"></div><div class="field"><label for="invite-phone">Phone</label><input class="input" id="invite-phone" value="${esc(prefill.phone || '')}"></div><div class="field"><label for="invite-role">Role</label><input class="input" id="invite-role" required value="${esc(prefill.role || 'Bilingual Customer Care')}"></div><div class="field"><label for="invite-site">Site</label><input class="input" id="invite-site" value="${esc(prefill.site || 'Guatemala City')}"></div><div class="field"><label for="invite-locale">Suggested email language</label><select class="select" id="invite-locale"><option value="en">English</option><option value="es">Español</option></select></div><div class="form-span"><button class="button button-primary" type="submit" ${!emailReady || state.busy ? 'disabled' : ''}>${icon('send')}${state.busy ? 'Sending…' : 'Send real invitation'}</button>${!emailReady ? '<p class="field-help">Connect and verify Mailgun in Settings before sending.</p>' : ''}</div></form></section><section class="stack"><article class="card test-summary"><div class="test-main"><p class="eyebrow">Candidate-facing name</p><h3>Tenure Potential Assessment</h3><p>27 items selected by experience branch. The candidate chooses English or Spanish, reviews actual job conditions, and completes the same stable item IDs in either language.</p><div class="notice"><strong>Score status:</strong> transparent pilot index. No retention probability or hiring cutoff is produced.</div></div></article><article class="card"><div class="card-header"><div><h3>Delivery controls</h3><p>High-deliverability requirements.</p></div></div><div class="card-body guardrail-list">${guardrail('Verified sending domain', 'SPF and DKIM must verify in Mailgun; publish DMARC with your domain policy.', emailReady ? 'Configured' : 'Open')}${guardrail('TLS required', 'Messages are submitted with required TLS and both text and HTML bodies.', 'Active')}${guardrail('Delivery webhooks', 'Delivered, failed, complaint, and unsubscribe events update invitation status.', 'Implemented')}</div></article></section></div>`;
 }
-
-function reality(iconName, title, text) { return `<div class="reality-item">${icon(iconName)}<div><strong>${title}</strong><span>${text}</span></div></div>`; }
 
 function renderProgress() {
-  const active = state.candidates.filter((candidate) => candidate.invitation !== 'Not sent');
-  return `${pageIntro('Candidate completion', 'Test progress', 'Track delivery, resume the candidate experience, and resend invitations.', `<button class="button button-secondary" data-action="candidate-preview">${icon('file')}Preview candidate test</button>`)}
-    <section class="grid grid-3"><article class="card metric"><div class="metric-top"><span>Delivered</span>${icon('send')}</div><strong>${active.filter((c) => c.invitation === 'Delivered').length}</strong><small>Invitation reached candidate</small></article><article class="card metric"><div class="metric-top"><span>In progress</span>${icon('clock')}</div><strong>${active.filter((c) => c.status === 'In progress').length}</strong><small>Partial assessment saved</small></article><article class="card metric"><div class="metric-top"><span>Needs attention</span>${icon('alert')}</div><strong>${active.filter((c) => c.status === 'Email failed').length}</strong><small>Delivery failed or expired</small></article></section>
-    <section class="card"><div class="card-header"><div><h3>Invitation activity</h3><p>Use the actions to exercise the complete prototype flow.</p></div></div>${candidateTable(active, true)}</section>`;
+  const invited = state.candidates.filter((candidate) => candidate.invitation_id);
+  return `${pageIntro('Provider and candidate events', 'Test progress', 'Invitation status is based on stored provider events and completed assessment records.', '')}<section class="grid grid-3">${metric('Accepted by provider', invited.filter((candidate) => candidate.invitation_status === 'accepted').length, 'Awaiting delivery event', 'send')}${metric('Delivered', invited.filter((candidate) => candidate.invitation_status === 'delivered').length, 'Recipient server accepted', 'check')}${metric('Completed', invited.filter((candidate) => candidate.assessment_id).length, 'Audited server score', 'shield')}</section><section class="card">${candidateTable(invited)}</section>`;
+}
+
+function reportRecord() {
+  if (state.previewReport) return state.previewReport;
+  return state.candidates.find((candidate) => candidate.id === state.reportCandidateId && candidate.assessment_id) || state.candidates.find((candidate) => candidate.assessment_id) || null;
+}
+
+function normalizedReport(record) {
+  if (!record) return null;
+  if (record.isPreview) return record;
+  return {
+    id: record.assessment_id, candidateId: record.id, name: record.name, email: record.email, role: record.role, site: record.site,
+    locale: record.assessment_locale, experienceBranch: record.experience_branch, completedAt: record.assessment_completed_at,
+    durationMs: record.duration_ms, potentialIndex: Number(record.potential_index), potentialBand: record.potential_band,
+    subscales: { fit: { score: Number(record.fit_score) }, intent: { score: Number(record.intent_score) }, reliability: { score: Number(record.reliability_score) }, context: { score: record.context_score == null ? null : Number(record.context_score) } },
+    supportProfile: record.support_profile || [], quality: record.response_quality || { status: 'unknown', flags: [] },
+    scoringTrace: record.scoring_trace || [], weights: record.weights || {}, auditHash: record.audit_hash,
+    assessmentVersion: record.assessment_version, modelVersion: record.model_version, modelStatus: record.model_status,
+  };
 }
 
 function renderReports() {
-  const ready = state.candidates.filter((candidate) => candidate.status === 'Report ready');
-  const candidate = ready.find((item) => item.id === state.reportCandidateId) || ready[0];
-  return `${pageIntro('Explainable evidence', 'Results & reports', 'Review individual tenure-confidence signals and the evidence plan for the pilot.', '')}
-    <section class="card"><div class="tabs"><button class="tab ${state.reportTab === 'individual' ? 'active' : ''}" data-report-tab="individual">Individual report</button><button class="tab ${state.reportTab === 'pilot' ? 'active' : ''}" data-report-tab="pilot">Pilot & fairness</button></div><div class="card-body">${state.reportTab === 'individual' ? renderIndividualReport(candidate, ready) : renderPilot()}</div></section>`;
+  const records = state.candidates.filter((candidate) => candidate.assessment_id);
+  const report = normalizedReport(reportRecord());
+  return `${pageIntro('Evidence with provenance', 'Results & Reports', 'Every operational result can be traced to its item responses, scoring transformations, model version, timing, and audit hash.', '')}<section class="card"><div class="tabs"><button class="tab ${state.reportTab === 'report' ? 'active' : ''}" data-report-tab="report">Tenure Potential report</button><button class="tab ${state.reportTab === 'audit' ? 'active' : ''}" data-report-tab="audit">Scoring audit</button><button class="tab ${state.reportTab === 'method' ? 'active' : ''}" data-report-tab="method">Method & validation</button></div><div class="card-body">${state.reportTab === 'method' ? renderMethod() : !report ? `<div class="empty-panel"><h3>No audited result yet</h3><p>Complete a real invitation or run the clearly labeled preview assessment.</p><button class="button button-primary" data-action="preview">Preview assessment</button></div>` : `${records.length || state.previewReport ? `<div class="toolbar report-toolbar">${records.length ? `<select class="select" id="report-select">${records.map((candidate) => `<option value="${candidate.id}" ${candidate.id === report.candidateId ? 'selected' : ''}>${esc(candidate.name)} · ${Number(candidate.potential_index).toFixed(1)}</option>`).join('')}</select>` : ''}<select class="select" id="report-locale"><option value="en" ${state.reportLocale === 'en' ? 'selected' : ''}>Report in English</option><option value="es" ${state.reportLocale === 'es' ? 'selected' : ''}>Reporte en español</option></select><button class="button button-secondary" data-action="print">Print / PDF</button></div>` : ''}${state.reportTab === 'audit' ? renderAudit(report) : renderReport(report)}`}</div></section>`;
 }
 
-function renderIndividualReport(candidate, ready) {
-  if (!candidate) return '<div class="notice">No report is ready yet. Complete a candidate test to generate one.</div>';
-  const dimensions = candidate.dimensions || { history: candidate.score, traits: candidate.score, fit: candidate.score, intent: candidate.score };
-  const label = candidate.score >= 4 ? 'Strong tenure confidence' : candidate.score >= 3 ? 'Moderate tenure confidence' : 'Review job conditions';
-  return `<div class="stack"><div class="toolbar"><select class="select" id="report-candidate" aria-label="Choose report">${ready.map((item) => `<option value="${item.id}" ${candidate.id === item.id ? 'selected' : ''}>${esc(item.name)} · ${esc(item.role)}</option>`).join('')}</select><button class="button button-secondary" data-action="print-report">Print report</button></div><div class="report-shell"><aside class="card report-profile"><div class="score-ring" style="--score-angle:${candidate.score / 5 * 360}deg"><div><strong>${candidate.score.toFixed(1)}</strong><span>out of 5</span></div></div><h3>${esc(candidate.name)}</h3><p>${esc(candidate.role)} · ${esc(candidate.site)}</p><span class="badge badge-teal">${label}</span><div class="confidence">This score is a structured signal, not a prediction, promise, or automatic hiring decision.</div></aside><div class="report-main"><div class="card card-body"><h3>Dimension profile</h3>${dimensionBar('Work history', dimensions.history)}${dimensionBar('Reliability traits', dimensions.traits)}${dimensionBar('Job reality fit', dimensions.fit)}${dimensionBar('Intention to stay', dimensions.intent)}</div><div class="grid grid-2"><div class="report-block"><h4>Positive signals</h4><ul><li>Job conditions and schedule appear workable based on current responses.</li><li>Responses indicate steady follow-through during repetitive work.</li><li>Candidate shows interest in building relevant role experience.</li></ul></div><div class="report-block"><h4>Conditions to confirm</h4><ul><li>Confirm exact shift window and weekend rotation.</li><li>Review base and variable compensation before offer.</li><li>Validate comfort with back-to-back customer interactions.</li></ul></div><div class="report-block"><h4>Recommended interview prompts</h4><ul><li>What conditions helped you stay and perform well in a previous role?</li><li>Which part of this schedule would be hardest to sustain for six months?</li></ul></div><div class="report-block"><h4>Onboarding support</h4><ul><li>Set clear first-week expectations.</li><li>Assign one consistent coach during training.</li><li>Check schedule and role expectations before day one.</li></ul></div></div><div class="notice"><strong>Human review required.</strong> Combine this report with structured interview evidence, job simulation, role requirements, and local validation. Do not use the score alone to hire, reject, or rank a candidate.</div></div></div></div>`;
+function reportCopy(report) {
+  const es = state.reportLocale === 'es';
+  const band = report.potentialBand === 'strong_observed' ? (es ? 'Potencial observado sólido' : 'Strong observed potential') : report.potentialBand === 'conditional' ? (es ? 'Potencial condicionado' : 'Conditional potential') : (es ? 'Se necesita más evidencia' : 'More evidence needed');
+  return { es, band, fit: es ? 'Alineación con la realidad del puesto' : 'Role reality alignment', intent: es ? 'Intención de permanencia' : 'Stay intention', reliability: es ? 'Confiabilidad laboral' : 'Work reliability', context: es ? 'Contexto de compromiso' : 'Commitment context' };
 }
 
-function dimensionBar(label, value) { return `<div class="dimension-score"><span>${label}</span><div class="progress-track"><span style="width:${value / 5 * 100}%"></span></div><strong>${value.toFixed(1)}</strong></div>`; }
-
-function renderPilot() {
-  const cohorts = [
-    ['Current hiring baseline', 'Current process', 'Not started', '90 / 180-day retention'],
-    ['Assessment only', 'Tenure Prediction Test', 'Design ready', 'Incremental validity'],
-    ['Assessment + job preview', 'Test plus realistic preview', 'Design ready', 'Expectation-match lift'],
-    ['Internal predictive model', 'Local historical data', 'Future phase', 'Local benchmark'],
-  ];
-  return `<div class="stack"><div class="notice"><strong>Pilot principle:</strong> compare outcomes before choosing cut scores. Do not turn the prototype score into a pass/fail rule until local evidence supports it.</div><div class="grid grid-4">${metric('90-day retention', 'Pending', 'Primary outcome', 'calendar')}${metric('180-day retention', 'Pending', 'Secondary outcome', 'calendar')}${metric('Quality of hire', 'Pending', 'QA + attendance', 'chart')}${metric('Adverse impact', 'Pending', 'Selection-rate checks', 'shield')}</div><section class="card"><div class="card-header"><div><h3>Controlled pilot cohorts</h3><p>Recommended comparison structure for the 90-day pilot.</p></div></div><div class="table-scroll"><table class="pilot-table"><thead><tr><th>Cohort</th><th>Intervention</th><th>Status</th><th>Primary analysis</th></tr></thead><tbody>${cohorts.map((row) => `<tr>${row.map((cell, index) => `<td>${index === 2 ? `<span class="badge badge-${cell === 'Design ready' ? 'teal' : 'neutral'}">${cell}</span>` : cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section><div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Fairness guardrails</h3><p>Run only on lawful demographic data kept outside scoring.</p></div></div><div class="card-body guardrail-list"><div class="guardrail"><div><strong>Selection-rate ratio</strong><span>Initial screen for group differences; investigate below 0.80.</span></div><span class="badge badge-neutral">No data</span></div><div class="guardrail"><div><strong>Score distribution</strong><span>Review by country, site, role, and legally permitted groups.</span></div><span class="badge badge-neutral">No data</span></div><div class="guardrail"><div><strong>Sample sufficiency</strong><span>Do not interpret small groups as stable evidence.</span></div><span class="badge badge-orange">Required</span></div></div></section><section class="card"><div class="card-header"><div><h3>Validity checklist</h3><p>Evidence required before operational cut scores.</p></div></div><div class="card-body guardrail-list">${checkline('Outcome definitions', 'Voluntary resignation at 90 and 180 days.', true)}${checkline('Role segmentation', 'Analyze by account, site, language, and role family.', true)}${checkline('Criterion analysis', 'Relate scores to tenure and quality outcomes.', false)}${checkline('Independent review', 'Document limitations and approve operational use.', false)}</div></section></div></div>`;
+function renderReport(report) {
+  const copy = reportCopy(report);
+  const qualityTone = report.quality.status === 'pilot_usable' ? 'teal' : 'orange';
+  const supports = (report.supportProfile || []).slice(0, 3).map((entry) => engine.supportLabel(entry.itemId, copy.es ? 'es' : 'en'));
+  return `<div class="report-shell"><aside class="card report-profile"><div class="score-ring" style="--score-angle:${report.potentialIndex / 100 * 360}deg"><div><strong>${report.potentialIndex.toFixed(1)}</strong><span>/ 100</span></div></div><span class="badge badge-orange">${copy.es ? 'Piloto sin calibrar' : 'Uncalibrated pilot'}</span><h3>${esc(report.name)}</h3><p>${esc(report.role)} · ${esc(report.site || '')}</p><strong class="report-band">${copy.band}</strong><div class="confidence">${copy.es ? 'Este índice resume las respuestas actuales. No es una probabilidad de permanencia ni una decisión de contratación.' : 'This index summarizes current responses. It is not a retention probability or a hiring decision.'}</div></aside><div class="report-main"><section class="card card-body"><div class="section-title compact"><div><h3>${copy.es ? 'Perfil de evidencia' : 'Evidence profile'}</h3><p>${copy.es ? 'Pesos iguales y transparentes durante el piloto.' : 'Transparent equal weights during the pilot.'}</p></div><span class="badge badge-${qualityTone}">${esc(report.quality.status.replaceAll('_', ' '))}</span></div>${dimensionBar(copy.fit, report.subscales.fit.score)}${dimensionBar(copy.intent, report.subscales.intent.score)}${dimensionBar(copy.reliability, report.subscales.reliability.score)}${dimensionBar(copy.context, report.subscales.context.score, true)}</section><div class="grid grid-2"><div class="report-block"><h4>${copy.es ? 'Palancas de permanencia' : 'Retention support levers'}</h4><ul>${supports.length ? supports.map((label) => `<li>${esc(label)}</li>`).join('') : `<li>${copy.es ? 'No disponibles' : 'Not available'}</li>`}</ul><p>${copy.es ? 'Estas preferencias no aumentan ni reducen el índice; orientan acciones del empleador.' : 'These preferences do not raise or lower the index; they guide employer actions.'}</p></div><div class="report-block"><h4>${copy.es ? 'Preguntas para revisión humana' : 'Human-review questions'}</h4><ul><li>${copy.es ? '¿Qué condición del horario sería más difícil de sostener durante seis meses?' : 'Which schedule condition would be hardest to sustain for six months?'}</li><li>${copy.es ? '¿Qué apoyo durante el primer mes tendría mayor impacto?' : 'Which first-month support would have the most impact?'}</li><li>${copy.es ? '¿Qué parte de la descripción del puesto necesita mayor claridad?' : 'Which part of the job description needs more clarity?'}</li></ul></div><div class="report-block"><h4>${copy.es ? 'Límites de interpretación' : 'Interpretation limits'}</h4><p>${copy.es ? 'No existe todavía una tasa local calibrada de permanencia a 90 o 180 días. El contexto laboral o no laboral se muestra por separado hasta validar la equivalencia de las ramas.' : 'No locally calibrated 90-day or 180-day retention probability exists yet. Work or non-work context is separate until branch equivalence is validated.'}</p></div><div class="report-block"><h4>${copy.es ? 'Plan de cuidado sugerido' : 'Suggested care plan'}</h4><ul>${supports.map((label) => `<li>${esc(label)}</li>`).join('')}</ul></div></div><div class="notice"><strong>${copy.es ? 'Revisión humana obligatoria.' : 'Human review required.'}</strong> ${copy.es ? 'No use este resultado por sí solo para contratar, rechazar o clasificar candidatos.' : 'Do not use this result alone to hire, reject, or rank candidates.'}</div></div></div>`;
 }
 
-function checkline(title, text, done) { return `<div class="guardrail"><div><strong>${title}</strong><span>${text}</span></div><span class="badge badge-${done ? 'teal' : 'neutral'}">${done ? 'Ready' : 'Open'}</span></div>`; }
+function dimensionBar(label, value, contextual = false) {
+  if (value == null) return `<div class="dimension-score"><span>${label}</span><div class="progress-track"></div><strong>—</strong></div>`;
+  return `<div class="dimension-score ${contextual ? 'contextual' : ''}"><span>${label}${contextual ? ' *' : ''}</span><div class="progress-track"><span style="width:${value}%"></span></div><strong>${Number(value).toFixed(1)}</strong></div>`;
+}
+
+function renderAudit(report) {
+  const flags = report.quality.flags || [];
+  return `<div class="stack"><section class="audit-banner"><div>${icon('shield')}<div><strong>Cryptographic result fingerprint</strong><code>${esc(report.auditHash || 'Preview result — no server hash')}</code></div></div><span class="badge badge-${report.auditHash ? 'teal' : 'orange'}">${report.auditHash ? 'Server recorded' : 'Preview only'}</span></section><div class="grid grid-3">${auditFact('Assessment version', report.assessmentVersion)}${auditFact('Scoring model', report.modelVersion)}${auditFact('Model status', report.modelStatus)}${auditFact('Locale', report.locale)}${auditFact('Experience branch', report.experienceBranch)}${auditFact('Duration', formatDuration(report.durationMs))}${auditFact('Completed', formatDate(report.completedAt))}${auditFact('Items scored', report.scoringTrace.length)}${auditFact('Quality status', report.quality.status)}</div><section class="card"><div class="card-header"><div><h3>Response-quality checks</h3><p>Flags trigger human review; they never silently change a score.</p></div></div><div class="card-body">${flags.length ? `<div class="guardrail-list">${flags.map((flag) => guardrail(flag.code.replaceAll('_', ' '), JSON.stringify(flag), flag.severity)).join('')}</div>` : '<span class="badge badge-teal">No response-quality flags</span>'}</div></section><section class="card"><div class="card-header"><div><h3>Item-level scoring trace</h3><p>Raw response, reverse-scoring rule, transformed value, timing, and index inclusion.</p></div></div><div class="table-scroll"><table><thead><tr><th>Item ID</th><th>Dimension</th><th>Raw</th><th>Reverse</th><th>Transformed</th><th>0–100 contribution</th><th>Time</th><th>Index</th></tr></thead><tbody>${report.scoringTrace.map((entry) => `<tr><td><code>${esc(entry.itemId)}</code></td><td>${esc(entry.dimension)}</td><td>${entry.rawResponse}</td><td>${entry.reverseScored ? 'Yes' : 'No'}</td><td>${entry.transformedResponse}</td><td>${entry.scaledContribution}</td><td>${Math.round(entry.responseMs / 1000)}s</td><td>${entry.includedInPotentialIndex ? 'Yes' : 'No'}</td></tr>`).join('')}</tbody></table></div></section><div class="notice"><strong>Reproducibility:</strong> potential index = mean(role reality alignment, stay intention, work reliability). Each subscale is the mean of transformed 1–5 responses mapped linearly to 0–100. Support and context weights are zero.</div></div>`;
+}
+
+function auditFact(label, value) { return `<article class="card audit-fact"><span>${label}</span><strong>${esc(value ?? '—')}</strong></article>`; }
+
+function renderMethod() {
+  return `<div class="stack"><section class="card"><div class="card-header"><div><h3>Legacy report reverse engineering</h3><p>Four supplied reports, anonymized for analysis.</p></div></div><div class="table-scroll"><table><thead><tr><th>Case</th><th>Experience</th><th>Reported overall</th><th>Mean of available measures</th><th>Difference</th></tr></thead><tbody><tr><td>A</td><td>No</td><td>49</td><td>48.67</td><td>0.33</td></tr><tr><td>B</td><td>No</td><td>79</td><td>79.33</td><td>0.33</td></tr><tr><td>C</td><td>Yes</td><td>80</td><td>79.50</td><td>0.50</td></tr><tr><td>D</td><td>Yes</td><td>42</td><td>42.50</td><td>0.50</td></tr></tbody></table></div></section><div class="grid grid-2"><section class="card card-body"><h3>What can be inferred</h3><ul class="method-list"><li>The overall score is consistent with an unweighted mean of available subscales followed by rounding.</li><li>The no-experience branch appears to exclude the unscored prior-behavior measure rather than treating the displayed zero as evidence.</li><li>The reports use norm-referenced 0–100 scores and narrative bands, but the supplied examples are insufficient to recover exact cut scores.</li><li>The local comparison is explicitly unavailable below 200 examined candidates.</li></ul></section><section class="card card-body"><h3>What cannot be inferred</h3><ul class="method-list"><li>Original items, item keys, transformations, internal precision, norm sample, and actual model coefficients.</li><li>Reliability, construct structure, language equivalence, subgroup performance, and criterion validity for the role/site.</li><li>Whether the reported band is calibrated to a probability of voluntary exit.</li></ul></section></div><section class="card"><div class="card-header"><div><h3>Validation plan before predictive claims</h3><p>The score stays descriptive until these gates are passed.</p></div></div><div class="card-body validation-grid">${validationStep('1', 'Content evidence', 'I/O psychologist review, role analysis, candidate cognitive interviews, and documented item rationale.')}${validationStep('2', 'Bilingual adaptation', 'Independent translation review, cognitive debriefs, measurement invariance, and DIF checks by language/country.')}${validationStep('3', 'Pilot reliability', 'Item distributions, omega reliability, test–retest where appropriate, response-quality rates, and branch analysis.')}${validationStep('4', 'Criterion model', 'Pre-register voluntary 90/180-day outcomes; fit an interpretable survival or discrete-time model on local data.')}${validationStep('5', 'Holdout evaluation', 'Calibration curve/intercept/slope, Brier score, C-index or AUC, confidence intervals, and site/role transport checks.')}${validationStep('6', 'Fairness and use', 'Selection-rate and score analyses, alternative procedures, human review rules, and documented change control.')}</div></section></div>`;
+}
+
+function validationStep(number, title, text) { return `<div class="validation-step"><span>${number}</span><div><strong>${title}</strong><p>${text}</p></div></div>`; }
 
 function renderSettings() {
-  const s = state.settings;
-  return `${pageIntro('Workspace configuration', 'Settings', 'Keep production settings narrow: organization, delivery, governance, and security.', `<button class="button button-primary" data-action="save-settings">${icon('check')}Save settings</button>`)}
-    <div class="grid grid-2"><section class="card settings-card"><h3>Company profile</h3><p>Defaults used for imports, invitations, and reports.</p><div class="form-grid"><div class="field"><label for="company-name">Company name</label><input class="input setting-input" id="company-name" data-setting="company" value="${esc(s.company)}"></div><div class="field"><label for="default-role">Default role</label><input class="input setting-input" id="default-role" data-setting="defaultRole" value="${esc(s.defaultRole)}"></div><div class="field"><label for="default-site">Default site</label><input class="input setting-input" id="default-site" data-setting="site" value="${esc(s.site)}"></div><div class="field"><label for="assessment-language">Assessment language</label><select class="select setting-input" id="assessment-language" data-setting="assessmentLanguage"><option ${s.assessmentLanguage === 'English' ? 'selected' : ''}>English</option><option ${s.assessmentLanguage === 'Spanish' ? 'selected' : ''}>Spanish</option></select></div></div></section><section class="card settings-card"><h3>Email delivery</h3><p>Production invitations require a verified company sender.</p>${settingLine('Provider', 'Not connected', 'badge badge-orange', 'Action needed')}${settingLine('Sender identity', 'assessment@company.com', 'badge badge-neutral', 'Unverified')}${settingLine('Domain authentication', 'SPF, DKIM, and DMARC', 'badge badge-neutral', 'Pending')}</section><section class="card settings-card"><h3>Assessment governance</h3><p>Controls that constrain how results are used.</p>${toggleLine('Human review required', 'Prevents score-only decisions.', 'humanReview', s.humanReview)}${toggleLine('Fairness monitoring', 'Tracks selection-rate and score differences.', 'fairnessMonitoring', s.fairnessMonitoring)}${toggleLine('Automatic rejection', 'Must remain off during the pilot.', 'autoReject', s.autoReject, true)}</section><section class="card settings-card"><h3>Basic security</h3><p>Minimum controls before real candidate data is used.</p>${settingLine('Access roles', 'Admin, recruiter, read-only reviewer', 'badge badge-teal', 'Defined')}${settingLine('Audit events', 'Imports, sends, report access', 'badge badge-teal', 'Enabled')}${settingLine('Data retention', 'Policy and deletion window', 'badge badge-orange', 'Set policy')}</section></div>`;
+  const email = state.health.email || {};
+  return `${pageIntro('Secure runtime configuration', 'Settings', 'Email credentials stay server-side; the browser only sees connection status and provider-safe metadata.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button>`)}<div class="grid grid-2"><section class="card settings-card"><div class="settings-title"><div><h3>Mailgun delivery</h3><p>Real REST API integration with verified-domain sending.</p></div><span class="badge badge-${email.configured ? 'teal' : 'orange'}">${email.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'Mailgun Email API', 'Implemented')}${settingLine('Region', email.region || 'US', 'Configured')}${settingLine('Sending domain', email.domain || 'Missing MAILGUN_DOMAIN', email.domain ? 'Present' : 'Required')}${settingLine('Sender', email.from || 'Missing MAILGUN_FROM', email.from ? 'Present' : 'Required')}<div class="field email-test"><label for="email-test-recipient">Connection test recipient</label><div class="inline-field"><input class="input" id="email-test-recipient" type="email" placeholder="you@company.com"><button class="button button-primary" data-action="test-email" ${!email.configured || state.busy ? 'disabled' : ''}>Send test</button></div><small>A successful test means Mailgun accepted the message. Delivery is confirmed separately through the signed webhook.</small></div></section><section class="card settings-card"><h3>One-time domain setup</h3><p>These steps happen in Mailgun and your DNS provider.</p><div class="guardrail-list">${guardrail('1. Add sending domain', 'Use a dedicated subdomain such as assessment.company.com.', 'External')}${guardrail('2. Publish DNS', 'Verify SPF and DKIM; configure DMARC and tracking choices.', 'External')}${guardrail('3. Add server secrets', 'API key, domain, sender, region, and webhook signing key.', 'Required')}${guardrail('4. Register webhook', 'Point delivery and failure events to /api/mailgun/webhook.', 'Required')}</div></section><section class="card settings-card"><h3>Assessment governance</h3><p>Controls enforced by the current build.</p>${settingLine('Automatic rejection', 'Disabled by product design', 'Locked off')}${settingLine('Model status', 'Pilot · uncalibrated', engine.MODEL_VERSION)}${settingLine('Assessment version', engine.ASSESSMENT_VERSION, 'Versioned')}${settingLine('Result fingerprint', 'SHA-256 over inputs, score, version, and timestamps', 'Active')}</section><section class="card settings-card"><h3>Data and access</h3><p>Current private workspace architecture.</p>${settingLine('Structured records', 'Platform database', state.health.database ? 'Active' : 'Unavailable')}${settingLine('Admin attribution', 'Authenticated workspace email header', 'Server-side')}${settingLine('Candidate invitation', 'One-time random token; only hash stored', 'Implemented')}${settingLine('Secret handling', 'Hosted runtime variables only', 'Server-side')}</section></div>`;
 }
 
-function settingLine(title, text, badgeClass, badgeText) { return `<div class="setting-line"><div><strong>${title}</strong><span>${text}</span></div><span class="${badgeClass}">${badgeText}</span></div>`; }
-function toggleLine(title, text, key, value, locked = false) { return `<div class="setting-line"><div><strong>${title}</strong><span>${text}</span></div><button class="toggle ${value ? 'on' : ''}" data-toggle="${key}" aria-label="Toggle ${title}" aria-pressed="${value}" ${locked ? 'disabled title="Disabled during pilot"' : ''}></button></div>`; }
+function settingLine(title, text, badge) { return `<div class="setting-line"><div><strong>${title}</strong><span>${text}</span></div><span class="badge badge-neutral">${badge}</span></div>`; }
 
 function renderRunner() {
-  const candidate = state.candidates.find((item) => item.id === runner.candidateId) || state.candidates[1];
-  if (runner.stage === 'intro') return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="runner-title"><div class="modal-header"><div><p class="eyebrow">Candidate preview</p><h2 id="runner-title">Tenure Prediction Test</h2></div><button class="button button-secondary icon-button" data-runner-action="close" aria-label="Close test">${icon('x')}</button></div><div class="modal-body"><span class="badge badge-teal">About 10–12 minutes</span><h3 class="question-text">Welcome, ${esc(candidate.name.split(' ')[0])}.</h3><p>This assessment asks about your work preferences and how well the actual conditions of the role fit what you want. There are no trick questions. Answer based on what is realistic for you today.</p><div class="card card-body stack"><strong>Role conditions shown before you begin</strong><div class="reality-list">${reality('calendar', 'Schedule', 'Rotating evening or weekend shifts.')} ${reality('headphones', 'Work pattern', 'Back-to-back customer conversations and measured targets.')}</div></div><label class="consent"><input type="checkbox" id="runner-consent" ${runner.consent ? 'checked' : ''}><span>I understand how the assessment will be used and that a person will review the result with other hiring information.</span></label></div><div class="modal-footer"><button class="button button-secondary" data-runner-action="close">Cancel</button><button class="button button-primary" data-runner-action="start" ${runner.consent ? '' : 'disabled'}>Begin assessment</button></div></section></div>`;
-  const question = testQuestions[runner.index];
-  const value = runner.answers[question.id];
-  const labels = ['Not at all', 'Slightly', 'Somewhat', 'Very', 'Completely'];
-  return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="question-title"><div class="modal-header"><div><p class="eyebrow">Tenure Prediction Test</p><h2>${esc(candidate.role)}</h2></div><button class="button button-secondary icon-button" data-runner-action="close" aria-label="Close test">${icon('x')}</button></div><div class="modal-body"><div class="test-progress"><div class="progress-track"><span style="width:${(runner.index + 1) / testQuestions.length * 100}%"></span></div><span>${runner.index + 1} of ${testQuestions.length}</span></div><div class="question-kicker">${question.dimension}</div><h3 class="question-text" id="question-title">${question.text}</h3><div class="answer-scale">${labels.map((label, index) => `<button class="answer-option ${value === index + 1 ? 'selected' : ''}" data-answer="${index + 1}"><strong>${index + 1}</strong><span>${label}</span></button>`).join('')}</div></div><div class="modal-footer"><button class="button button-secondary" data-runner-action="back" ${runner.index === 0 ? 'disabled' : ''}>Back</button><button class="button button-primary" data-runner-action="next" ${value ? '' : 'disabled'}>${runner.index === testQuestions.length - 1 ? 'Complete assessment' : 'Continue'}</button></div></section></div>`;
+  const runner = state.runner;
+  const locale = runner.locale || 'en';
+  const es = locale === 'es';
+  const close = `<button class="button button-secondary icon-button" data-runner-action="close" aria-label="Close">${icon('x')}</button>`;
+  if (runner.stage === 'language') return `<div class="modal-backdrop"><section class="modal language-modal" role="dialog" aria-modal="true"><div class="modal-header"><div><p class="eyebrow">Gazelle Assessment</p><h2>Choose your language · Elige tu idioma</h2></div>${close}</div><div class="modal-body"><p class="language-lead">Which language would you like to use to complete the assessment?<br>¿En qué idioma deseas completar la evaluación?</p><div class="language-options"><button class="language-choice" data-language="en"><strong>English</strong><span>Continue in English</span></button><button class="language-choice" data-language="es"><strong>Español</strong><span>Continuar en español</span></button></div></div></section></div>`;
+  if (runner.stage === 'experience') return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><div class="modal-header"><div><p class="eyebrow">${es ? 'Antes de comenzar' : 'Before you begin'}</p><h2>${es ? 'Experiencia laboral' : 'Work experience'}</h2></div>${close}</div><div class="modal-body"><h3 class="question-text">${es ? '¿Has tenido un empleo formal anteriormente?' : 'Have you held a formal job before?'}</h3><p>${es ? 'Tu respuesta selecciona una rama de contexto equivalente en duración. El contexto se reporta por separado y no aumenta ni reduce el índice principal.' : 'Your answer selects a context branch of equal length. Context is reported separately and does not raise or lower the main index.'}</p><div class="language-options"><button class="language-choice" data-experience="experienced"><strong>${es ? 'Sí, tengo experiencia' : 'Yes, I have experience'}</strong><span>${es ? 'Preguntas sobre compromisos laborales previos' : 'Questions about prior work commitments'}</span></button><button class="language-choice" data-experience="new"><strong>${es ? 'No, sería mi primer empleo' : 'No, this would be my first job'}</strong><span>${es ? 'Preguntas sobre otros compromisos sostenidos' : 'Questions about other sustained commitments'}</span></button></div></div></section></div>`;
+  if (runner.stage === 'intro') {
+    const conditions = runner.roleConditions?.[locale] || (es ? ['Horario rotativo nocturno o de fin de semana', 'Conversaciones consecutivas con clientes', 'Metas de calidad, productividad y asistencia'] : ['Rotating evening or weekend schedule', 'Back-to-back customer conversations', 'Quality, productivity, and attendance targets']);
+    return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><div class="modal-header"><div><p class="eyebrow">${es ? 'Potencial de Permanencia' : 'Tenure Potential'}</p><h2>${esc(runner.candidate.role)}</h2></div>${close}</div><div class="modal-body"><span class="badge badge-${runner.mode === 'preview' ? 'orange' : 'teal'}">${runner.mode === 'preview' ? (es ? 'Vista previa · no se guarda' : 'Preview · not saved') : (es ? 'Evaluación registrada' : 'Recorded assessment')}</span><h3 class="question-text">${es ? `Hola, ${esc(runner.candidate.name.split(' ')[0])}.` : `Hello, ${esc(runner.candidate.name.split(' ')[0])}.`}</h3><p>${es ? 'Responde según lo que sea realista para ti hoy. No hay respuestas perfectas. Una persona revisará el resultado junto con otra información.' : 'Answer based on what is realistic for you today. There are no perfect answers. A person will review the result with other information.'}</p><div class="card card-body"><strong>${es ? 'Condiciones que debes considerar' : 'Conditions to consider'}</strong><ul class="method-list">${conditions.map((condition) => `<li>${esc(condition)}</li>`).join('')}</ul></div><label class="consent"><input type="checkbox" id="runner-consent" ${runner.consent ? 'checked' : ''}><span>${es ? 'Entiendo el propósito de la evaluación, cómo se utilizará y que el resultado no decide por sí solo una contratación.' : 'I understand the purpose of the assessment, how it will be used, and that the result does not make a hiring decision by itself.'}</span></label></div><div class="modal-footer"><button class="button button-secondary" data-runner-action="back-experience">${es ? 'Atrás' : 'Back'}</button><button class="button button-primary" data-runner-action="start" ${runner.consent ? '' : 'disabled'}>${es ? 'Comenzar' : 'Begin'}</button></div></section></div>`;
+  }
+  if (runner.stage === 'complete') return `<div class="modal-backdrop"><section class="modal complete-modal" role="dialog" aria-modal="true"><div class="modal-body">${icon('check')}<h2>${es ? 'Evaluación completada' : 'Assessment complete'}</h2><p>${runner.mode === 'preview' ? (es ? 'La vista previa generó un reporte local claramente identificado. No se creó un registro operativo.' : 'The preview generated a clearly labeled local report. No operational record was created.') : (es ? 'Tu respuesta fue registrada con un comprobante de auditoría. El equipo de contratación revisará el resultado.' : 'Your response was recorded with an audit fingerprint. The hiring team will review the result.')}</p><button class="button button-primary" data-runner-action="finish">${es ? 'Finalizar' : 'Finish'}</button></div></section></div>`;
+  const items = engine.applicableItems(runner.experienceBranch);
+  const question = items[runner.index];
+  const answer = runner.answers[question.id];
+  return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><div class="modal-header"><div><p class="eyebrow">${es ? 'Potencial de Permanencia' : 'Tenure Potential'}</p><h2>${engine.DIMENSIONS[question.dimension][locale]}</h2></div>${close}</div><div class="modal-body"><div class="test-progress"><div class="progress-track"><span style="width:${(runner.index + 1) / items.length * 100}%"></span></div><span>${runner.index + 1} / ${items.length}</span></div><div class="question-kicker"><code>${question.id}</code></div><h3 class="question-text">${esc(question.text[locale])}</h3><div class="answer-scale">${engine.RESPONSE_LABELS[locale].map((label, index) => `<button class="answer-option ${answer === index + 1 ? 'selected' : ''}" data-answer="${index + 1}"><strong>${index + 1}</strong><span>${esc(label)}</span></button>`).join('')}</div></div><div class="modal-footer"><button class="button button-secondary" data-runner-action="back" ${runner.index === 0 ? 'disabled' : ''}>${es ? 'Atrás' : 'Back'}</button><button class="button button-primary" data-runner-action="next" ${answer || state.busy ? '' : 'disabled'}>${state.busy ? (es ? 'Guardando…' : 'Saving…') : runner.index === items.length - 1 ? (es ? 'Completar' : 'Complete') : (es ? 'Continuar' : 'Continue')}</button></div></section></div>`;
 }
 
-function calculateScores(answers) {
-  const average = (prefix) => {
-    const values = Object.entries(answers).filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
-    return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
-  };
-  const dimensions = { history: average('history_'), traits: average('traits_'), fit: average('fit_'), intent: average('intent_') };
-  const score = dimensions.history * .25 + dimensions.traits * .25 + dimensions.fit * .30 + dimensions.intent * .20;
-  return { score: Math.round(score * 10) / 10, dimensions };
-}
-
-function completeRunner() {
-  const results = calculateScores(runner.answers);
-  state.candidates = state.candidates.map((candidate) => candidate.id === runner.candidateId ? { ...candidate, status: 'Report ready', progress: 100, score: results.score, dimensions: results.dimensions, updated: 'Just now' } : candidate);
-  state.reportCandidateId = runner.candidateId;
-  state.reportTab = 'individual';
-  state.view = 'reports';
-  runner = null;
-  persist();
+function startPreview() {
+  state.runner = { mode: 'preview', stage: 'language', token: null, locale: null, experienceBranch: null, candidate: { name: 'Preview Candidate', role: 'Bilingual Customer Care', site: 'Guatemala City' }, roleConditions: null, consent: false, index: 0, answers: {}, responseTimes: {}, startedAt: null, itemStartedAt: null };
   render();
-  toast('Assessment completed. The explainable report is ready for human review.');
 }
 
-function parseCsv(text) {
-  const rows = [];
-  let row = [], field = '', quoted = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const character = text[i];
-    if (character === '"' && quoted && text[i + 1] === '"') { field += '"'; i += 1; }
-    else if (character === '"') quoted = !quoted;
-    else if (character === ',' && !quoted) { row.push(field.trim()); field = ''; }
-    else if ((character === '\n' || character === '\r') && !quoted) {
-      if (character === '\r' && text[i + 1] === '\n') i += 1;
-      row.push(field.trim()); field = '';
-      if (row.some(Boolean)) rows.push(row);
-      row = [];
-    } else field += character;
+async function startInvite(token) {
+  try {
+    const data = await fetchJson(`/api/assessment?token=${encodeURIComponent(token)}`);
+    state.runner = { mode: 'invite', stage: 'language', token, locale: null, experienceBranch: null, candidate: data.candidate, roleConditions: data.roleConditions, consent: false, index: 0, answers: {}, responseTimes: {}, startedAt: null, itemStartedAt: null };
+    render();
+  } catch (error) {
+    state.error = error.message;
+    render();
   }
-  row.push(field.trim());
-  if (row.some(Boolean)) rows.push(row);
-  return { headers: rows[0] || [], rows: rows.slice(1).filter((item) => item.some(Boolean)) };
 }
 
-function confirmImport() {
-  if (!state.csv) {
-    const candidate = { id: Math.max(...state.candidates.map((item) => item.id)) + 1, name: 'Nia Brooks', email: 'nia.brooks@example.com', phone: '+502 5550 0166', role: state.settings.defaultRole, site: state.settings.site, status: 'Ready to send', invitation: 'Not sent', progress: 0, score: null, updated: 'Just now' };
-    if (!state.candidates.some((item) => item.email === candidate.email)) state.candidates.push(candidate);
-    state.view = 'candidates'; persist(); render(); toast('Candidate imported and ready to send.'); return;
-  }
-  const selects = [...document.querySelectorAll('.mapping-select')];
-  const mapping = selects.map((select) => select.value);
-  const existing = new Set(state.candidates.map((item) => item.email.toLowerCase()));
-  let imported = 0;
-  state.csv.rows.forEach((row) => {
-    const record = {};
-    mapping.forEach((target, index) => { if (target !== 'ignore') record[target] = row[index] || ''; });
-    if (!record.name || !record.email || existing.has(record.email.toLowerCase())) return;
-    state.candidates.push({ id: Math.max(0, ...state.candidates.map((item) => item.id)) + 1, name: record.name, email: record.email, phone: record.phone || '', role: record.role || state.settings.defaultRole, site: record.site || state.settings.site, status: 'Ready to send', invitation: 'Not sent', progress: 0, score: null, updated: 'Just now' });
-    existing.add(record.email.toLowerCase()); imported += 1;
+async function completeAssessment() {
+  const runner = state.runner;
+  const durationMs = Date.now() - new Date(runner.startedAt).getTime();
+  const localResult = engine.scoreAssessment({ answers: runner.answers, responseTimes: runner.responseTimes, experienceBranch: runner.experienceBranch, durationMs });
+  if (localResult.potentialIndex == null) { toast(runner.locale === 'es' ? 'Faltan respuestas.' : 'Some responses are missing.'); return; }
+  state.busy = true; render();
+  try {
+    let auditHash = null; let result = localResult;
+    if (runner.mode === 'invite') {
+      const response = await fetchJson('/api/assessment/submit', { method: 'POST', body: JSON.stringify({ token: runner.token, locale: runner.locale, experienceBranch: runner.experienceBranch, answers: runner.answers, responseTimes: runner.responseTimes, startedAt: runner.startedAt }) });
+      result = response.result; auditHash = response.auditHash;
+      history.replaceState({}, '', location.pathname);
+    } else {
+      state.previewReport = { isPreview: true, id: 'preview', candidateId: 'preview', name: runner.candidate.name, role: runner.candidate.role, site: runner.candidate.site, locale: runner.locale, experienceBranch: runner.experienceBranch, completedAt: new Date().toISOString(), durationMs, potentialIndex: result.potentialIndex, potentialBand: result.potentialBand, subscales: result.subscales, supportProfile: result.supportProfile, quality: result.quality, scoringTrace: result.scoringTrace, weights: result.weights, auditHash: null, assessmentVersion: result.assessmentVersion, modelVersion: result.modelVersion, modelStatus: result.modelStatus };
+    }
+    state.runner = { ...runner, stage: 'complete', result, auditHash };
+  } catch (error) {
+    toast(error.message);
+  } finally { state.busy = false; render(); }
+}
+
+async function sendInvitation(event) {
+  event.preventDefault();
+  const candidate = { name: document.getElementById('invite-name')?.value, email: document.getElementById('invite-email')?.value, phone: document.getElementById('invite-phone')?.value, role: document.getElementById('invite-role')?.value, site: document.getElementById('invite-site')?.value };
+  const locale = document.getElementById('invite-locale')?.value || 'en';
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/invitations', { method: 'POST', body: JSON.stringify({ candidate, locale }) });
+    toast(`Mailgun accepted the invitation: ${response.providerMessageId}`);
+    await loadWorkspace(); state.view = 'progress';
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function confirmImport() {
+  if (!state.csv) return;
+  const mapping = [...document.querySelectorAll('.mapping-select')].map((select) => select.value);
+  const candidates = state.csv.rows.map((row) => {
+    const record = {}; mapping.forEach((target, index) => { if (target !== 'ignore') record[target] = row[index] || ''; }); return record;
   });
-  state.csv = null; state.view = 'candidates'; persist(); render(); toast(`${imported} candidate${imported === 1 ? '' : 's'} imported.`);
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/candidates/import', { method: 'POST', body: JSON.stringify({ candidates }) });
+    state.candidates = response.candidates || []; state.csv = null; state.view = 'candidates'; toast(`${response.accepted} candidates written to the audit database.`);
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
 }
 
-function sendSelected() {
-  const selected = new Set(state.selectedToSend);
-  state.candidates = state.candidates.map((candidate) => selected.has(candidate.id) ? { ...candidate, status: 'Invitation sent', invitation: 'Delivered', updated: 'Just now' } : candidate);
-  state.selectedToSend = []; state.view = 'progress'; persist(); render(); toast('Invitations sent in the prototype workspace.');
+async function testEmail() {
+  const to = document.getElementById('email-test-recipient')?.value;
+  if (!to) { toast('Enter a test recipient.'); return; }
+  state.busy = true; render();
+  try { const response = await fetchJson('/api/email/test', { method: 'POST', body: JSON.stringify({ to }) }); toast(`Mailgun accepted the test: ${response.providerMessageId}`); }
+  catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
 }
 
 function render() {
   const views = { home: renderHome, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, reports: renderReports, settings: renderSettings };
-  document.getElementById('app').innerHTML = shell((views[state.view] || renderHome)());
+  document.getElementById('app').innerHTML = shell(state.loading ? '<div class="loading-panel"><div class="spinner"></div><p>Loading secure workspace…</p></div>' : (views[state.view] || renderHome)());
   bindEvents();
 }
 
 function bindEvents() {
-  document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => setState({ view: button.dataset.nav })));
+  document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => { state.view = button.dataset.nav; render(); }));
   document.getElementById('mobile-menu')?.addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
   document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () => {
     const action = button.dataset.action;
-    if (action === 'import') setState({ view: 'import' });
-    if (action === 'send-view') setState({ view: 'send' });
-    if (action === 'open-settings') setState({ view: 'settings' });
-    if (action === 'pilot-review') setState({ view: 'reports', reportTab: 'pilot' });
+    if (action === 'reload') loadWorkspace();
+    if (action === 'preview') startPreview();
+    if (action === 'method') { state.view = 'reports'; state.reportTab = 'method'; render(); }
     if (action === 'confirm-import') confirmImport();
-    if (action === 'send-selected') sendSelected();
-    if (action === 'candidate-preview') { runner = { candidateId: 2, stage: 'intro', consent: false, index: 0, answers: {} }; render(); }
-    if (action === 'print-report') window.print();
-    if (action === 'save-settings') { persist(); toast('Workspace settings saved.'); }
+    if (action === 'test-email') testEmail();
+    if (action === 'print') window.print();
   }));
+  document.getElementById('invite-form')?.addEventListener('submit', sendInvitation);
   document.getElementById('candidate-search')?.addEventListener('input', (event) => { state.search = event.target.value; render(); });
-  document.getElementById('status-filter')?.addEventListener('change', (event) => setState({ statusFilter: event.target.value }));
-  document.getElementById('csv-file')?.addEventListener('change', (event) => {
-    const file = event.target.files[0]; if (!file) return;
-    const reader = new FileReader(); reader.onload = () => { const parsed = parseCsv(reader.result); state.csv = { name: file.name, ...parsed }; render(); toast(`${parsed.rows.length} CSV rows detected.`); }; reader.readAsText(file);
-  });
-  document.querySelectorAll('[data-send-check]').forEach((checkbox) => checkbox.addEventListener('change', () => {
-    const id = Number(checkbox.dataset.sendCheck); const selected = new Set(state.selectedToSend); checkbox.checked ? selected.add(id) : selected.delete(id); setState({ selectedToSend: [...selected] });
-  }));
-  document.querySelectorAll('[data-resend]').forEach((button) => button.addEventListener('click', () => {
-    const id = Number(button.dataset.resend); state.candidates = state.candidates.map((candidate) => candidate.id === id ? { ...candidate, status: 'Invitation sent', invitation: 'Delivered', updated: 'Just now' } : candidate); persist(); render(); toast('Invitation resent.');
-  }));
-  document.querySelectorAll('[data-select-send]').forEach((button) => button.addEventListener('click', () => { const id = Number(button.dataset.selectSend); setState({ view: 'send', selectedToSend: [...new Set([...state.selectedToSend, id])] }); }));
-  document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => setState({ view: 'reports', reportTab: 'individual', reportCandidateId: Number(button.dataset.report) })));
-  document.querySelectorAll('[data-runner]').forEach((button) => button.addEventListener('click', () => { runner = { candidateId: Number(button.dataset.runner), stage: 'intro', consent: false, index: 0, answers: {} }; render(); }));
-  document.querySelectorAll('[data-report-tab]').forEach((button) => button.addEventListener('click', () => setState({ reportTab: button.dataset.reportTab })));
-  document.getElementById('report-candidate')?.addEventListener('change', (event) => setState({ reportCandidateId: Number(event.target.value) }));
-  document.querySelectorAll('.setting-input').forEach((input) => input.addEventListener('change', () => { state.settings[input.dataset.setting] = input.value; }));
-  document.querySelectorAll('[data-toggle]').forEach((button) => button.addEventListener('click', () => { const key = button.dataset.toggle; state.settings[key] = !state.settings[key]; persist(); render(); }));
-  if (runner) bindRunner();
+  document.getElementById('candidate-status')?.addEventListener('change', (event) => { state.filteredStatus = event.target.value; render(); });
+  document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { state.csv = { name: file.name, ...parseCsv(reader.result) }; render(); }; reader.readAsText(file); });
+  document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => { state.previewReport = null; state.reportCandidateId = button.dataset.report; state.view = 'reports'; state.reportTab = 'report'; render(); }));
+  document.querySelectorAll('[data-send-candidate]').forEach((button) => button.addEventListener('click', () => { const candidate = state.candidates.find((item) => item.id === button.dataset.sendCandidate); state.view = 'send'; document.getElementById('app').innerHTML = shell(renderSend(candidate)); bindEvents(); }));
+  document.querySelectorAll('[data-report-tab]').forEach((button) => button.addEventListener('click', () => { state.reportTab = button.dataset.reportTab; render(); }));
+  document.getElementById('report-select')?.addEventListener('change', (event) => { state.previewReport = null; state.reportCandidateId = event.target.value; render(); });
+  document.getElementById('report-locale')?.addEventListener('change', (event) => { state.reportLocale = event.target.value; render(); });
+  if (state.runner) bindRunner();
 }
 
 function bindRunner() {
-  document.getElementById('runner-consent')?.addEventListener('change', (event) => { runner.consent = event.target.checked; render(); });
-  document.querySelectorAll('[data-answer]').forEach((button) => button.addEventListener('click', () => { runner.answers[testQuestions[runner.index].id] = Number(button.dataset.answer); render(); }));
+  document.querySelectorAll('[data-language]').forEach((button) => button.addEventListener('click', () => { state.runner.locale = button.dataset.language; state.runner.stage = 'experience'; render(); }));
+  document.querySelectorAll('[data-experience]').forEach((button) => button.addEventListener('click', () => { state.runner.experienceBranch = button.dataset.experience; state.runner.stage = 'intro'; render(); }));
+  document.getElementById('runner-consent')?.addEventListener('change', (event) => { state.runner.consent = event.target.checked; render(); });
+  document.querySelectorAll('[data-answer]').forEach((button) => button.addEventListener('click', () => { const runner = state.runner; const items = engine.applicableItems(runner.experienceBranch); const item = items[runner.index]; runner.answers[item.id] = Number(button.dataset.answer); runner.responseTimes[item.id] = Math.max(0, Date.now() - runner.itemStartedAt); render(); }));
   document.querySelectorAll('[data-runner-action]').forEach((button) => button.addEventListener('click', () => {
-    const action = button.dataset.runnerAction;
-    if (action === 'close') { runner = null; render(); }
-    if (action === 'start' && runner.consent) { runner.stage = 'questions'; render(); }
-    if (action === 'back' && runner.index > 0) { runner.index -= 1; render(); }
-    if (action === 'next' && runner.answers[testQuestions[runner.index].id]) { runner.index === testQuestions.length - 1 ? completeRunner() : (runner.index += 1, render()); }
+    const action = button.dataset.runnerAction; const runner = state.runner;
+    if (action === 'close') { state.runner = null; render(); }
+    if (action === 'back-experience') { runner.stage = 'experience'; render(); }
+    if (action === 'start' && runner.consent) { runner.stage = 'questions'; runner.startedAt = new Date().toISOString(); runner.itemStartedAt = Date.now(); render(); }
+    if (action === 'back' && runner.index > 0) { runner.index -= 1; runner.itemStartedAt = Date.now(); render(); }
+    if (action === 'next') { const items = engine.applicableItems(runner.experienceBranch); if (!runner.answers[items[runner.index].id]) return; if (runner.index === items.length - 1) completeAssessment(); else { runner.index += 1; runner.itemStartedAt = Date.now(); render(); } }
+    if (action === 'finish') { const wasPreview = runner.mode === 'preview'; state.runner = null; if (wasPreview) { state.view = 'reports'; state.reportTab = 'report'; } else loadWorkspace(); render(); }
   }));
 }
 
+const inviteToken = new URLSearchParams(location.search).get('invite');
 render();
+if (inviteToken) startInvite(inviteToken); else loadWorkspace();
