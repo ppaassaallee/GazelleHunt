@@ -1,8 +1,8 @@
 (function initializeGazelleAiAssessment(global) {
-  const DEFAULT_MODEL = 'gpt-5.6-sol';
+  const DEFAULT_MODEL = 'gpt-5.5';
   const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
   const SCENARIO_PROMPT_VERSION = 'scenario-v1.1.0';
-  const ANALYSIS_PROMPT_VERSION = 'analysis-v2.0.0';
+  const ANALYSIS_PROMPT_VERSION = 'analysis-v2.1.0';
 
   const SCENARIO_INSTRUCTIONS = `
 You are designing structured follow-up questions for a pre-employment research assessment. Work as an industrial-organizational assessment designer and experienced recruiter, not as a clinical psychologist.
@@ -158,6 +158,11 @@ Evidence rules:
     additionalProperties: false,
   };
 
+  function stableScenarioId(order) {
+    const parsedOrder = Number(order);
+    return Number.isInteger(parsedOrder) && parsedOrder >= 1 && parsedOrder <= 3 ? `scenario_${parsedOrder}` : '';
+  }
+
   function fallbackScenarios(context = {}) {
     const scores = context.subscales || {};
     const fitLow = Number(scores.fit?.score) < 55;
@@ -203,6 +208,7 @@ Evidence rules:
     ANALYSIS_INSTRUCTIONS,
     scenarioSchema,
     analysisSchema,
+    stableScenarioId,
     fallbackScenarios,
   });
 })(globalThis);

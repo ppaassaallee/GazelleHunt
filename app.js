@@ -1,6 +1,9 @@
 const engine = globalThis.GazelleAssessmentEngine;
 const aiAssessment = globalThis.GazelleAiAssessment;
 const pdfReport = globalThis.GazellePdfReport;
+const AI_ACTIVE_STATUSES = new Set(['queued', 'processing']);
+const AI_STALE_AFTER_MS = 3 * 60 * 1000;
+let aiRefreshTimer = null;
 
 const icons = {
   home: '<path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>',
@@ -45,7 +48,7 @@ const state = {
   health: {
     database: false,
     email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' },
-    ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.6-sol' },
+    ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.5' },
   },
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
@@ -276,12 +279,27 @@ function normalizedReport(record) {
   };
 }
 
+function aiAnalysisIsStale(analysis) {
+  if (!AI_ACTIVE_STATUSES.has(analysis?.status)) return false;
+  const updatedAt = Date.parse(analysis?.updated_at || '');
+  return !Number.isFinite(updatedAt) || Date.now() - updatedAt >= AI_STALE_AFTER_MS;
+}
+
+function scheduleAiReportRefresh() {
+  if (state.loading || state.busy || state.view !== 'reports' || state.previewReport) return;
+  const analysis = normalizedReport(reportRecord())?.aiAnalysis;
+  if (!AI_ACTIVE_STATUSES.has(analysis?.status) || aiAnalysisIsStale(analysis)) return;
+  aiRefreshTimer = setTimeout(() => loadWorkspace(), 8000);
+}
+
 function renderReports() {
   const records = state.candidates.filter((candidate) => candidate.assessment_id);
   const report = normalizedReport(reportRecord());
   const aiReady = report?.aiAnalysis?.status === 'completed';
-  const canGenerateAi = report && !aiReady && (!report.isPreview || Boolean(report.previewInput));
-  return `${pageIntro('Evidence with provenance', 'Results & Reports', 'Questionnaire results, scenario evidence, AI interpretation, and technical provenance remain separately auditable.', '')}<section class="report-workspace"><div class="tabs"><button class="tab ${state.reportTab === 'report' ? 'active' : ''}" data-report-tab="report">Tenure Potential report</button><button class="tab ${state.reportTab === 'audit' ? 'active' : ''}" data-report-tab="audit">Scoring audit</button><button class="tab ${state.reportTab === 'method' ? 'active' : ''}" data-report-tab="method">Method & validation</button></div><div class="report-content">${state.reportTab === 'method' ? renderMethod() : !report ? `<div class="empty-panel"><h3>No audited result yet</h3><p>Complete a real invitation or run the clearly labeled preview assessment.</p><button class="button button-primary" data-action="preview">Preview assessment</button></div>` : `${records.length || state.previewReport ? `<div class="toolbar report-toolbar">${records.length ? `<select class="select" id="report-select">${records.map((candidate) => `<option value="${candidate.id}" ${candidate.id === report.candidateId ? 'selected' : ''}>${esc(candidate.name)} · ${Number(candidate.potential_index).toFixed(1)}</option>`).join('')}</select>` : ''}<select class="select" id="report-locale"><option value="en" ${state.reportLocale === 'en' ? 'selected' : ''}>Report in English</option><option value="es" ${state.reportLocale === 'es' ? 'selected' : ''}>Reporte en español</option></select>${canGenerateAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${state.reportLocale === 'es' ? 'Generar análisis' : 'Generate analysis'}</button>` : ''}<button class="button button-primary" data-action="download-pdf">${icon('file')}${state.reportLocale === 'es' ? 'Descargar PDF' : 'Download PDF'}</button></div>` : ''}${state.reportTab === 'audit' ? renderAudit(report) : renderReport(report)}`}</div></section>`;
+  const aiActive = AI_ACTIVE_STATUSES.has(report?.aiAnalysis?.status) && !aiAnalysisIsStale(report.aiAnalysis);
+  const canGenerateAi = report && !aiReady && !aiActive && (!report.isPreview || Boolean(report.previewInput));
+  const generateLabel = state.busy ? (state.reportLocale === 'es' ? 'Generando…' : 'Generating…') : (state.reportLocale === 'es' ? 'Generar análisis' : 'Generate analysis');
+  return `${pageIntro('Evidence with provenance', 'Results & Reports', 'Questionnaire results, scenario evidence, AI interpretation, and technical provenance remain separately auditable.', '')}<section class="report-workspace"><div class="tabs"><button class="tab ${state.reportTab === 'report' ? 'active' : ''}" data-report-tab="report">Tenure Potential report</button><button class="tab ${state.reportTab === 'audit' ? 'active' : ''}" data-report-tab="audit">Scoring audit</button><button class="tab ${state.reportTab === 'method' ? 'active' : ''}" data-report-tab="method">Method & validation</button></div><div class="report-content">${state.reportTab === 'method' ? renderMethod() : !report ? `<div class="empty-panel"><h3>No audited result yet</h3><p>Complete a real invitation or run the clearly labeled preview assessment.</p><button class="button button-primary" data-action="preview">Preview assessment</button></div>` : `${records.length || state.previewReport ? `<div class="toolbar report-toolbar">${records.length ? `<select class="select" id="report-select">${records.map((candidate) => `<option value="${candidate.id}" ${candidate.id === report.candidateId ? 'selected' : ''}>${esc(candidate.name)} · ${Number(candidate.potential_index).toFixed(1)}</option>`).join('')}</select>` : ''}<select class="select" id="report-locale"><option value="en" ${state.reportLocale === 'en' ? 'selected' : ''}>Report in English</option><option value="es" ${state.reportLocale === 'es' ? 'selected' : ''}>Reporte en español</option></select>${canGenerateAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${generateLabel}</button>` : ''}<button class="button button-primary" data-action="download-pdf">${icon('file')}${state.reportLocale === 'es' ? 'Descargar PDF' : 'Download PDF'}</button></div>` : ''}${state.reportTab === 'audit' ? renderAudit(report) : renderReport(report)}`}</div></section>`;
 }
 
 function reportCopy(report) {
@@ -311,18 +329,22 @@ function renderReport(report) {
   const alignment = analysis?.job_alignment;
   const findings = analysis?.scenario_findings || [];
   const aiProvider = report.aiAnalysis?.provider || state.health.ai?.provider || 'AI';
-  const analysisStatus = report.aiAnalysis?.status || (report.isPreview ? 'not_generated' : 'queued');
-  const canRetryAi = !['queued', 'processing'].includes(analysisStatus) && (!report.isPreview || Boolean(report.previewInput));
+  const analysisStatus = report.aiAnalysis?.status || 'not_generated';
+  const analysisStale = aiAnalysisIsStale(report.aiAnalysis);
+  const canRetryAi = (!AI_ACTIVE_STATUSES.has(analysisStatus) || analysisStale) && (!report.isPreview || Boolean(report.previewInput));
+  const visibleStatus = analysisStale ? 'retry_available' : analysisStatus;
   const statusCopy = {
     queued: copy.es ? 'En cola. Actualice en unos momentos.' : 'Queued. Refresh in a moment.',
     processing: copy.es ? 'La IA está procesando el cuestionario y los tres escenarios.' : 'AI is processing the questionnaire and all three scenarios.',
+    retry_available: copy.es ? 'El proceso anterior no terminó. Puede reintentar el análisis.' : 'The previous run did not finish. You can retry the analysis.',
     not_configured: copy.es ? 'El análisis de IA no se ha generado para este resultado.' : 'AI analysis has not been generated for this result.',
     failed: copy.es ? 'El análisis falló. Puede volver a intentarlo sin cambiar la puntuación.' : 'The analysis failed. It can be retried without changing the score.',
     not_generated: copy.es ? 'El análisis de vista previa todavía no se ha generado.' : 'The preview analysis has not been generated yet.',
   };
   const alignmentSection = alignment ? `<section class="report-section alignment-panel"><div class="section-title compact"><div><p class="eyebrow">${copy.es ? 'Síntesis cuestionario + escenarios' : 'Questionnaire + scenario synthesis'}</p><h3>${copy.es ? 'Alineación laboral basada en evidencia' : 'Evidence-based job alignment'}</h3></div><div class="alignment-number"><strong>${alignment.rating}</strong><span>/ 5</span></div></div>${alignmentScale(alignment.rating, copy.es)}<div class="alignment-summary"><div><span>${copy.es ? 'Lectura' : 'Interpretation'}</span><strong>${esc(copy.es ? alignment.label_es : alignment.label_en)}</strong></div><div><span>${copy.es ? 'Confianza' : 'Confidence'}</span><strong>${esc(alignment.confidence)}</strong></div><p>${esc(copy.es ? alignment.rationale_es : alignment.rationale_en)}</p></div><div class="evidence-columns"><div><h4>${copy.es ? 'Fortalezas observadas' : 'Observed strengths'}</h4><ul>${(analysis.observed_strengths || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div><div><h4>${copy.es ? 'Aspectos por verificar' : 'Areas to verify'}</h4><ul>${(analysis.watch_areas || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div></div></section>` : '';
   const scenarioSection = `<section class="report-section"><div class="section-title compact"><div><h3>${copy.es ? 'Evidencia de los tres escenarios' : 'Evidence from all three scenarios'}</h3><p>${copy.es ? 'Respuesta original y lectura conductual vinculada.' : 'Original response with its linked behavioral interpretation.'}</p></div><span class="badge badge-neutral">${scenarios.length} / 3</span></div><div class="scenario-evidence">${scenarios.length ? scenarios.map((entry, index) => { const finding = findings.find((item) => item.scenario_id === (entry.scenario_id || entry.id)); return `<article><span>${index + 1}</span><div><strong>${esc(copy.es ? entry.question_es : entry.question_en)}</strong><p>${esc(entry.response_text)}</p>${finding ? `<div class="scenario-finding"><b>${copy.es ? 'Lectura' : 'Finding'} · ${esc(finding.signal)}</b><span>${esc(copy.es ? finding.finding_es : finding.finding_en)}</span></div>` : ''}<small>${esc(entry.construct || '')} · ${formatDuration(entry.response_ms)}</small></div></article>`; }).join('') : `<p>${copy.es ? 'Sin respuestas de escenarios en este resultado.' : 'No scenario responses are available for this result.'}</p>`}</div></section>`;
-  const aiSection = `<section class="report-section ai-report"><div class="section-title compact"><div><p class="eyebrow">${copy.es ? 'Interpretación profesional asistida' : 'Assisted professional interpretation'}</p><h3>${analysis?.title ? esc(analysis.title) : (copy.es ? 'Análisis integrado del candidato' : 'Integrated candidate analysis')}</h3><p>${copy.es ? `Generado con ${esc(aiProvider)} y vinculado a evidencia auditable.` : `Generated with ${esc(aiProvider)} and tied to auditable evidence.`}</p></div><span class="badge badge-${analysis ? 'teal' : 'orange'}">${esc(analysis ? (copy.es ? 'Completo' : 'Complete') : analysisStatus.replaceAll('_', ' '))}</span></div>${analysis?.paragraphs?.length === 5 ? `<p class="executive-summary">${esc(analysis.executive_summary || '')}</p><div class="analysis-paragraphs">${analysis.paragraphs.map((paragraph, index) => `<article><span>${index + 1}</span><p>${esc(paragraph)}</p></article>`).join('')}</div><div class="action-columns"><div><h4>${copy.es ? 'Preguntas de entrevista' : 'Structured interview probes'}</h4><ul>${(analysis.interview_focus || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div><div><h4>${copy.es ? 'Acciones de incorporación' : 'Onboarding actions'}</h4><ul>${(analysis.support_actions || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div></div><div class="ai-provenance"><code>${esc(aiProvider)}</code><code>${esc(report.aiAnalysis.model || '')}</code><code>${esc(report.aiAnalysis.prompt_version || '')}</code></div>` : `<div class="empty-analysis"><p>${esc(statusCopy[analysisStatus] || analysisStatus)}</p>${canRetryAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${copy.es ? 'Generar o reintentar' : 'Generate or retry'}</button>` : `<button class="button button-secondary" data-action="reload">${icon('refresh')}${copy.es ? 'Actualizar' : 'Refresh'}</button>`}</div>`}</section>`;
+  const retryLabel = state.busy ? (copy.es ? 'Generando…' : 'Generating…') : (copy.es ? 'Generar o reintentar' : 'Generate or retry');
+  const aiSection = `<section class="report-section ai-report"><div class="section-title compact"><div><p class="eyebrow">${copy.es ? 'Interpretación profesional asistida' : 'Assisted professional interpretation'}</p><h3>${analysis?.title ? esc(analysis.title) : (copy.es ? 'Análisis integrado del candidato' : 'Integrated candidate analysis')}</h3><p>${copy.es ? `Generado con ${esc(aiProvider)} y vinculado a evidencia auditable.` : `Generated with ${esc(aiProvider)} and tied to auditable evidence.`}</p></div><span class="badge badge-${analysis ? 'teal' : 'orange'}">${esc(analysis ? (copy.es ? 'Completo' : 'Complete') : visibleStatus.replaceAll('_', ' '))}</span></div>${analysis?.paragraphs?.length === 5 ? `<p class="executive-summary">${esc(analysis.executive_summary || '')}</p><div class="analysis-paragraphs">${analysis.paragraphs.map((paragraph, index) => `<article><span>${index + 1}</span><p>${esc(paragraph)}</p></article>`).join('')}</div><div class="action-columns"><div><h4>${copy.es ? 'Preguntas de entrevista' : 'Structured interview probes'}</h4><ul>${(analysis.interview_focus || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div><div><h4>${copy.es ? 'Acciones de incorporación' : 'Onboarding actions'}</h4><ul>${(analysis.support_actions || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div></div><div class="ai-provenance"><code>${esc(aiProvider)}</code><code>${esc(report.aiAnalysis.model || '')}</code><code>${esc(report.aiAnalysis.prompt_version || '')}</code></div>` : `<div class="empty-analysis"><p>${esc(statusCopy[visibleStatus] || visibleStatus)}</p>${canRetryAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${retryLabel}</button>` : `<button class="button button-secondary" data-action="reload">${icon('refresh')}${copy.es ? 'Actualizar' : 'Refresh'}</button>`}</div>`}</section>`;
   return `<article class="report-document"><header class="report-cover"><div><p class="eyebrow">Gazelle Assessment</p><h2>${copy.es ? 'Reporte de Potencial de Permanencia' : 'Tenure Potential Report'}</h2><p>${esc(report.name)} · ${esc(report.role)}${report.site ? ` · ${esc(report.site)}` : ''}</p></div><div class="report-date"><span>${copy.es ? 'Completado' : 'Completed'}</span><strong>${formatDate(report.completedAt)}</strong></div></header><div class="report-shell"><aside class="report-profile"><div class="score-ring" style="--score-angle:${report.potentialIndex / 100 * 360}deg"><div><strong>${report.potentialIndex.toFixed(1)}</strong><span>/ 100</span></div></div><span class="score-caption">${copy.es ? 'Índice de Potencial de Permanencia' : 'Tenure Potential Index'}</span><strong class="report-band">${copy.band}</strong><div class="profile-meta"><div><span>${copy.es ? 'Alineación IA' : 'AI alignment'}</span><strong>${alignment ? `${alignment.rating} / 5` : '—'}</strong></div><div><span>${copy.es ? 'Calidad' : 'Quality'}</span><strong>${esc(qualityLabel(report.quality.status, copy.es))}</strong></div></div><p class="interpretive-note">${copy.es ? 'El índice resume el cuestionario. La calificación 1–5 integra el cuestionario con los tres escenarios y se reporta por separado.' : 'The index summarizes questionnaire responses. The 1–5 rating integrates questionnaire and all three scenarios and is reported separately.'}</p></aside><div class="report-main"><section class="report-section score-profile"><div class="section-title compact"><div><h3>${copy.es ? 'Perfil de evidencia estructurada' : 'Structured evidence profile'}</h3><p>${copy.es ? 'Tres dimensiones con ponderación igual; el contexto se muestra por separado.' : 'Three equally weighted dimensions; context is displayed separately.'}</p></div><span class="badge badge-${qualityTone}">${esc(qualityLabel(report.quality.status, copy.es))}</span></div>${dimensionBar(copy.fit, report.subscales.fit.score)}${dimensionBar(copy.intent, report.subscales.intent.score)}${dimensionBar(copy.reliability, report.subscales.reliability.score)}${dimensionBar(copy.context, report.subscales.context.score, true)}</section>${alignmentSection}${aiSection}${scenarioSection}<section class="report-section report-guidance"><div><h4>${copy.es ? 'Palancas de permanencia' : 'Retention support levers'}</h4><ul>${supports.length ? supports.map((label) => `<li>${esc(label)}</li>`).join('') : `<li>${copy.es ? 'No disponibles' : 'Not available'}</li>`}</ul></div><div><h4>${copy.es ? 'Alcance de interpretación' : 'Interpretation scope'}</h4><p>${copy.es ? 'Utilice este perfil con una entrevista estructurada y otra evidencia relacionada con el puesto. La validación contra resultados locales de permanencia sigue en desarrollo.' : 'Use this profile with a structured interview and other job-related evidence. Validation against local tenure outcomes remains in progress.'}</p></div></section></div></div></article>`;
 }
 
@@ -721,6 +743,10 @@ async function configureBrevoWebhook() {
 }
 
 function render() {
+  if (aiRefreshTimer) {
+    clearTimeout(aiRefreshTimer);
+    aiRefreshTimer = null;
+  }
   if (state.runner?.mode === 'invite') {
     document.getElementById('app').innerHTML = `<main class="candidate-app">${renderRunner()}</main>`;
     bindEvents();
@@ -734,6 +760,7 @@ function render() {
   const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, reports: renderReports, team: renderTeam, settings: renderSettings };
   document.getElementById('app').innerHTML = shell(state.loading ? '<div class="loading-panel"><div class="spinner"></div><p>Loading secure workspace…</p></div>' : (views[state.view] || renderHome)());
   bindEvents();
+  scheduleAiReportRefresh();
 }
 
 function bindEvents() {

@@ -15,7 +15,7 @@ const [appSource, indexSource, serverSource, readmeSource] = await Promise.all([
 const appElement = { innerHTML: '' };
 const fetchCalls = [];
 const previewAnalysis = {
-  status: 'completed', provider: 'OpenAI', model: 'gpt-5.6-sol', prompt_version: 'analysis-v2.0.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64),
+  status: 'completed', provider: 'OpenAI', model: 'gpt-5.5', prompt_version: 'analysis-v2.1.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64),
   output: {
     en: { title: 'Preview analysis', paragraphs: Array.from({ length: 5 }, (_, index) => `English paragraph ${index + 1}`), interview_focus: ['Focus one', 'Focus two', 'Focus three'] },
     es: { title: 'Análisis de vista previa', paragraphs: Array.from({ length: 5 }, (_, index) => `Párrafo en español ${index + 1}`), interview_focus: ['Enfoque uno', 'Enfoque dos', 'Enfoque tres'] },
@@ -51,7 +51,7 @@ const context = {
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
       if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
-      return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, ai: { configured: true, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.6-sol' } };
+      return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, ai: { configured: true, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.5' } };
     },
   };
   },
@@ -108,14 +108,17 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260717\.10/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260717\.10/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260717\.10/);
-assert.match(indexSource, /pdf-report\.js\?v=20260717\.10/);
+assert.match(indexSource, /app\.js\?v=20260717\.11/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260717\.11/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260717\.11/);
+assert.match(indexSource, /pdf-report\.js\?v=20260717\.11/);
 assert.match(serverSource, /\/assessment\?invite=/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);
 assert.match(serverSource, /ai-analysis/);
+assert.match(serverSource, /scenarioId: GazelleAiAssessment\.stableScenarioId\(row\.question_order\)/);
+assert.match(serverSource, /database_scenario_id: scenario\.scenario_id/);
+assert.match(serverSource, /initialAiStatus = ai\.configured \? 'not_generated'/);
 assert.match(serverSource, /\/api\/preview\/ai-analysis/);
 assert.match(serverSource, /assetHeaders\('text\/html; charset=utf-8', 'no-cache', true\)/);
 assert.match(serverSource, /assessments_invitation_unique/);

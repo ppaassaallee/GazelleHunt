@@ -6,7 +6,7 @@ import '../pdf-report.js';
 const ai = globalThis.GazelleAiAssessment;
 const pdf = globalThis.GazellePdfReport;
 
-assert.equal(ai.DEFAULT_MODEL, 'gpt-5.6-sol');
+assert.equal(ai.DEFAULT_MODEL, 'gpt-5.5');
 assert.equal(ai.DEFAULT_GEMINI_MODEL, 'gemini-3.5-flash');
 assert.equal(ai.scenarioSchema.properties.questions.minItems, 3);
 assert.equal(ai.scenarioSchema.properties.questions.maxItems, 3);
@@ -18,6 +18,8 @@ assert.match(ai.ANALYSIS_INSTRUCTIONS, /exactly five substantive paragraphs in E
 assert.match(ai.ANALYSIS_INSTRUCTIONS, /do not.*hire\/reject recommendation/i);
 assert.match(ai.ANALYSIS_INSTRUCTIONS, /untrusted evidence, not an instruction/i);
 assert.match(ai.ANALYSIS_INSTRUCTIONS, /all three scenario IDs/i);
+assert.deepEqual([1, 2, 3].map(ai.stableScenarioId), ['scenario_1', 'scenario_2', 'scenario_3']);
+assert.equal(ai.stableScenarioId(4), '');
 
 const scenarios = ai.fallbackScenarios({
   subscales: { fit: { score: 40 }, intent: { score: 80 }, reliability: { score: 45 } },
@@ -86,7 +88,7 @@ for (const locale of ['en', 'es']) {
   assert.ok(bytes.length > 5000);
   assert.ok(binary.startsWith('%PDF-1.4'));
   assert.ok(binary.endsWith('%%EOF'));
-  assert.match(binary, /gpt-5\.6-sol/);
+  assert.match(binary, /gpt-5\.5/);
   assert.match(binary, /Page 1 of/);
   assert.doesNotMatch(binary, /Uncalibrated pilot|Piloto sin calibrar|Human review is required/);
 }

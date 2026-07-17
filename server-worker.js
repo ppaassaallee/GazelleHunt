@@ -354,7 +354,7 @@ function cleanEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
 }
 
-const sensitiveEvidencePattern = /\b(age|aged|race|racial|ethnicity|ethnic|nationality|religion|religious|sex|gender|sexual orientation|pregnan\w*|disab\w*|health|medical|diagnos\w*|mental|family|familia\w*|childcare|caregiv\w*|financial|finanzas|politic\w*|union|edad|raza|etnia|nacionalidad|religión|religion|sexo|género|genero|orientación sexual|embaraz\w*|discap\w*|salud|médic\w*|diagnóstic\w*|diagnostic\w*|cuidad\w*|polític\w*|politic\w*|sindicat\w*)\b/iu;
+const sensitiveEvidencePattern = /\b(age|aged|race|racial|ethnicity|ethnic|nationality|religion|religious|sex|gender|sexual orientation|pregnan\w*|disab\w*|health|medical|diagnos\w*|mental health|family|familia(?:s|r(?:es)?)?|childcare|caregiv\w*|financial|finanzas|politic\w*|union|edad|raza|etnia|nacionalidad|religión|religion|sexo|género|genero|orientación sexual|embaraz\w*|discap\w*|salud(?: mental)?|médic\w*|diagnóstic\w*|diagnostic\w*|cuidador(?:a|es|as)?|responsabilidades? de cuidado|polític\w*|politic\w*|sindicat\w*)\b/iu;
 const contactEvidencePattern = /(?:https?:\/\/|www\.|\b[^\s@]+@[^\s@]+\.[^\s@]+\b|(?:\+?\d[\d\s().-]{7,}\d))/iu;
 const prohibitedAnalysisPattern = /\b(recommend\w*\s+(?:to\s+)?(?:hire|reject)|should\s+(?:be\s+)?(?:hired|rejected)|hire\s+this\s+candidate|reject\s+this\s+candidate|contratar\s+(?:a\s+)?(?:este|esta)\s+candidat\w*|rechazar\s+(?:a\s+)?(?:este|esta)\s+candidat\w*|diagnos\w*|diagnóstic\w*|high[ -]risk|low[ -]risk|alto\s+riesgo|bajo\s+riesgo)\b/iu;
 
@@ -1046,6 +1046,8 @@ async function listCandidates(env, user) {
   rows.forEach((row) => {
     row.scenario_responses = scenarioRows.filter((scenario) => scenario.assessment_id === row.assessment_id).map((scenario) => ({
       ...scenario,
+      database_scenario_id: scenario.scenario_id,
+      scenario_id: GazelleAiAssessment.stableScenarioId(scenario.question_order),
       evidence_item_ids: JSON.parse(scenario.evidence_item_ids_json || '[]'),
     }));
   });
@@ -1315,7 +1317,7 @@ async function aiEvidenceForAssessment(env, assessmentId) {
     scenarios: (scenarioResult.results || []).map((row) => {
       const redacted = redactAiEvidence(row.response_text);
       return {
-        scenarioId: row.id,
+        scenarioId: GazelleAiAssessment.stableScenarioId(row.question_order),
         order: row.question_order,
         construct: row.construct,
         question_en: row.question_en,
@@ -1476,17 +1478,13 @@ async function submitAssessment(request, env, context) {
     VALUES (?, ?, ?, ?, ?)
   `).bind(assessmentId, entry.scenarioId, entry.response, locale, entry.responseMs)));
   const ai = aiConfig(env);
+  const initialAiStatus = ai.configured ? 'not_generated' : 'not_configured';
   statements.push(env.DB.prepare(`
     INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(assessmentId, ai.configured ? 'queued' : 'not_configured', ai.provider, ai.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, completedAt.toISOString(), completedAt.toISOString()));
+  `).bind(assessmentId, initialAiStatus, ai.provider, ai.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, completedAt.toISOString(), completedAt.toISOString()));
   await env.DB.batch(statements);
-  if (ai.configured) {
-    const analysisWork = generateAndStoreAiAnalysis(env, assessmentId);
-    if (context?.waitUntil) context.waitUntil(analysisWork);
-    else analysisWork.catch(() => {});
-  }
-  return json({ assessmentId, auditHash, result, aiAnalysisStatus: ai.configured ? 'queued' : 'not_configured' }, 201);
+  return json({ assessmentId, auditHash, result, aiAnalysisStatus: initialAiStatus }, 201);
 }
 
 async function sendTestEmail(request, env, admin) {

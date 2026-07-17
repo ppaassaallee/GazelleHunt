@@ -69,7 +69,7 @@ export type ScenarioResponseRecord = {
 
 export type AiAnalysisRecord = {
   assessment_id: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed' | 'not_configured';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'not_configured' | 'not_generated';
   provider: 'OpenAI' | 'Google Gemini' | null;
   model: string;
   prompt_version: string;
