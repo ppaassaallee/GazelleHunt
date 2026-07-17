@@ -1427,7 +1427,7 @@ async function configureBrevoWebhook(request, env, user) {
   const config = emailConfig(env);
   if (!config.configured) return json({ error: 'Brevo email and webhook secrets are not fully configured.', code: 'email_not_configured' }, 503);
   const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || new URL(request.url).origin;
-  const webhookUrl = `${origin}/api/brevo/webhook`;
+  const webhookUrl = `${origin}/api/brevo/webhook?integration=gazelle-v1`;
   try {
     const current = await brevoApiRequest(config, '/webhooks?type=transactional&sort=desc');
     const existing = (current.webhooks || []).find((entry) => entry.url === webhookUrl && entry.type === 'transactional');
