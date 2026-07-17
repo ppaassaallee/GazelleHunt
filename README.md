@@ -32,7 +32,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 - Server-authoritative scoring and SHA-256 result fingerprint
 - Item-level scoring trace with raw response, transformation, timing, and inclusion rule
 - Persistent candidate, invitation, assessment, response, audit, and email-event records
-- Brevo Transactional Email API integration with idempotency keys and bearer-authenticated delivery webhooks
+- Brevo Transactional Email API integration with idempotency keys and secret-header-authenticated delivery webhooks
 - OpenAI Responses API integration with strict structured outputs and `store: false`
 - CSV import and authenticated user attribution
 
@@ -98,14 +98,14 @@ The server requires these runtime variables:
 
 Candidate invitations use Brevo's Transactional Email API because each message contains a unique assessment link. Brevo marketing Campaigns are a separate product and are not used by the application send workflow.
 
-The sender or sending domain must be authenticated in Brevo. Publish the SPF and DKIM records Brevo requests and configure DMARC for the organization's domain policy. A successful API response means Brevo accepted the message; delivery is confirmed only by the bearer-authenticated provider webhook at `/api/brevo/webhook`.
+The sender or sending domain must be authenticated in Brevo. Publish the SPF and DKIM records Brevo requests and configure DMARC for the organization's domain policy. A successful API response means Brevo accepted the message; delivery is confirmed only by the secret-header-authenticated provider webhook at `/api/brevo/webhook`.
 
 Recommended setup order:
 
 1. Authenticate the sender or a dedicated sending domain in [Brevo](https://app.brevo.com), then publish every requested SPF and DKIM record. Add DMARC according to the organization's domain policy.
 2. Create an API key with transactional email access and store it as the `BREVO_API_KEY` hosted secret.
 3. Set `BREVO_SENDER_EMAIL` to the authenticated sender, set `BREVO_SENDER_NAME`, and create a random `BREVO_WEBHOOK_TOKEN` of at least 24 characters as a hosted secret. Never put either secret in frontend code or commit it.
-4. Create a transactional webhook for `https://YOUR_APP_DOMAIN/api/brevo/webhook`. Select bearer authentication and enter exactly the same value as `BREVO_WEBHOOK_TOKEN`.
+4. As the super administrator, use **Create or update webhook** in Settings. The server registers `https://YOUR_APP_DOMAIN/api/brevo/webhook` with an `X-Gazelle-Webhook-Token` secret header sourced from `BREVO_WEBHOOK_TOKEN`.
 5. Subscribe to sent/request, delivered, deferred, soft bounce, hard bounce, blocked, spam, invalid, and unsubscribed events. Non-batched delivery is recommended; the handler also accepts Brevo's batched payload shape.
 6. Refresh Settings, send a connection test, and confirm both Brevo acceptance and the delivered webhook event.
 

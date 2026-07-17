@@ -343,7 +343,7 @@ function renderSettings() {
         ${settingLine('Provider', 'Brevo Transactional Email API', 'Implemented')}
         ${settingLine('Sender', sender, email.senderEmail ? 'Configured' : 'Required')}
         ${settingLine('API sending', email.sendingConfigured ? 'API key and sender are configured' : 'Add BREVO_API_KEY and BREVO_SENDER_EMAIL', email.sendingConfigured ? 'Ready' : 'Required')}
-        ${settingLine('Webhook authentication', email.webhookConfigured ? 'Bearer token is configured' : 'Add BREVO_WEBHOOK_TOKEN', email.webhookConfigured ? 'Ready' : 'Required')}
+        ${settingLine('Webhook authentication', email.webhookConfigured ? 'Secret header token is configured' : 'Add BREVO_WEBHOOK_TOKEN', email.webhookConfigured ? 'Ready' : 'Required')}
         <div class="field email-test"><label for="email-test-recipient">Connection test recipient</label><div class="inline-field"><input class="input" id="email-test-recipient" type="email" placeholder="you@company.com"><button class="button button-primary" data-action="test-email" ${!email.configured || state.busy ? 'disabled' : ''}>Send test</button></div><small>Brevo acceptance is recorded immediately; the authenticated webhook confirms delivery.</small></div>
       </section>
       <section class="card settings-card">
@@ -352,7 +352,7 @@ function renderSettings() {
           <li><strong>Authenticate a sender or domain.</strong><span>Complete Brevo verification and publish the requested SPF/DKIM records; add DMARC for your domain policy.</span></li>
           <li><strong>Create a Brevo API key.</strong><span>Use a server-side key with transactional email access. Candidate invitations are transactional messages, not marketing campaigns.</span></li>
           <li><strong>Add hosted runtime values.</strong><span><code>BREVO_API_KEY</code>, <code>BREVO_SENDER_EMAIL</code>, <code>BREVO_SENDER_NAME</code>, and <code>BREVO_WEBHOOK_TOKEN</code>.</span></li>
-          <li><strong>Register a transactional webhook.</strong><span>Use <code>${esc(webhookUrl)}</code> with bearer authentication and the same <code>BREVO_WEBHOOK_TOKEN</code>.</span></li>
+          <li><strong>Register a transactional webhook.</strong><span>Use <code>${esc(webhookUrl)}</code> with the secret header configured by the super administrator action.</span></li>
         </ol>
         ${state.user?.role === 'super_admin' ? `<button class="button button-secondary" data-action="configure-brevo-webhook" ${!email.configured || state.busy ? 'disabled' : ''}>${icon('refresh')}Create or update webhook</button>` : ''}
         <p class="settings-link"><a href="https://app.brevo.com" target="_blank" rel="noreferrer">Open Brevo</a> · <a href="https://developers.brevo.com/docs/send-a-transactional-email" target="_blank" rel="noreferrer">Sending guide</a> · <a href="https://developers.brevo.com/docs/secured-webhooks" target="_blank" rel="noreferrer">Webhook security</a></p>

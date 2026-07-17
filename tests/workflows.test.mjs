@@ -108,10 +108,10 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260717\.9/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260717\.9/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260717\.9/);
-assert.match(indexSource, /pdf-report\.js\?v=20260717\.9/);
+assert.match(indexSource, /app\.js\?v=20260717\.10/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260717\.10/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260717\.10/);
+assert.match(indexSource, /pdf-report\.js\?v=20260717\.10/);
 assert.match(serverSource, /\/assessment\?invite=/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);

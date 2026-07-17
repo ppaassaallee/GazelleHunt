@@ -845,7 +845,7 @@ function brevoWebhookPayload(config, webhookUrl) {
     events: BREVO_TRANSACTIONAL_EVENTS,
     type: 'transactional',
     batched: false,
-    auth: { type: 'bearer', token: config.webhookToken },
+    headers: [{ key: 'X-Gazelle-Webhook-Token', value: config.webhookToken }],
   };
 }
 
@@ -1835,7 +1835,10 @@ async function handleBrevoWebhook(request, env) {
   const config = emailConfig(env);
   if (!config.webhookConfigured) return json({ error: 'Brevo webhook authentication is not configured.' }, 503);
   const authorization = String(request.headers.get('authorization') || '');
-  if (!constantTimeEqual(authorization, `Bearer ${config.webhookToken}`)) return json({ error: 'Invalid webhook authorization.' }, 401);
+  const secretHeader = String(request.headers.get('x-gazelle-webhook-token') || '');
+  if (!constantTimeEqual(authorization, `Bearer ${config.webhookToken}`) && !constantTimeEqual(secretHeader, config.webhookToken)) {
+    return json({ error: 'Invalid webhook authorization.' }, 401);
+  }
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: 'Invalid webhook payload.' }, 400);
   const events = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [body];
