@@ -31,7 +31,7 @@ const navItems = [
 const state = {
   view: 'home', reportTab: 'report', reportLocale: 'en', candidates: [], filteredStatus: 'All', search: '',
   health: { database: false, email: { configured: false, provider: 'Mailgun', region: 'US', domain: null, from: null } },
-  loading: true, busy: false, error: '', csv: null, reportCandidateId: null, previewReport: null, runner: null,
+  loading: true, busy: false, error: '', adminAuthenticated: null, csv: null, reportCandidateId: null, previewReport: null, runner: null,
 };
 
 function icon(name) {
@@ -66,13 +66,19 @@ async function loadWorkspace() {
     if (state.health.database) {
       const data = await fetchJson('/api/candidates');
       state.candidates = data.candidates || [];
+      state.adminAuthenticated = true;
       if (!state.reportCandidateId && state.candidates.some((candidate) => candidate.assessment_id)) {
         state.reportCandidateId = state.candidates.find((candidate) => candidate.assessment_id).id;
       }
     }
     state.error = '';
   } catch (error) {
-    state.error = error.message;
+    if (error.status === 401) {
+      state.adminAuthenticated = false;
+      state.error = '';
+    } else {
+      state.error = error.message;
+    }
   } finally {
     state.loading = false;
     render();
@@ -90,13 +96,17 @@ function toast(message) {
 
 function statusBadge(status) {
   const value = status || 'Not invited';
-  const tone = ['completed', 'delivered'].includes(value) ? 'teal' : ['failed', 'permanent_fail', 'complained'].includes(value) ? 'red' : ['accepted', 'sending'].includes(value) ? 'orange' : 'neutral';
+  const tone = ['completed', 'delivered'].includes(value) ? 'teal' : ['failed', 'permanent_fail', 'complained'].includes(value) ? 'red' : ['accepted', 'sending', 'deferred'].includes(value) ? 'orange' : 'neutral';
   return `<span class="badge badge-${tone}">${esc(value.replaceAll('_', ' '))}</span>`;
 }
 
 function shell(content) {
   const current = navItems.find(([id]) => id === state.view) || navItems[0];
   return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Assessment</strong><span>Tenure Potential</span></div></div><nav class="nav" aria-label="Main navigation">${navItems.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">AP</div><div><strong>Research pilot</strong><span>${engine.ASSESSMENT_VERSION}</span></div></div></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${current[1]}</h1><p>Tenure Potential Assessment · ${engine.MODEL_VERSION}</p></div></div><div class="top-actions"><span class="badge badge-${state.health.database ? 'teal' : 'orange'}">${state.health.database ? 'Audit database active' : 'Database unavailable'}</span><button class="button button-secondary icon-button" data-action="reload" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}`;
+}
+
+function adminSignInPage() {
+  return `<main class="candidate-app"><div class="candidate-stage"><section class="candidate-panel admin-signin">${icon('lock')}<p class="eyebrow">Gazelle Assessment</p><h1>Administrator sign-in</h1><p>Candidate assessments open only from a valid invitation link. Hiring-team records and settings require an authenticated workspace account.</p><a class="button button-primary" href="/signin-with-chatgpt?return_to=%2F">Sign in with ChatGPT</a></section></div></main>`;
 }
 
 function pageIntro(kicker, title, description, action = '') {
@@ -110,7 +120,7 @@ function metric(label, value, note, iconName) {
 function renderHome() {
   const completed = state.candidates.filter((candidate) => candidate.assessment_id).length;
   const active = state.candidates.filter((candidate) => candidate.invitation_id && !candidate.assessment_id).length;
-  return `<div class="stack"><section class="card mission-panel"><div class="mission-copy"><span class="badge badge-teal">Evidence-first redesign</span><h2>Measure Tenure Potential, then learn what actually predicts staying.</h2><p>The candidate score is a transparent pilot index, not a probability or a hidden risk label. It separates observed fit, stay intention, and work reliability from the support conditions the employer can improve.</p><div class="mission-actions"><button class="button button-primary" data-action="preview">${icon('file')}Preview bilingual assessment</button><button class="button button-secondary" data-nav="send">${icon('send')}Send real invitation</button></div></div><div class="pilot-panel"><div><p class="eyebrow">Model status</p><div class="pilot-meta"><strong>Pilot · uncalibrated</strong><span>${engine.ASSESSMENT_VERSION}</span></div></div><p>No 90-day or 180-day probability is shown until local outcome data supports calibration. Every completed result stores its item responses, transformations, version, timing, quality flags, and cryptographic audit hash.</p></div></section>
+  return `<div class="stack"><section class="card mission-panel"><div class="mission-copy"><span class="badge badge-teal">Evidence-first redesign</span><h2>Measure Tenure Potential, then learn what actually predicts staying.</h2><p>The candidate score is a transparent pilot index, not a probability or a hidden risk label. It separates observed fit, stay intention, and work reliability from the support conditions the employer can improve.</p><div class="mission-actions"><button class="button button-primary" data-action="preview">${icon('file')}Start test · Choose English or Spanish</button><button class="button button-secondary" data-nav="send">${icon('send')}Send real invitation</button></div><div class="language-proof"><strong>First candidate screen</strong><span>Choose your language · Elige tu idioma</span></div></div><div class="pilot-panel"><div><p class="eyebrow">Model status</p><div class="pilot-meta"><strong>Pilot · uncalibrated</strong><span>${engine.ASSESSMENT_VERSION}</span></div></div><p>No 90-day or 180-day probability is shown until local outcome data supports calibration. Every completed result stores its item responses, transformations, version, timing, quality flags, and cryptographic audit hash.</p></div></section>
     <section class="grid grid-4">${metric('Candidates', state.candidates.length, 'Persistent records', 'users')}${metric('Active invitations', active, 'Provider and delivery states', 'send')}${metric('Audited results', completed, 'Server-scored assessments', 'shield')}${metric('Email connection', state.health.email?.configured ? 'Ready' : 'Open', state.health.email?.configured ? 'Mailgun configured' : 'Credentials required', 'send')}</section>
     <div class="section-title"><div><h3>What the assessment measures</h3><p>Three scored constructs plus one separate employer-action profile.</p></div><span class="badge badge-neutral">27 items per branch</span></div>
     <section class="grid grid-4">${dimensionCard('Role reality alignment', '33⅓%', 'Schedule, location, compensation model, work intensity, and performance expectations.')}${dimensionCard('Stay intention', '33⅓%', 'Current commitment to train, invest, and stay if the stated conditions are honored.')}${dimensionCard('Work reliability', '33⅓%', 'Follow-through, recovery, self-regulation, and asking for help before problems grow.')}${dimensionCard('Support leverage', 'Not scored', 'Clear expectations, coaching, schedule notice, feedback, and psychological safety.')}</section>
@@ -174,7 +184,7 @@ function renderSend(prefill = {}) {
 
 function renderProgress() {
   const invited = state.candidates.filter((candidate) => candidate.invitation_id);
-  return `${pageIntro('Provider and candidate events', 'Test progress', 'Invitation status is based on stored provider events and completed assessment records.', '')}<section class="grid grid-3">${metric('Accepted by provider', invited.filter((candidate) => candidate.invitation_status === 'accepted').length, 'Awaiting delivery event', 'send')}${metric('Delivered', invited.filter((candidate) => candidate.invitation_status === 'delivered').length, 'Recipient server accepted', 'check')}${metric('Completed', invited.filter((candidate) => candidate.assessment_id).length, 'Audited server score', 'shield')}</section><section class="card">${candidateTable(invited)}</section>`;
+  return `${pageIntro('Provider and candidate events', 'Test progress', 'Invitation status is based on stored provider events and completed assessment records.', '')}<section class="grid grid-3">${metric('Accepted by provider', invited.filter((candidate) => ['accepted', 'deferred'].includes(candidate.invitation_status)).length, 'Queued or retrying delivery', 'send')}${metric('Delivered', invited.filter((candidate) => candidate.invitation_status === 'delivered').length, 'Recipient server accepted', 'check')}${metric('Completed', invited.filter((candidate) => candidate.assessment_id).length, 'Audited server score', 'shield')}</section><section class="card">${candidateTable(invited)}</section>`;
 }
 
 function reportRecord() {
@@ -235,7 +245,8 @@ function validationStep(number, title, text) { return `<div class="validation-st
 
 function renderSettings() {
   const email = state.health.email || {};
-  return `${pageIntro('Secure runtime configuration', 'Settings', 'Email credentials stay server-side; the browser only sees connection status and provider-safe metadata.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button>`)}<div class="grid grid-2"><section class="card settings-card"><div class="settings-title"><div><h3>Mailgun delivery</h3><p>Real REST API integration with verified-domain sending.</p></div><span class="badge badge-${email.configured ? 'teal' : 'orange'}">${email.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'Mailgun Email API', 'Implemented')}${settingLine('Region', email.region || 'US', 'Configured')}${settingLine('Sending domain', email.domain || 'Missing MAILGUN_DOMAIN', email.domain ? 'Present' : 'Required')}${settingLine('Sender', email.from || 'Missing MAILGUN_FROM', email.from ? 'Present' : 'Required')}<div class="field email-test"><label for="email-test-recipient">Connection test recipient</label><div class="inline-field"><input class="input" id="email-test-recipient" type="email" placeholder="you@company.com"><button class="button button-primary" data-action="test-email" ${!email.configured || state.busy ? 'disabled' : ''}>Send test</button></div><small>A successful test means Mailgun accepted the message. Delivery is confirmed separately through the signed webhook.</small></div></section><section class="card settings-card"><h3>One-time domain setup</h3><p>These steps happen in Mailgun and your DNS provider.</p><div class="guardrail-list">${guardrail('1. Add sending domain', 'Use a dedicated subdomain such as assessment.company.com.', 'External')}${guardrail('2. Publish DNS', 'Verify SPF and DKIM; configure DMARC and tracking choices.', 'External')}${guardrail('3. Add server secrets', 'API key, domain, sender, region, and webhook signing key.', 'Required')}${guardrail('4. Register webhook', 'Point delivery and failure events to /api/mailgun/webhook.', 'Required')}</div></section><section class="card settings-card"><h3>Assessment governance</h3><p>Controls enforced by the current build.</p>${settingLine('Automatic rejection', 'Disabled by product design', 'Locked off')}${settingLine('Model status', 'Pilot · uncalibrated', engine.MODEL_VERSION)}${settingLine('Assessment version', engine.ASSESSMENT_VERSION, 'Versioned')}${settingLine('Result fingerprint', 'SHA-256 over inputs, score, version, and timestamps', 'Active')}</section><section class="card settings-card"><h3>Data and access</h3><p>Current private workspace architecture.</p>${settingLine('Structured records', 'Platform database', state.health.database ? 'Active' : 'Unavailable')}${settingLine('Admin attribution', 'Authenticated workspace email header', 'Server-side')}${settingLine('Candidate invitation', 'One-time random token; only hash stored', 'Implemented')}${settingLine('Secret handling', 'Hosted runtime variables only', 'Server-side')}</section></div>`;
+  const webhookUrl = `${location.origin}/api/mailgun/webhook`;
+  return `${pageIntro('Secure runtime configuration', 'Settings', 'Email credentials stay server-side; the browser only sees connection status and provider-safe metadata.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button>`)}<div class="grid grid-2"><section class="card settings-card"><div class="settings-title"><div><h3>Mailgun delivery</h3><p>Real REST API integration with verified-domain sending.</p></div><span class="badge badge-${email.configured ? 'teal' : 'orange'}">${email.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'Mailgun Email API', 'Implemented')}${settingLine('Region', email.region || 'US', 'Configured')}${settingLine('Sending domain', email.domain || 'Missing MAILGUN_DOMAIN', email.domain ? 'Present' : 'Required')}${settingLine('Sender', email.from || 'Missing MAILGUN_FROM', email.from ? 'Present' : 'Required')}<div class="field email-test"><label for="email-test-recipient">Connection test recipient</label><div class="inline-field"><input class="input" id="email-test-recipient" type="email" placeholder="you@company.com"><button class="button button-primary" data-action="test-email" ${!email.configured || state.busy ? 'disabled' : ''}>Send test</button></div><small>A successful test means Mailgun accepted the message. Delivery is confirmed separately through the signed webhook.</small></div></section><section class="card settings-card"><h3>Connect Mailgun</h3><p>Complete these steps once, in order.</p><ol class="setup-list"><li><strong>Add a dedicated sending subdomain in Mailgun.</strong><span>Example: <code>assessment.yourcompany.com</code>. Select the correct US or EU region.</span></li><li><strong>Publish and verify the DNS records.</strong><span>Add Mailgun's SPF and DKIM records, then add DMARC under your organization's policy.</span></li><li><strong>Create a domain sending key and the hosted runtime values.</strong><span><code>MAILGUN_API_KEY</code>, <code>MAILGUN_DOMAIN</code>, <code>MAILGUN_FROM</code>, <code>MAILGUN_REGION</code>, and <code>MAILGUN_WEBHOOK_SIGNING_KEY</code>. Keep both keys secret.</span></li><li><strong>Register signed webhooks.</strong><span>Use <code>${esc(webhookUrl)}</code> for accepted, delivered, temporary fail, permanent fail, complained, and unsubscribed events.</span></li><li><strong>Refresh and send a connection test.</strong><span>The status above changes to Connected when all sending and webhook values are present.</span></li></ol><p class="settings-link"><a href="https://documentation.mailgun.com/docs/mailgun/user-manual/domains/domains-verify" target="_blank" rel="noreferrer">Open Mailgun domain-verification documentation</a></p></section><section class="card settings-card"><h3>Assessment governance</h3><p>Controls enforced by the current build.</p>${settingLine('Automatic rejection', 'Disabled by product design', 'Locked off')}${settingLine('Model status', 'Pilot · uncalibrated', engine.MODEL_VERSION)}${settingLine('Assessment version', engine.ASSESSMENT_VERSION, 'Versioned')}${settingLine('Result fingerprint', 'SHA-256 over inputs, score, version, and timestamps', 'Active')}</section><section class="card settings-card"><h3>Data and access</h3><p>Current private workspace architecture.</p>${settingLine('Structured records', 'Platform database', state.health.database ? 'Active' : 'Unavailable')}${settingLine('Admin attribution', 'Authenticated workspace email header', 'Server-side')}${settingLine('Candidate invitation', 'One-time random token; only hash stored', 'Implemented')}${settingLine('Candidate access', 'Public or candidate-authenticated hosting is required before external delivery', 'Action required')}${settingLine('Secret handling', 'Hosted runtime variables only', 'Server-side')}</section></div>`;
 }
 
 function settingLine(title, text, badge) { return `<div class="setting-line"><div><strong>${title}</strong><span>${text}</span></div><span class="badge badge-neutral">${badge}</span></div>`; }
@@ -244,7 +255,10 @@ function renderRunner() {
   const runner = state.runner;
   const locale = runner.locale || 'en';
   const es = locale === 'es';
-  const close = `<button class="button button-secondary icon-button" data-runner-action="close" aria-label="Close">${icon('x')}</button>`;
+  const close = runner.mode === 'preview' ? `<button class="button button-secondary icon-button" data-runner-action="close" aria-label="Close">${icon('x')}</button>` : '';
+  if (runner.stage === 'loading') return `<div class="candidate-stage"><section class="candidate-panel"><div class="spinner"></div><p>Loading assessment · Cargando evaluación</p></section></div>`;
+  if (runner.stage === 'error') return `<div class="candidate-stage"><section class="candidate-panel candidate-error">${icon('alert')}<h1>Assessment unavailable · Evaluación no disponible</h1><p>${esc(runner.error || 'The invitation could not be opened. · No se pudo abrir la invitación.')}</p></section></div>`;
+  if (runner.stage === 'done') return `<div class="candidate-stage"><section class="candidate-panel candidate-complete">${icon('check')}<h1>${es ? 'Gracias' : 'Thank you'}</h1><p>${es ? 'Puedes cerrar esta ventana.' : 'You may close this window.'}</p></section></div>`;
   if (runner.stage === 'language') return `<div class="modal-backdrop"><section class="modal language-modal" role="dialog" aria-modal="true"><div class="modal-header"><div><p class="eyebrow">Gazelle Assessment</p><h2>Choose your language · Elige tu idioma</h2></div>${close}</div><div class="modal-body"><p class="language-lead">Which language would you like to use to complete the assessment?<br>¿En qué idioma deseas completar la evaluación?</p><div class="language-options"><button class="language-choice" data-language="en"><strong>English</strong><span>Continue in English</span></button><button class="language-choice" data-language="es"><strong>Español</strong><span>Continuar en español</span></button></div></div></section></div>`;
   if (runner.stage === 'experience') return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><div class="modal-header"><div><p class="eyebrow">${es ? 'Antes de comenzar' : 'Before you begin'}</p><h2>${es ? 'Experiencia laboral' : 'Work experience'}</h2></div>${close}</div><div class="modal-body"><h3 class="question-text">${es ? '¿Has tenido un empleo formal anteriormente?' : 'Have you held a formal job before?'}</h3><p>${es ? 'Tu respuesta selecciona una rama de contexto equivalente en duración. El contexto se reporta por separado y no aumenta ni reduce el índice principal.' : 'Your answer selects a context branch of equal length. Context is reported separately and does not raise or lower the main index.'}</p><div class="language-options"><button class="language-choice" data-experience="experienced"><strong>${es ? 'Sí, tengo experiencia' : 'Yes, I have experience'}</strong><span>${es ? 'Preguntas sobre compromisos laborales previos' : 'Questions about prior work commitments'}</span></button><button class="language-choice" data-experience="new"><strong>${es ? 'No, sería mi primer empleo' : 'No, this would be my first job'}</strong><span>${es ? 'Preguntas sobre otros compromisos sostenidos' : 'Questions about other sustained commitments'}</span></button></div></div></section></div>`;
   if (runner.stage === 'intro') {
@@ -264,12 +278,15 @@ function startPreview() {
 }
 
 async function startInvite(token) {
+  state.loading = false;
+  state.runner = { mode: 'invite', stage: 'loading', token, locale: null, experienceBranch: null, candidate: null, roleConditions: null, consent: false, index: 0, answers: {}, responseTimes: {}, startedAt: null, itemStartedAt: null };
+  render();
   try {
     const data = await fetchJson(`/api/assessment?token=${encodeURIComponent(token)}`);
     state.runner = { mode: 'invite', stage: 'language', token, locale: null, experienceBranch: null, candidate: data.candidate, roleConditions: data.roleConditions, consent: false, index: 0, answers: {}, responseTimes: {}, startedAt: null, itemStartedAt: null };
     render();
   } catch (error) {
-    state.error = error.message;
+    state.runner = { ...state.runner, stage: 'error', error: error.message };
     render();
   }
 }
@@ -332,6 +349,15 @@ async function testEmail() {
 }
 
 function render() {
+  if (state.runner?.mode === 'invite') {
+    document.getElementById('app').innerHTML = `<main class="candidate-app">${renderRunner()}</main>`;
+    bindEvents();
+    return;
+  }
+  if (state.adminAuthenticated === false && !state.loading) {
+    document.getElementById('app').innerHTML = adminSignInPage();
+    return;
+  }
   const views = { home: renderHome, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, reports: renderReports, settings: renderSettings };
   document.getElementById('app').innerHTML = shell(state.loading ? '<div class="loading-panel"><div class="spinner"></div><p>Loading secure workspace…</p></div>' : (views[state.view] || renderHome)());
   bindEvents();
@@ -373,10 +399,9 @@ function bindRunner() {
     if (action === 'start' && runner.consent) { runner.stage = 'questions'; runner.startedAt = new Date().toISOString(); runner.itemStartedAt = Date.now(); render(); }
     if (action === 'back' && runner.index > 0) { runner.index -= 1; runner.itemStartedAt = Date.now(); render(); }
     if (action === 'next') { const items = engine.applicableItems(runner.experienceBranch); if (!runner.answers[items[runner.index].id]) return; if (runner.index === items.length - 1) completeAssessment(); else { runner.index += 1; runner.itemStartedAt = Date.now(); render(); } }
-    if (action === 'finish') { const wasPreview = runner.mode === 'preview'; state.runner = null; if (wasPreview) { state.view = 'reports'; state.reportTab = 'report'; } else loadWorkspace(); render(); }
+    if (action === 'finish') { if (runner.mode === 'invite') { runner.stage = 'done'; render(); } else { state.runner = null; state.view = 'reports'; state.reportTab = 'report'; render(); } }
   }));
 }
 
 const inviteToken = new URLSearchParams(location.search).get('invite');
-render();
-if (inviteToken) startInvite(inviteToken); else loadWorkspace();
+if (inviteToken) startInvite(inviteToken); else { render(); loadWorkspace(); }

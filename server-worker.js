@@ -83,6 +83,7 @@ const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS invitations_candidate_idx ON invitations(candidate_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessments_candidate_idx ON assessments(candidate_id, completed_at DESC)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS assessments_invitation_unique ON assessments(invitation_id) WHERE invitation_id IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS audit_entity_idx ON audit_events(entity_type, entity_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS email_invitation_idx ON email_events(invitation_id, created_at DESC)`,
 ];
@@ -143,7 +144,8 @@ function emailConfig(env) {
   const domain = cleanText(env.MAILGUN_DOMAIN, 253);
   const from = cleanText(env.MAILGUN_FROM, 320);
   const apiKey = String(env.MAILGUN_API_KEY || '');
-  return { configured: Boolean(domain && from && apiKey), region, domain, from, apiKey };
+  const webhookSigningKey = String(env.MAILGUN_WEBHOOK_SIGNING_KEY || '');
+  return { configured: Boolean(domain && from && apiKey && webhookSigningKey), region, domain, from, apiKey, webhookSigningKey };
 }
 
 async function sendMailgun(env, message) {
@@ -281,7 +283,7 @@ async function createInvitation(request, env, admin) {
     .bind(invitationId, candidateRow.id, tokenHash, locale, 'sending', admin.email, now.toISOString(), expiresAt).run();
 
   const origin = cleanText(env.APP_BASE_URL, 500) || new URL(request.url).origin;
-  const link = `${origin}/?invite=${encodeURIComponent(token)}`;
+  const link = `${origin}/assessment?invite=${encodeURIComponent(token)}`;
   const copy = invitationCopy(candidateRow, locale, link);
   try {
     const provider = await sendMailgun(env, { to: email, ...copy, invitationId });
@@ -327,9 +329,14 @@ async function submitAssessment(request, env) {
   if (!invitation) return json({ error: 'Invitation not found.' }, 404);
   if (invitation.status === 'completed') return json({ error: 'This assessment has already been completed.' }, 409);
   if (new Date(invitation.expires_at).getTime() < Date.now()) return json({ error: 'This invitation has expired.' }, 410);
+  if (!['experienced', 'new'].includes(body.experienceBranch)) return json({ error: 'A valid experience branch is required.' }, 422);
 
-  const startedAt = new Date(body.startedAt || Date.now());
   const completedAt = new Date();
+  const startedAt = new Date(body.startedAt);
+  const startedAtMs = startedAt.getTime();
+  if (!Number.isFinite(startedAtMs) || startedAtMs > completedAt.getTime() + 5 * 60 * 1000 || startedAtMs < completedAt.getTime() - 24 * 60 * 60 * 1000) {
+    return json({ error: 'The assessment start time is invalid.' }, 422);
+  }
   const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
   const result = GazelleAssessmentEngine.scoreAssessment({
     answers: body.answers,
@@ -425,7 +432,9 @@ async function handleMailgunWebhook(request, env) {
   const createdAt = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO email_events (id, invitation_id, provider_message_id, event_type, severity, provider_timestamp, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(crypto.randomUUID(), invitationId, messageId, eventType, severity, String(eventData.timestamp || ''), JSON.stringify(eventData), createdAt).run();
+  if (invitationId && eventType === 'accepted') await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('accepted', invitationId).run();
   if (invitationId && eventType === 'delivered') await env.DB.prepare(`UPDATE invitations SET status = ?, delivered_at = ? WHERE id = ?`).bind('delivered', createdAt, invitationId).run();
+  if (invitationId && eventType === 'temporary_fail') await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('deferred', invitationId).run();
   if (invitationId && ['failed', 'permanent_fail', 'complained', 'unsubscribed'].includes(eventType)) await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind(eventType, invitationId).run();
   return json({ received: true });
 }
@@ -459,9 +468,9 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env);
-      if (url.pathname === '/styles.css') return new Response(stylesAsset, { headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
-      if (url.pathname === '/assessment-engine.js') return new Response(engineAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
-      if (url.pathname === '/app.js') return new Response(appAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
+      if (url.pathname === '/styles.css') return new Response(stylesAsset, { headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-cache' } });
+      if (url.pathname === '/assessment-engine.js') return new Response(engineAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
+      if (url.pathname === '/app.js') return new Response(appAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
       if (url.pathname === '/og.png' && ogAsset) return new Response(decodeAsset(ogAsset), { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
       if (url.pathname === '/' || !url.pathname.includes('.')) return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' } });
       return new Response('Not found', { status: 404 });

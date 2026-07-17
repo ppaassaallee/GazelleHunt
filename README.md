@@ -56,6 +56,20 @@ The sending domain must be verified with SPF and DKIM. DMARC should be configure
 
 A successful API response means Mailgun accepted the message. Delivery is confirmed only by a signed provider webhook.
 
+Recommended setup order:
+
+1. Add a dedicated sending subdomain in Mailgun, such as `assessment.company.com`, in the correct US or EU region.
+2. Publish every SPF and DKIM record shown by Mailgun and verify the domain. Add DMARC according to the organization's domain policy.
+3. Create a domain sending key and store the variables above in the hosted runtime. Mark `MAILGUN_API_KEY` and `MAILGUN_WEBHOOK_SIGNING_KEY` as secrets; never put them in frontend code or commit them.
+4. Register `https://YOUR_APP_DOMAIN/api/mailgun/webhook` for accepted, delivered, temporary fail, permanent fail, complained, and unsubscribed events.
+5. Refresh Settings, send a connection test, and confirm both Mailgun acceptance and the delivered webhook event.
+
+## Candidate access
+
+Invitation links use `/assessment?invite=...` and open a candidate-only interface. The first interactive screen always asks `Choose your language · Elige tu idioma`; the suggested email language never bypasses this choice.
+
+The hosting access policy must allow the intended candidates to reach `/assessment`. A private owner-only deployment is suitable for internal review but not for external candidate delivery.
+
 ## Production boundary
 
 Before operational selection use, an I/O psychologist and employment counsel should review the item bank, role analysis, interpretation, accommodations, local legal requirements, bilingual adaptation evidence, and adverse-impact monitoring plan. The pilot must pre-register outcomes and preserve assessment/model versions so later validity analyses use the exact instrument each candidate completed.

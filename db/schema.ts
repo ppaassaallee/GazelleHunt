@@ -1,4 +1,4 @@
-export const schemaVersion = '0000_tenure_potential_audit';
+export const schemaVersion = '0001_workflow_hardening';
 
 export type CandidateRecord = {
   id: string;

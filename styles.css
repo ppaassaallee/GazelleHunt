@@ -421,6 +421,17 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .settings-title p { margin: 0; color: var(--muted); font-size: 12px; }
 .email-test { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .inline-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.setup-list { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: mailgun-setup; }
+.setup-list li { position: relative; padding: 0 0 0 38px; counter-increment: mailgun-setup; }
+.setup-list li::before { content: counter(mailgun-setup); position: absolute; left: 0; top: 0; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: var(--orange-soft); color: var(--orange-dark); font-size: 12px; font-weight: 850; }
+.setup-list strong,
+.setup-list span { display: block; }
+.setup-list strong { font-size: 13px; }
+.setup-list span { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.settings-link { margin: 16px 0 0; font-size: 12px; }
+.settings-link a { color: var(--teal); font-weight: 750; }
+.language-proof { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 10px 12px; border-left: 3px solid var(--teal); background: var(--teal-soft); color: var(--ink); font-size: 12px; }
+.language-proof span { color: var(--muted); }
 
 .language-modal { width: min(720px, 100%); }
 .language-lead { font-size: 17px; line-height: 1.65; margin: 0 0 20px; }
@@ -437,6 +448,14 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .language-choice:hover { border-color: var(--teal); background: var(--teal-soft); }
 .language-choice strong { display: block; font-size: 18px; }
 .language-choice span { display: block; margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.candidate-app { min-height: 100vh; background: var(--surface); }
+.candidate-stage { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.candidate-panel { width: min(560px, 100%); min-height: 280px; display: grid; place-items: center; align-content: center; gap: 14px; padding: 32px; border: 1px solid var(--line); border-radius: 7px; background: white; text-align: center; }
+.candidate-panel h1,
+.candidate-panel p { margin: 0; }
+.candidate-panel p { color: var(--muted); line-height: 1.6; }
+.candidate-panel > svg { width: 44px; height: 44px; color: var(--teal); }
+.candidate-error > svg { color: var(--red); }
 
 .complete-modal { width: min(520px, 100%); text-align: center; }
 .complete-modal .modal-body { min-height: 340px; display: grid; place-items: center; align-content: center; gap: 14px; }
