@@ -35,10 +35,10 @@ const env = { AUTH_PEPPER: 'test-only-pepper-that-is-longer-than-thirty-two-char
 assert.equal(auth.validatePassword('short'), 'Use at least 12 characters.');
 assert.equal(auth.validatePassword('password123'), 'Use at least 12 characters.');
 assert.equal(auth.validatePassword('A valid and memorable passphrase 2026'), '');
-assert.equal(auth.PASSWORD_ITERATIONS, 600000);
+assert.equal(auth.PASSWORD_ITERATIONS, 100000);
 
 const record = await auth.passwordRecord('A valid and memorable passphrase 2026', env);
-assert.equal(record.iterations, 600000);
+assert.equal(record.iterations, 100000);
 assert.equal(await auth.verifyPassword('A valid and memorable passphrase 2026', { password_hash: record.hash, password_salt: record.salt, password_iterations: record.iterations }, env), true);
 assert.equal(await auth.verifyPassword('Not the same passphrase', { password_hash: record.hash, password_salt: record.salt, password_iterations: record.iterations }, env), false);
 assert.equal(auth.constantTimeEqual('same-value', 'same-value'), true);

@@ -444,7 +444,7 @@ function randomToken() {
 }
 
 const SESSION_COOKIE = '__Host-gz_session';
-const PASSWORD_ITERATIONS = 600000;
+const PASSWORD_ITERATIONS = 100000;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const OWNER_EMAIL = 'david.alejandro.pa@gmail.com';
 const commonPasswords = new Set([
@@ -634,30 +634,46 @@ async function signUp(request, env) {
     return json({ error: 'Company name is required.' }, 422);
   }
 
-  const passwordData = await passwordRecord(password, env);
+  let passwordData;
+  try {
+    passwordData = await passwordRecord(password, env);
+  } catch {
+    return json({ error: 'Secure password processing is unavailable.', code: 'password_processing_failed' }, 503);
+  }
   const userId = crypto.randomUUID();
   const now = new Date().toISOString();
   const companyId = isOwnerBootstrap ? 'org_legacy' : null;
   const role = isOwnerBootstrap ? 'super_admin' : 'recruiter';
   const status = isOwnerBootstrap ? 'active' : 'pending';
-  await env.DB.prepare(`
+  const insertUser = env.DB.prepare(`
     INSERT INTO users (id, company_id, email, name, password_hash, password_salt, password_iterations, role, status, requested_company_name, approved_by, approved_at, password_changed_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     userId, companyId, email, name, passwordData.hash, passwordData.salt, passwordData.iterations, role, status,
     requestedCompanyName || null, isOwnerBootstrap ? userId : null, isOwnerBootstrap ? now : null, now, now, now,
-  ).run();
+  );
 
   if (isOwnerBootstrap) {
-    await env.DB.batch([
-      env.DB.prepare(`UPDATE candidates SET owner_user_id = ? WHERE company_id = ? AND owner_user_id IS NULL`).bind(userId, companyId),
-      env.DB.prepare(`UPDATE invitations SET created_by_user_id = ? WHERE company_id = ? AND created_by_user_id IS NULL`).bind(userId, companyId),
-    ]);
-    const session = await createSession(request, env, userId);
+    try {
+      await env.DB.batch([
+        insertUser,
+        env.DB.prepare(`UPDATE candidates SET owner_user_id = ? WHERE company_id = ? AND owner_user_id IS NULL`).bind(userId, companyId),
+        env.DB.prepare(`UPDATE invitations SET created_by_user_id = ? WHERE company_id = ? AND created_by_user_id IS NULL`).bind(userId, companyId),
+      ]);
+    } catch {
+      return json({ error: 'The owner account could not be stored.', code: 'owner_account_insert_failed' }, 500);
+    }
+    let session;
+    try {
+      session = await createSession(request, env, userId);
+    } catch {
+      return json({ error: 'The owner account was created, but its session could not be started. Sign in again.', code: 'owner_session_failed' }, 500);
+    }
     await audit(env, email, 'super_admin_bootstrapped', 'user', userId, { companyId });
     return json({ user: { id: userId, email, name, role, status, companyId, companyName: 'Gazelle Platform' } }, 201, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
   }
 
+  await insertUser.run();
   await audit(env, email, 'user_registration_requested', 'user', userId, { requestedCompanyName });
   return json({ status: 'pending', message: 'Your account is awaiting approval by Alejandro Pascual.' }, 202);
 }
