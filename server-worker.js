@@ -1429,7 +1429,13 @@ async function configureBrevoWebhook(request, env, user) {
   const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || new URL(request.url).origin;
   const webhookUrl = `${origin}/api/brevo/webhook?integration=gazelle-v1`;
   try {
-    const current = await brevoApiRequest(config, '/webhooks?type=transactional&sort=desc');
+    let current;
+    try {
+      current = await brevoApiRequest(config, '/webhooks?type=transactional&sort=desc');
+    } catch (error) {
+      if (error.providerStatus !== 400 || !/does not exist/i.test(error.providerMessage || '')) throw error;
+      current = { webhooks: [] };
+    }
     const existing = (current.webhooks || []).find((entry) => entry.url === webhookUrl && entry.type === 'transactional');
     const payload = brevoWebhookPayload(config, webhookUrl);
     let webhookId = existing?.id || null;
