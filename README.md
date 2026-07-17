@@ -11,6 +11,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 - 27 items per candidate path
 - Three adaptive, bilingual job scenarios with a deterministic fallback
 - Five-paragraph English and Spanish GPT-5.5 recruiter narratives
+- Preview assessments call the same GPT-5.5 analysis contract without persisting a candidate record
 - Recruiter-controlled report language and client-generated PDF download
 - Three equally weighted scored constructs:
   - role reality alignment

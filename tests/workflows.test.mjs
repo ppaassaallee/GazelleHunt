@@ -13,6 +13,14 @@ const [appSource, indexSource, serverSource, readmeSource] = await Promise.all([
 ]);
 
 const appElement = { innerHTML: '' };
+const fetchCalls = [];
+const previewAnalysis = {
+  status: 'completed', model: 'gpt-5.5-2026-04-23', prompt_version: 'analysis-v1.0.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64),
+  output: {
+    en: { title: 'Preview analysis', paragraphs: Array.from({ length: 5 }, (_, index) => `English paragraph ${index + 1}`), interview_focus: ['Focus one', 'Focus two', 'Focus three'] },
+    es: { title: 'Análisis de vista previa', paragraphs: Array.from({ length: 5 }, (_, index) => `Párrafo en español ${index + 1}`), interview_focus: ['Enfoque uno', 'Enfoque dos', 'Enfoque tres'] },
+  },
+};
 const context = {
   globalThis: null,
   GazelleAssessmentEngine: globalThis.GazelleAssessmentEngine,
@@ -24,10 +32,13 @@ const context = {
   },
   location: { search: '', pathname: '/', origin: 'https://assessment.example.com' },
   history: { replaceState() {} },
-  fetch: async (url) => ({
+  fetch: async (url, options) => {
+    fetchCalls.push({ url: String(url), options });
+    return {
     ok: true,
     status: 200,
     async json() {
+      if (url === '/api/preview/ai-analysis') return { analysis: previewAnalysis };
       if (String(url).startsWith('/api/assessment')) {
         return {
           candidate: { name: 'Candidate', role: 'Customer Care', site: 'Guatemala City' },
@@ -35,9 +46,10 @@ const context = {
         };
       }
       if (url === '/api/candidates') return { candidates: [] };
-      return { database: true, email: { configured: false, provider: 'Mailgun', region: 'US' } };
+      return { database: true, email: { configured: false, provider: 'Mailgun', region: 'US' }, ai: { configured: true, model: 'gpt-5.5-2026-04-23' } };
     },
-  }),
+  };
+  },
   URLSearchParams,
   Intl,
   Date,
@@ -82,20 +94,24 @@ for (const scenario of previewState.runner.scenarios) {
 await context.__gazelleWorkflowTest.completeAssessment();
 assert.match(appElement.innerHTML, /Assessment complete/);
 assert.equal(context.__gazelleWorkflowTest.state.previewReport.scenarioResponses.length, 3);
+assert.equal(context.__gazelleWorkflowTest.state.previewReport.aiAnalysis.status, 'completed');
+assert.equal(context.__gazelleWorkflowTest.state.previewReport.aiAnalysis.output.en.paragraphs.length, 5);
+assert.ok(fetchCalls.some((call) => call.url === '/api/preview/ai-analysis' && call.options.method === 'POST'));
 
 await context.__gazelleWorkflowTest.startInvite('test-token');
 assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260717\.5/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260717\.5/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260717\.5/);
-assert.match(indexSource, /pdf-report\.js\?v=20260717\.5/);
+assert.match(indexSource, /app\.js\?v=20260717\.6/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260717\.6/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260717\.6/);
+assert.match(indexSource, /pdf-report\.js\?v=20260717\.6/);
 assert.match(serverSource, /\/assessment\?invite=/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);
 assert.match(serverSource, /ai-analysis/);
+assert.match(serverSource, /\/api\/preview\/ai-analysis/);
 assert.match(serverSource, /'cache-control': 'no-cache'/);
 assert.match(serverSource, /assessments_invitation_unique/);
 assert.match(serverSource, /temporary_fail/);
@@ -104,6 +120,7 @@ assert.match(appSource, /Administrator sign-in/);
 assert.match(appSource, /Continue to scenarios/);
 assert.match(appSource, /Download PDF/);
 assert.match(appSource, /Human review required/);
+assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/);
 
 for (const variable of [
   'MAILGUN_API_KEY',

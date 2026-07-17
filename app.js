@@ -217,7 +217,7 @@ function renderReports() {
   const records = state.candidates.filter((candidate) => candidate.assessment_id);
   const report = normalizedReport(reportRecord());
   const aiReady = report?.aiAnalysis?.status === 'completed';
-  const canGenerateAi = report && !report.isPreview && !aiReady;
+  const canGenerateAi = report && !aiReady && (!report.isPreview || Boolean(report.previewInput));
   return `${pageIntro('Evidence with provenance', 'Results & Reports', 'Every operational result can be traced to its item responses, scoring transformations, model version, timing, scenario evidence, and audit hashes.', '')}<section class="card"><div class="tabs"><button class="tab ${state.reportTab === 'report' ? 'active' : ''}" data-report-tab="report">Tenure Potential report</button><button class="tab ${state.reportTab === 'audit' ? 'active' : ''}" data-report-tab="audit">Scoring audit</button><button class="tab ${state.reportTab === 'method' ? 'active' : ''}" data-report-tab="method">Method & validation</button></div><div class="card-body">${state.reportTab === 'method' ? renderMethod() : !report ? `<div class="empty-panel"><h3>No audited result yet</h3><p>Complete a real invitation or run the clearly labeled preview assessment.</p><button class="button button-primary" data-action="preview">Preview assessment</button></div>` : `${records.length || state.previewReport ? `<div class="toolbar report-toolbar">${records.length ? `<select class="select" id="report-select">${records.map((candidate) => `<option value="${candidate.id}" ${candidate.id === report.candidateId ? 'selected' : ''}>${esc(candidate.name)} · ${Number(candidate.potential_index).toFixed(1)}</option>`).join('')}</select>` : ''}<select class="select" id="report-locale"><option value="en" ${state.reportLocale === 'en' ? 'selected' : ''}>Report in English</option><option value="es" ${state.reportLocale === 'es' ? 'selected' : ''}>Reporte en español</option></select>${canGenerateAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${state.reportLocale === 'es' ? 'Generar análisis' : 'Generate analysis'}</button>` : ''}<button class="button button-primary" data-action="download-pdf">${icon('file')}${state.reportLocale === 'es' ? 'Descargar PDF' : 'Download PDF'}</button></div>` : ''}${state.reportTab === 'audit' ? renderAudit(report) : renderReport(report)}`}</div></section>`;
 }
 
@@ -233,16 +233,17 @@ function renderReport(report) {
   const supports = (report.supportProfile || []).slice(0, 3).map((entry) => engine.supportLabel(entry.itemId, copy.es ? 'es' : 'en'));
   const scenarios = report.scenarioResponses || [];
   const analysis = report.aiAnalysis?.output?.[copy.es ? 'es' : 'en'];
-  const analysisStatus = report.aiAnalysis?.status || (report.isPreview ? 'preview' : 'queued');
+  const analysisStatus = report.aiAnalysis?.status || (report.isPreview ? 'not_generated' : 'queued');
+  const canRetryAi = !['queued', 'processing'].includes(analysisStatus) && (!report.isPreview || Boolean(report.previewInput));
   const statusCopy = {
     queued: copy.es ? 'En cola. Actualice en unos momentos.' : 'Queued. Refresh in a moment.',
     processing: copy.es ? 'GPT-5.5 está procesando la evidencia.' : 'GPT-5.5 is processing the evidence.',
     not_configured: copy.es ? 'Agregue OPENAI_API_KEY en el entorno para generar este análisis.' : 'Add OPENAI_API_KEY to the runtime to generate this analysis.',
     failed: copy.es ? 'El análisis falló. Puede volver a intentarlo sin cambiar la puntuación.' : 'The analysis failed. It can be retried without changing the score.',
-    preview: copy.es ? 'La vista previa no envía respuestas a OpenAI.' : 'Preview mode does not send responses to OpenAI.',
+    not_generated: copy.es ? 'El análisis de vista previa todavía no se ha generado.' : 'The preview analysis has not been generated yet.',
   };
   const scenarioSection = `<section class="card card-body"><div class="section-title compact"><div><h3>${copy.es ? 'Evidencia de escenarios' : 'Scenario evidence'}</h3><p>${copy.es ? 'Respuestas abiertas para revisión; no modifican el índice.' : 'Open responses for review; they do not change the index.'}</p></div><span class="badge badge-neutral">${scenarios.length} / 3</span></div><div class="scenario-evidence">${scenarios.length ? scenarios.map((entry, index) => `<article><span>${index + 1}</span><div><strong>${esc(copy.es ? entry.question_es : entry.question_en)}</strong><p>${esc(entry.response_text)}</p><small>${esc(entry.construct || '')} · ${formatDuration(entry.response_ms)}</small></div></article>`).join('') : `<p>${copy.es ? 'Sin respuestas de escenarios en este resultado.' : 'No scenario responses are available for this result.'}</p>`}</div></section>`;
-  const aiSection = `<section class="card card-body ai-report"><div class="section-title compact"><div><p class="eyebrow">${copy.es ? 'Análisis asistido' : 'Assisted analysis'}</p><h3>${analysis?.title ? esc(analysis.title) : (copy.es ? 'Análisis de reclutamiento con GPT-5.5' : 'GPT-5.5 recruiter analysis')}</h3><p>${copy.es ? 'Narrativa separada, bilingüe y vinculada a evidencia.' : 'Separate bilingual narrative tied to auditable evidence.'}</p></div><span class="badge badge-${analysis ? 'teal' : 'orange'}">${esc(analysis ? '5 paragraphs' : analysisStatus.replaceAll('_', ' '))}</span></div>${analysis?.paragraphs?.length === 5 ? `<div class="analysis-paragraphs">${analysis.paragraphs.map((paragraph, index) => `<article><span>${index + 1}</span><p>${esc(paragraph)}</p></article>`).join('')}</div><div class="interview-focus"><strong>${copy.es ? 'Enfoque para entrevista humana' : 'Human interview focus'}</strong><ul>${(analysis.interview_focus || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div><div class="ai-provenance"><code>${esc(report.aiAnalysis.model || '')}</code><code>${esc(report.aiAnalysis.prompt_version || '')}</code></div>` : `<div class="empty-analysis"><p>${esc(statusCopy[analysisStatus] || analysisStatus)}</p>${!report.isPreview && analysisStatus !== 'queued' && analysisStatus !== 'processing' ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${copy.es ? 'Generar o reintentar' : 'Generate or retry'}</button>` : `<button class="button button-secondary" data-action="reload">${icon('refresh')}${copy.es ? 'Actualizar' : 'Refresh'}</button>`}</div>`}<div class="notice"><strong>${copy.es ? 'Revisión humana obligatoria.' : 'Human review required.'}</strong> ${copy.es ? 'La narrativa no es una evaluación clínica, no altera la puntuación y no debe usarse sola para contratar, rechazar o clasificar.' : 'The narrative is not a clinical assessment, does not alter the score, and must not be used alone to hire, reject, or rank.'}</div></section>`;
+  const aiSection = `<section class="card card-body ai-report"><div class="section-title compact"><div><p class="eyebrow">${copy.es ? 'Análisis asistido' : 'Assisted analysis'}</p><h3>${analysis?.title ? esc(analysis.title) : (copy.es ? 'Análisis de reclutamiento con GPT-5.5' : 'GPT-5.5 recruiter analysis')}</h3><p>${copy.es ? 'Narrativa separada, bilingüe y vinculada a evidencia.' : 'Separate bilingual narrative tied to auditable evidence.'}</p></div><span class="badge badge-${analysis ? 'teal' : 'orange'}">${esc(analysis ? (copy.es ? '5 párrafos' : '5 paragraphs') : analysisStatus.replaceAll('_', ' '))}</span></div>${analysis?.paragraphs?.length === 5 ? `<div class="analysis-paragraphs">${analysis.paragraphs.map((paragraph, index) => `<article><span>${index + 1}</span><p>${esc(paragraph)}</p></article>`).join('')}</div><div class="interview-focus"><strong>${copy.es ? 'Enfoque para entrevista humana' : 'Human interview focus'}</strong><ul>${(analysis.interview_focus || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div><div class="ai-provenance"><code>${esc(report.aiAnalysis.model || '')}</code><code>${esc(report.aiAnalysis.prompt_version || '')}</code></div>` : `<div class="empty-analysis"><p>${esc(statusCopy[analysisStatus] || analysisStatus)}</p>${canRetryAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${copy.es ? 'Generar o reintentar' : 'Generate or retry'}</button>` : `<button class="button button-secondary" data-action="reload">${icon('refresh')}${copy.es ? 'Actualizar' : 'Refresh'}</button>`}</div>`}<div class="notice"><strong>${copy.es ? 'Revisión humana obligatoria.' : 'Human review required.'}</strong> ${copy.es ? 'La narrativa no es una evaluación clínica, no altera la puntuación y no debe usarse sola para contratar, rechazar o clasificar.' : 'The narrative is not a clinical assessment, does not alter the score, and must not be used alone to hire, reject, or rank.'}</div></section>`;
   return `<div class="report-shell"><aside class="card report-profile"><div class="score-ring" style="--score-angle:${report.potentialIndex / 100 * 360}deg"><div><strong>${report.potentialIndex.toFixed(1)}</strong><span>/ 100</span></div></div><span class="badge badge-orange">${copy.es ? 'Piloto sin calibrar' : 'Uncalibrated pilot'}</span><h3>${esc(report.name)}</h3><p>${esc(report.role)} · ${esc(report.site || '')}</p><strong class="report-band">${copy.band}</strong><div class="confidence">${copy.es ? 'Este índice resume las respuestas actuales. No es una probabilidad de permanencia ni una decisión de contratación.' : 'This index summarizes current responses. It is not a retention probability or a hiring decision.'}</div></aside><div class="report-main"><section class="card card-body"><div class="section-title compact"><div><h3>${copy.es ? 'Perfil de evidencia' : 'Evidence profile'}</h3><p>${copy.es ? 'Pesos iguales y transparentes durante el piloto.' : 'Transparent equal weights during the pilot.'}</p></div><span class="badge badge-${qualityTone}">${esc(report.quality.status.replaceAll('_', ' '))}</span></div>${dimensionBar(copy.fit, report.subscales.fit.score)}${dimensionBar(copy.intent, report.subscales.intent.score)}${dimensionBar(copy.reliability, report.subscales.reliability.score)}${dimensionBar(copy.context, report.subscales.context.score, true)}</section>${aiSection}${scenarioSection}<div class="grid grid-2"><div class="report-block"><h4>${copy.es ? 'Palancas de permanencia' : 'Retention support levers'}</h4><ul>${supports.length ? supports.map((label) => `<li>${esc(label)}</li>`).join('') : `<li>${copy.es ? 'No disponibles' : 'Not available'}</li>`}</ul><p>${copy.es ? 'Estas preferencias no aumentan ni reducen el índice; orientan acciones del empleador.' : 'These preferences do not raise or lower the index; they guide employer actions.'}</p></div><div class="report-block"><h4>${copy.es ? 'Límites de interpretación' : 'Interpretation limits'}</h4><p>${copy.es ? 'No existe todavía una tasa local calibrada de permanencia a 90 o 180 días. El contexto laboral o no laboral se muestra por separado hasta validar la equivalencia de las ramas.' : 'No locally calibrated 90-day or 180-day retention probability exists yet. Work or non-work context is separate until branch equivalence is validated.'}</p></div></div><div class="notice"><strong>${copy.es ? 'Revisión humana obligatoria.' : 'Human review required.'}</strong> ${copy.es ? 'No use este resultado por sí solo para contratar, rechazar o clasificar candidatos.' : 'Do not use this result alone to hire, reject, or rank candidates.'}</div></div></div>`;
 }
 
@@ -346,6 +347,31 @@ async function prepareScenarios() {
   render();
 }
 
+function previewAnalysisInput(runner, scenarioResponses, durationMs) {
+  return {
+    role: runner.candidate.role,
+    locale: runner.locale,
+    experienceBranch: runner.experienceBranch,
+    answers: runner.answers,
+    responseTimes: runner.responseTimes,
+    durationMs,
+    scenarios: runner.scenarios.map((scenario) => ({
+      scenarioId: scenario.scenarioId,
+      construct: scenario.construct,
+      question_en: scenario.question_en,
+      question_es: scenario.question_es,
+      evidence_item_ids: scenario.evidence_item_ids,
+    })),
+    scenarioResponses,
+  };
+}
+
+async function requestPreviewAnalysis(input) {
+  const response = await fetchJson('/api/preview/ai-analysis', { method: 'POST', body: JSON.stringify(input) });
+  if (!response.analysis) throw new Error('The preview analysis response was incomplete.');
+  return response.analysis;
+}
+
 async function completeAssessment() {
   const runner = state.runner;
   const durationMs = Date.now() - new Date(runner.startedAt).getTime();
@@ -368,7 +394,20 @@ async function completeAssessment() {
       result = response.result; auditHash = response.auditHash;
       history.replaceState({}, '', location.pathname);
     } else {
-      state.previewReport = { isPreview: true, id: 'preview', candidateId: 'preview', name: runner.candidate.name, role: runner.candidate.role, site: runner.candidate.site, locale: runner.locale, experienceBranch: runner.experienceBranch, completedAt: new Date().toISOString(), durationMs, potentialIndex: result.potentialIndex, potentialBand: result.potentialBand, subscales: result.subscales, supportProfile: result.supportProfile, quality: result.quality, scoringTrace: result.scoringTrace, weights: result.weights, auditHash: null, assessmentVersion: result.assessmentVersion, modelVersion: result.modelVersion, modelStatus: result.modelStatus, scenarioResponses: runner.scenarios.map((scenario) => ({ ...scenario, scenario_id: scenario.scenarioId, response_text: runner.scenarioResponses[scenario.scenarioId], response_locale: runner.locale, response_ms: runner.scenarioResponseTimes[scenario.scenarioId], model: 'rules-v1', prompt_version: aiAssessment.SCENARIO_PROMPT_VERSION })), aiAnalysis: null };
+      const previewInput = previewAnalysisInput(runner, scenarioResponses, durationMs);
+      let aiAnalysis;
+      try {
+        aiAnalysis = await requestPreviewAnalysis(previewInput);
+      } catch (error) {
+        aiAnalysis = {
+          status: error.code === 'openai_not_configured' ? 'not_configured' : 'failed',
+          model: state.health.ai?.model || aiAssessment.DEFAULT_MODEL,
+          prompt_version: aiAssessment.ANALYSIS_PROMPT_VERSION,
+          error_code: error.code || 'preview_ai_analysis_failed',
+        };
+        toast(error.message);
+      }
+      state.previewReport = { isPreview: true, id: 'preview', candidateId: 'preview', name: runner.candidate.name, role: runner.candidate.role, site: runner.candidate.site, locale: runner.locale, experienceBranch: runner.experienceBranch, completedAt: new Date().toISOString(), durationMs, potentialIndex: result.potentialIndex, potentialBand: result.potentialBand, subscales: result.subscales, supportProfile: result.supportProfile, quality: result.quality, scoringTrace: result.scoringTrace, weights: result.weights, auditHash: null, assessmentVersion: result.assessmentVersion, modelVersion: result.modelVersion, modelStatus: result.modelStatus, scenarioResponses: runner.scenarios.map((scenario) => ({ ...scenario, scenario_id: scenario.scenarioId, response_text: runner.scenarioResponses[scenario.scenarioId], response_locale: runner.locale, response_ms: runner.scenarioResponseTimes[scenario.scenarioId], model: scenario.model || 'rules-v1', prompt_version: aiAssessment.SCENARIO_PROMPT_VERSION })), aiAnalysis, previewInput };
     }
     state.runner = { ...runner, stage: 'complete', result, auditHash };
   } catch (error) {
@@ -378,13 +417,18 @@ async function completeAssessment() {
 
 async function generateAiAnalysis() {
   const report = normalizedReport(reportRecord());
-  if (!report || report.isPreview) return;
+  if (!report) return;
   state.busy = true;
   render();
   try {
-    await fetchJson(`/api/assessments/${encodeURIComponent(report.id)}/ai-analysis`, { method: 'POST', body: '{}' });
+    if (report.isPreview) {
+      if (!report.previewInput) throw new Error('Preview evidence is unavailable. Run the preview assessment again.');
+      state.previewReport.aiAnalysis = await requestPreviewAnalysis(report.previewInput);
+    } else {
+      await fetchJson(`/api/assessments/${encodeURIComponent(report.id)}/ai-analysis`, { method: 'POST', body: '{}' });
+      await loadWorkspace();
+    }
     toast(state.reportLocale === 'es' ? 'Análisis bilingüe generado.' : 'Bilingual analysis generated.');
-    await loadWorkspace();
   } catch (error) {
     toast(error.message);
   } finally {

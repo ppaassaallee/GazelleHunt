@@ -848,6 +848,120 @@ async function regenerateAiAnalysis(env, admin, assessmentId) {
   return json(result);
 }
 
+async function analyzePreview(request, env, admin) {
+  const config = openAiConfig(env);
+  if (!config.configured) return json({ error: 'OpenAI is not configured.', code: 'openai_not_configured' }, 503);
+  const body = await request.json().catch(() => ({}));
+  const role = cleanText(body.role, 140);
+  const experienceBranch = body.experienceBranch;
+  if (!role) return json({ error: 'A role is required for preview analysis.' }, 422);
+  if (!['experienced', 'new'].includes(experienceBranch)) return json({ error: 'A valid experience branch is required.' }, 422);
+
+  const durationMs = Math.max(0, Math.min(24 * 60 * 60 * 1000, Number(body.durationMs || 0)));
+  const result = GazelleAssessmentEngine.scoreAssessment({
+    answers: body.answers,
+    responseTimes: body.responseTimes,
+    experienceBranch,
+    durationMs,
+  });
+  if (result.potentialIndex == null) return json({ error: 'The preview assessment is incomplete.', missingItemIds: result.missingItemIds }, 422);
+
+  const questions = Array.isArray(body.scenarios) ? body.scenarios.map((scenario) => ({
+    id: cleanText(scenario.scenarioId || scenario.id, 100),
+    construct: cleanText(scenario.construct, 80),
+    question_en: cleanText(scenario.question_en, 1600),
+    question_es: cleanText(scenario.question_es, 1600),
+    evidence_item_ids: Array.isArray(scenario.evidence_item_ids) ? scenario.evidence_item_ids.map((id) => cleanText(id, 100)).slice(0, 4) : [],
+  })) : [];
+  const itemIds = new Set(result.scoringTrace.map((entry) => entry.itemId));
+  if (!validateScenarioOutput(questions, itemIds)) return json({ error: 'The preview scenarios are invalid.' }, 422);
+
+  const suppliedResponses = Array.isArray(body.scenarioResponses) ? body.scenarioResponses : [];
+  if (suppliedResponses.length !== 3) return json({ error: 'Complete all three preview scenarios.' }, 422);
+  const scenarios = [];
+  for (const question of questions) {
+    const supplied = suppliedResponses.find((entry) => cleanText(entry.scenarioId, 100) === question.id);
+    const response = cleanText(supplied?.response, 2500);
+    if (response.length < 40) return json({ error: 'Each scenario response needs at least 40 characters.' }, 422);
+    const redacted = redactAiEvidence(response);
+    scenarios.push({
+      scenarioId: question.id,
+      order: scenarios.length + 1,
+      construct: question.construct,
+      question_en: question.question_en,
+      question_es: question.question_es,
+      evidence_item_ids: question.evidence_item_ids,
+      candidate_response: redacted.text,
+      sensitive_details_omitted: redacted.redacted,
+      response_locale: body.locale === 'es' ? 'es' : 'en',
+      response_ms: Math.max(0, Math.min(30 * 60 * 1000, Number(supplied?.responseMs || 0))),
+    });
+  }
+
+  const modelEvidence = {
+    assessmentVersion: result.assessmentVersion,
+    scoringModel: result.modelVersion,
+    modelStatus: result.modelStatus,
+    role,
+    experienceBranch: result.experienceBranch,
+    completedAt: new Date().toISOString(),
+    durationMs,
+    potentialIndex: result.potentialIndex,
+    potentialBand: result.potentialBand,
+    subscales: {
+      fit: result.subscales.fit.score,
+      intent: result.subscales.intent.score,
+      reliability: result.subscales.reliability.score,
+      context: result.subscales.context.score,
+    },
+    supportProfile: result.supportProfile,
+    responseQuality: result.quality,
+    scoringTrace: result.scoringTrace,
+    weights: result.weights,
+    scenarios,
+  };
+  const evidenceHash = await sha256(GazelleAssessmentEngine.stableStringify(modelEvidence));
+  const previewId = crypto.randomUUID();
+  try {
+    const ai = await callOpenAiJson(env, {
+      instructions: GazelleAiAssessment.ANALYSIS_INSTRUCTIONS,
+      input: modelEvidence,
+      schema: GazelleAiAssessment.analysisSchema,
+      schemaName: 'tenure_potential_preview_analysis',
+      safetyIdentifier: `preview_${previewId}`,
+      maxOutputTokens: 9000,
+    });
+    if (!validateAnalysisOutput(ai.data, modelEvidence)) throw new Error('openai_invalid_analysis');
+    const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(ai.data));
+    const updatedAt = new Date().toISOString();
+    await audit(env, admin.email, 'preview_ai_analysis_completed', 'preview', previewId, {
+      model: ai.model,
+      promptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION,
+      providerResponseId: ai.responseId,
+      evidenceHash,
+      outputHash,
+    });
+    return json({
+      analysis: {
+        status: 'completed',
+        model: ai.model,
+        prompt_version: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION,
+        provider_response_id: ai.responseId,
+        evidence_hash: evidenceHash,
+        output_hash: outputHash,
+        output: { en: ai.data.en, es: ai.data.es },
+        evidence_claims: ai.data.evidence_claims || [],
+        limitations: ai.data.limitations || [],
+        updated_at: updatedAt,
+      },
+    });
+  } catch (error) {
+    const errorCode = cleanText(error.message, 120) || 'ai_analysis_failed';
+    await audit(env, admin.email, 'preview_ai_analysis_failed', 'preview', previewId, { errorCode, evidenceHash });
+    return json({ error: 'The preview AI analysis could not be completed.', code: errorCode }, 502);
+  }
+}
+
 async function verifyWebhookSignature(signingKey, timestamp, token, signature) {
   if (!signingKey || !timestamp || !token || !signature) return false;
   if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 900) return false;
@@ -917,6 +1031,7 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/candidates/import' && request.method === 'POST') return importCandidates(request, env, admin);
   if (url.pathname === '/api/invitations' && request.method === 'POST') return createInvitation(request, env, admin);
   if (url.pathname === '/api/email/test' && request.method === 'POST') return sendTestEmail(request, env, admin);
+  if (url.pathname === '/api/preview/ai-analysis' && request.method === 'POST') return analyzePreview(request, env, admin);
   const aiAnalysisMatch = url.pathname.match(/^\/api\/assessments\/([^/]+)\/ai-analysis$/);
   if (aiAnalysisMatch && request.method === 'POST') return regenerateAiAnalysis(env, admin, cleanText(aiAnalysisMatch[1], 100));
   return json({ error: 'API route not found.' }, 404);
