@@ -25,6 +25,11 @@ assert.match(server, /company_id = \?/);
 assert.match(server, /A batch can contain at most 500/);
 assert.match(server, /engine_key = 'tenure_potential'/);
 assert.match(server, /status: 'pending'/);
+assert.match(server, /runtimeColumnMigrations/);
+assert.match(server, /PRAGMA table_info/);
+assert.match(server, /INSERT OR IGNORE INTO companies/);
+assert.match(server, /INSERT OR IGNORE INTO assessment_tests/);
+assert.match(server, /candidates_company_email_unique/);
 
 assert.match(app, /Lists and multi-test batches/);
 assert.match(app, /A candidate can belong to multiple lists/);

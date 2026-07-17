@@ -1,13 +1,18 @@
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS candidates (
     id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
+    company_id TEXT NOT NULL,
+    owner_user_id TEXT,
+    email TEXT NOT NULL COLLATE NOCASE,
     name TEXT NOT NULL,
     phone TEXT,
     role TEXT NOT NULL,
     site TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (owner_user_id) REFERENCES users(id),
+    UNIQUE (company_id, email)
   )`,
   `CREATE TABLE IF NOT EXISTS invitations (
     id TEXT PRIMARY KEY,
@@ -21,7 +26,15 @@ const schemaStatements = [
     expires_at TEXT NOT NULL,
     delivered_at TEXT,
     completed_at TEXT,
-    FOREIGN KEY (candidate_id) REFERENCES candidates(id)
+    company_id TEXT,
+    test_id TEXT,
+    list_id TEXT,
+    batch_id TEXT,
+    created_by_user_id TEXT,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id),
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id),
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
   )`,
   `CREATE TABLE IF NOT EXISTS assessments (
     id TEXT PRIMARY KEY,
@@ -46,8 +59,10 @@ const schemaStatements = [
     scoring_trace_json TEXT NOT NULL,
     weights_json TEXT NOT NULL,
     audit_hash TEXT NOT NULL UNIQUE,
+    test_id TEXT,
     FOREIGN KEY (candidate_id) REFERENCES candidates(id),
-    FOREIGN KEY (invitation_id) REFERENCES invitations(id)
+    FOREIGN KEY (invitation_id) REFERENCES invitations(id),
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id)
   )`,
   `CREATE TABLE IF NOT EXISTS assessment_responses (
     assessment_id TEXT NOT NULL,
@@ -151,6 +166,15 @@ const schemaStatements = [
     FOREIGN KEY (company_id) REFERENCES companies(id),
     FOREIGN KEY (approved_by) REFERENCES users(id)
   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_single_active_super_admin ON users((1)) WHERE role = 'super_admin' AND status = 'active'`,
+  `CREATE TRIGGER IF NOT EXISTS users_super_admin_email_insert
+    BEFORE INSERT ON users
+    WHEN NEW.role = 'super_admin' AND lower(NEW.email) <> 'david.alejandro.pa@gmail.com'
+    BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
+  `CREATE TRIGGER IF NOT EXISTS users_super_admin_email_update
+    BEFORE UPDATE OF role, email ON users
+    WHEN NEW.role = 'super_admin' AND lower(NEW.email) <> 'david.alejandro.pa@gmail.com'
+    BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
   `CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -268,6 +292,25 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS send_batch_items_batch_idx ON send_batch_items(batch_id, status)`,
 ];
 
+const runtimeColumnMigrations = [
+  ['candidates', 'company_id', `ALTER TABLE candidates ADD COLUMN company_id TEXT REFERENCES companies(id)`],
+  ['candidates', 'owner_user_id', `ALTER TABLE candidates ADD COLUMN owner_user_id TEXT REFERENCES users(id)`],
+  ['invitations', 'company_id', `ALTER TABLE invitations ADD COLUMN company_id TEXT REFERENCES companies(id)`],
+  ['invitations', 'test_id', `ALTER TABLE invitations ADD COLUMN test_id TEXT REFERENCES assessment_tests(id)`],
+  ['invitations', 'list_id', `ALTER TABLE invitations ADD COLUMN list_id TEXT`],
+  ['invitations', 'batch_id', `ALTER TABLE invitations ADD COLUMN batch_id TEXT`],
+  ['invitations', 'created_by_user_id', `ALTER TABLE invitations ADD COLUMN created_by_user_id TEXT REFERENCES users(id)`],
+  ['assessments', 'test_id', `ALTER TABLE assessments ADD COLUMN test_id TEXT REFERENCES assessment_tests(id)`],
+];
+
+const postMigrationStatements = [
+  `CREATE UNIQUE INDEX IF NOT EXISTS candidates_company_email_unique ON candidates(company_id, email)`,
+  `CREATE INDEX IF NOT EXISTS candidates_company_owner_idx ON candidates(company_id, owner_user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS invitations_company_test_idx ON invitations(company_id, test_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS invitations_batch_idx ON invitations(batch_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS assessments_test_idx ON assessments(test_id, completed_at DESC)`,
+];
+
 let schemaReady = false;
 
 function json(data, status = 200, headers = {}) {
@@ -370,6 +413,20 @@ async function ensureSchema(env) {
   if (!env.DB) throw new Error('database_unavailable');
   if (schemaReady) return;
   await env.DB.batch(schemaStatements.map((statement) => env.DB.prepare(statement)));
+  for (const [table, column, statement] of runtimeColumnMigrations) {
+    const info = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+    if (!(info.results || []).some((entry) => entry.name === column)) await env.DB.prepare(statement).run();
+  }
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT OR IGNORE INTO companies (id, name, status, created_at, updated_at) VALUES ('org_legacy', 'Gazelle Platform', 'active', ?, ?)`).bind(now, now),
+    env.DB.prepare(`INSERT OR IGNORE INTO assessment_tests (id, code, slug, name_en, name_es, description_en, description_es, engine_key, version, status, estimated_minutes, item_count, created_at, updated_at) VALUES ('test_tenure_potential', 'TP-001', 'tenure-potential', 'Tenure Potential', 'Potencial de Permanencia', 'Transparent assessment of role alignment, stay intention, and work reliability.', 'Evaluacion transparente de alineacion con el rol, intencion de permanencia y confiabilidad laboral.', 'tenure_potential', '2.0.0-pilot', 'active', 15, 27, ?, ?)`).bind(now, now),
+    env.DB.prepare(`UPDATE candidates SET company_id = 'org_legacy' WHERE company_id IS NULL`),
+    env.DB.prepare(`UPDATE invitations SET company_id = 'org_legacy' WHERE company_id IS NULL`),
+    env.DB.prepare(`UPDATE invitations SET test_id = 'test_tenure_potential' WHERE test_id IS NULL`),
+    env.DB.prepare(`UPDATE assessments SET test_id = 'test_tenure_potential' WHERE test_id IS NULL`),
+  ]);
+  await env.DB.batch(postMigrationStatements.map((statement) => env.DB.prepare(statement)));
   schemaReady = true;
 }
 
