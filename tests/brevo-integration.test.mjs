@@ -32,7 +32,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -71,6 +71,12 @@ assert.deepEqual(requestBody.to, [{ email: 'candidate@example.com', name: 'Candi
 assert.equal(requestBody.headers.idempotencyKey, 'invitation-123');
 assert.equal(requestBody.headers['X-Mailin-custom'], 'invitation_id:invitation-123');
 assert.deepEqual(requestBody.tags, ['tenure-potential']);
+
+const webhook = brevo.brevoWebhookPayload(configured, 'https://assessment.example.com/api/brevo/webhook');
+assert.equal(webhook.type, 'transactional');
+assert.equal(webhook.batched, false);
+assert.deepEqual(JSON.parse(JSON.stringify(webhook.auth)), { type: 'bearer', token: env.BREVO_WEBHOOK_TOKEN });
+assert.deepEqual(Array.from(webhook.events), ['sent', 'delivered', 'hardBounce', 'softBounce', 'blocked', 'spam', 'invalid', 'deferred', 'unsubscribed']);
 
 assert.equal(brevo.normalizedBrevoEvent('hardBounce'), 'hard_bounce');
 assert.equal(brevo.normalizedBrevoEvent('softBounce'), 'soft_bounce');

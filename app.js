@@ -354,6 +354,7 @@ function renderSettings() {
           <li><strong>Add hosted runtime values.</strong><span><code>BREVO_API_KEY</code>, <code>BREVO_SENDER_EMAIL</code>, <code>BREVO_SENDER_NAME</code>, and <code>BREVO_WEBHOOK_TOKEN</code>.</span></li>
           <li><strong>Register a transactional webhook.</strong><span>Use <code>${esc(webhookUrl)}</code> with bearer authentication and the same <code>BREVO_WEBHOOK_TOKEN</code>.</span></li>
         </ol>
+        ${state.user?.role === 'super_admin' ? `<button class="button button-secondary" data-action="configure-brevo-webhook" ${!email.configured || state.busy ? 'disabled' : ''}>${icon('refresh')}Create or update webhook</button>` : ''}
         <p class="settings-link"><a href="https://app.brevo.com" target="_blank" rel="noreferrer">Open Brevo</a> · <a href="https://developers.brevo.com/docs/send-a-transactional-email" target="_blank" rel="noreferrer">Sending guide</a> · <a href="https://developers.brevo.com/docs/secured-webhooks" target="_blank" rel="noreferrer">Webhook security</a></p>
       </section>
       <section class="card settings-card"><div class="settings-title"><div><h3>GPT-5.5 analysis</h3><p>Structured bilingual recruiter narrative with evidence and output hashes.</p></div><span class="badge badge-${ai.configured ? 'teal' : 'orange'}">${ai.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'OpenAI Responses API', 'Implemented')}${settingLine('Model', ai.model || 'gpt-5.5-2026-04-23', 'Pinned')}${settingLine('Scenario prompt', ai.scenarioPromptVersion || 'scenario-v1.0.0', 'Versioned')}${settingLine('Analysis prompt', ai.analysisPromptVersion || 'analysis-v1.0.0', 'Versioned')}<div class="notice"><strong>Configuration:</strong> add <code>OPENAI_API_KEY</code> as a secret. Candidate identity and contact fields are excluded from AI evidence.</div></section>
@@ -692,6 +693,15 @@ async function testEmail() {
   finally { state.busy = false; render(); }
 }
 
+async function configureBrevoWebhook() {
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/brevo/configure-webhook', { method: 'POST', body: '{}' });
+    toast(`Brevo webhook ${response.action}: ${response.webhookId || 'configured'}`);
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
 function render() {
   if (state.runner?.mode === 'invite') {
     document.getElementById('app').innerHTML = `<main class="candidate-app">${renderRunner()}</main>`;
@@ -720,6 +730,7 @@ function bindEvents() {
     if (action === 'method') { state.view = 'reports'; state.reportTab = 'method'; render(); }
     if (action === 'confirm-import') confirmImport();
     if (action === 'test-email') testEmail();
+    if (action === 'configure-brevo-webhook') configureBrevoWebhook();
     if (action === 'generate-ai') generateAiAnalysis();
     if (action === 'download-pdf') downloadPdf();
     if (action === 'logout') signOut();

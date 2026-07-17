@@ -834,6 +834,37 @@ async function sendBrevo(env, message) {
   return { id: messageId, message: 'Brevo accepted the transactional email.' };
 }
 
+const BREVO_TRANSACTIONAL_EVENTS = Object.freeze([
+  'sent', 'delivered', 'hardBounce', 'softBounce', 'blocked', 'spam', 'invalid', 'deferred', 'unsubscribed',
+]);
+
+function brevoWebhookPayload(config, webhookUrl) {
+  return {
+    description: 'Gazelle Assessment transactional delivery events',
+    url: webhookUrl,
+    events: BREVO_TRANSACTIONAL_EVENTS,
+    type: 'transactional',
+    batched: false,
+    auth: { type: 'bearer', token: config.webhookToken },
+  };
+}
+
+async function brevoApiRequest(config, path, options = {}) {
+  const response = await fetch(`https://api.brevo.com/v3${path}`, {
+    method: options.method || 'GET',
+    headers: { accept: 'application/json', 'api-key': config.apiKey, 'content-type': 'application/json' },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error('brevo_configuration_rejected');
+    error.providerStatus = response.status;
+    error.providerMessage = cleanText(body.message || body.code || 'Brevo rejected the configuration request.', 400);
+    throw error;
+  }
+  return body;
+}
+
 function invitationCopy(candidate, locale, link) {
   const name = escapeHtml(candidate.name.split(/\s+/)[0] || candidate.name);
   const role = escapeHtml(candidate.role);
@@ -1391,6 +1422,32 @@ async function sendTestEmail(request, env, admin) {
   }
 }
 
+async function configureBrevoWebhook(request, env, user) {
+  if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can configure the provider webhook.' }, 403);
+  const config = emailConfig(env);
+  if (!config.configured) return json({ error: 'Brevo email and webhook secrets are not fully configured.', code: 'email_not_configured' }, 503);
+  const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || new URL(request.url).origin;
+  const webhookUrl = `${origin}/api/brevo/webhook`;
+  try {
+    const current = await brevoApiRequest(config, '/webhooks?type=transactional&sort=desc');
+    const existing = (current.webhooks || []).find((entry) => entry.url === webhookUrl && entry.type === 'transactional');
+    const payload = brevoWebhookPayload(config, webhookUrl);
+    let webhookId = existing?.id || null;
+    let action = 'created';
+    if (existing) {
+      await brevoApiRequest(config, `/webhooks/${encodeURIComponent(existing.id)}`, { method: 'PUT', body: payload });
+      action = 'updated';
+    } else {
+      const created = await brevoApiRequest(config, '/webhooks', { method: 'POST', body: payload });
+      webhookId = created.id || null;
+    }
+    await audit(env, user.email, 'brevo_webhook_configured', 'email_provider', String(webhookId || 'brevo'), { action, webhookUrl, events: BREVO_TRANSACTIONAL_EVENTS });
+    return json({ configured: true, action, webhookId, webhookUrl, events: BREVO_TRANSACTIONAL_EVENTS });
+  } catch (error) {
+    return json({ error: error.providerMessage || 'Brevo webhook configuration failed.', code: error.message }, error.providerStatus || 502);
+  }
+}
+
 async function regenerateAiAnalysis(env, user, assessmentId) {
   if (!openAiConfig(env).configured) return json({ error: 'OpenAI is not configured.', code: 'openai_not_configured' }, 503);
   const scope = candidateScope(user, 'c');
@@ -1824,6 +1881,7 @@ async function handleApi(request, env, context) {
   if (!user) return json({ error: 'Sign in is required.', code: 'authentication_required' }, 401, { 'set-cookie': clearSessionCookie() });
   if (url.pathname === '/api/auth/me' && request.method === 'GET') return json({ user });
   if (url.pathname === '/api/auth/password' && request.method === 'POST') return changePassword(request, env, user);
+  if (url.pathname === '/api/brevo/configure-webhook' && request.method === 'POST') return configureBrevoWebhook(request, env, user);
   if (url.pathname === '/api/health' && request.method === 'GET') {
     const email = emailConfig(env);
     const ai = openAiConfig(env);
