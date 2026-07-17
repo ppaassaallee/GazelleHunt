@@ -662,12 +662,19 @@ async function changePassword(request, env, user) {
 }
 
 function emailConfig(env) {
-  const region = String(env.MAILGUN_REGION || 'US').toUpperCase() === 'EU' ? 'EU' : 'US';
-  const domain = cleanText(env.MAILGUN_DOMAIN, 253);
-  const from = cleanText(env.MAILGUN_FROM, 320);
-  const apiKey = String(env.MAILGUN_API_KEY || '');
-  const webhookSigningKey = String(env.MAILGUN_WEBHOOK_SIGNING_KEY || '');
-  return { configured: Boolean(domain && from && apiKey && webhookSigningKey), region, domain, from, apiKey, webhookSigningKey };
+  const apiKey = String(env.BREVO_API_KEY || '');
+  const senderEmail = cleanEmail(env.BREVO_SENDER_EMAIL);
+  const senderName = cleanText(env.BREVO_SENDER_NAME, 140) || 'Gazelle Assessment';
+  const webhookToken = String(env.BREVO_WEBHOOK_TOKEN || '');
+  return {
+    configured: Boolean(apiKey && senderEmail && webhookToken.length >= 24),
+    sendingConfigured: Boolean(apiKey && senderEmail),
+    webhookConfigured: webhookToken.length >= 24,
+    senderEmail,
+    senderName,
+    apiKey,
+    webhookToken,
+  };
 }
 
 function openAiConfig(env) {
@@ -720,34 +727,36 @@ async function callOpenAiJson(env, { instructions, input, schema, schemaName, sa
   }
 }
 
-async function sendMailgun(env, message) {
+async function sendBrevo(env, message) {
   const config = emailConfig(env);
   if (!config.configured) throw new Error('email_not_configured');
-  const baseUrl = config.region === 'EU' ? 'https://api.eu.mailgun.net' : 'https://api.mailgun.net';
-  const form = new FormData();
-  form.append('from', config.from);
-  form.append('to', message.to);
-  form.append('subject', message.subject);
-  form.append('text', message.text);
-  form.append('html', message.html);
-  form.append('o:tag', cleanText(message.tag, 80) || 'tenure-potential');
-  form.append('o:tracking-opens', 'no');
-  form.append('o:tracking-clicks', 'no');
-  form.append('o:require-tls', 'yes');
-  if (message.invitationId) form.append('v:invitation_id', message.invitationId);
-  const response = await fetch(`${baseUrl}/v3/${encodeURIComponent(config.domain)}/messages`, {
+  const invitationId = cleanText(message.invitationId, 100);
+  const tag = cleanText(message.tag, 80).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'gazelle-assessment';
+  const headers = { idempotencyKey: invitationId || crypto.randomUUID() };
+  if (invitationId) headers['X-Mailin-custom'] = `invitation_id:${invitationId}`;
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
-    headers: { authorization: `Basic ${btoa(`api:${config.apiKey}`)}` },
-    body: form,
+    headers: { accept: 'application/json', 'api-key': config.apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sender: { email: config.senderEmail, name: config.senderName },
+      to: [{ email: message.to, name: cleanText(message.toName, 140) || undefined }],
+      subject: message.subject,
+      textContent: message.text,
+      htmlContent: message.html,
+      tags: [tag],
+      headers,
+    }),
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error('mailgun_rejected');
+    const error = new Error('brevo_rejected');
     error.providerStatus = response.status;
-    error.providerMessage = cleanText(body.message || body.error || 'Provider rejected the request', 300);
+    error.providerMessage = cleanText(body.message || body.code || 'Brevo rejected the request', 300);
     throw error;
   }
-  return { id: cleanText(body.id, 300), message: cleanText(body.message, 300) };
+  const messageId = cleanText(body.messageId, 300);
+  if (!messageId) throw new Error('brevo_missing_message_id');
+  return { id: messageId, message: 'Brevo accepted the transactional email.' };
 }
 
 function invitationCopy(candidate, locale, link) {
@@ -895,7 +904,7 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
   const link = `${origin}/assessment?invite=${encodeURIComponent(token)}`;
   const copy = invitationCopy(candidate, locale, link);
   try {
-    const provider = await sendMailgun(env, { to: candidate.email, ...copy, invitationId, tag: test.slug });
+    const provider = await sendBrevo(env, { to: candidate.email, toName: candidate.name, ...copy, invitationId, tag: test.slug });
     await env.DB.prepare(`UPDATE invitations SET status = ?, provider_message_id = ? WHERE id = ?`).bind('accepted', provider.id, invitationId).run();
     await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, testId: test.id, listId, batchId });
     return { invitationId, status: 'accepted', providerMessageId: provider.id, expiresAt };
@@ -914,7 +923,7 @@ async function executableTest(env, testId) {
 
 async function createInvitation(request, env, user) {
   const body = await request.json().catch(() => ({}));
-  if (!emailConfig(env).configured) return json({ error: 'Mailgun is not configured.', code: 'email_not_configured' }, 503);
+  if (!emailConfig(env).configured) return json({ error: 'Brevo transactional email is not fully configured.', code: 'email_not_configured' }, 503);
   const test = await executableTest(env, cleanText(body.testId, 100) || 'test_tenure_potential');
   if (!test) return json({ error: 'This test is not active or does not have an executable engine.', code: 'test_not_executable' }, 422);
   let candidate;
@@ -1293,16 +1302,17 @@ async function sendTestEmail(request, env, admin) {
   const to = cleanEmail(body.to || admin.email);
   if (!to) return json({ error: 'A valid recipient email is required.' }, 422);
   try {
-    const provider = await sendMailgun(env, {
+    const provider = await sendBrevo(env, {
       to,
       subject: 'Gazelle Assessment email connection test',
-      text: 'Mailgun accepted this Gazelle Assessment test message. Delivery events should be confirmed through the configured webhook.',
-      html: '<div style="font-family:Arial,sans-serif"><h1>Gazelle Assessment</h1><p>Mailgun accepted this email connection test.</p><p>Delivery events should be confirmed through the configured webhook.</p></div>',
+      text: 'Brevo accepted this Gazelle Assessment transactional email test. Delivery events should be confirmed through the authenticated webhook.',
+      html: '<div style="font-family:Arial,sans-serif"><h1>Gazelle Assessment</h1><p>Brevo accepted this transactional email test.</p><p>Delivery events should be confirmed through the authenticated webhook.</p></div>',
+      tag: 'gazelle-connection-test',
     });
-    await audit(env, admin.email, 'email_connection_tested', 'email_provider', 'mailgun', { to, providerMessageId: provider.id });
+    await audit(env, admin.email, 'email_connection_tested', 'email_provider', 'brevo', { to, providerMessageId: provider.id });
     return json({ status: 'accepted', providerMessageId: provider.id });
   } catch (error) {
-    return json({ error: error.providerMessage || 'Mailgun did not accept the test message.', code: error.message }, error.providerStatus || 502);
+    return json({ error: error.providerMessage || 'Brevo did not accept the test message.', code: error.message }, error.providerStatus || 502);
   }
 }
 
@@ -1574,7 +1584,7 @@ async function processSendBatch(env, user, batchId, origin) {
 }
 
 async function createSendBatch(request, env, user, context) {
-  if (!emailConfig(env).configured) return json({ error: 'Mailgun is not configured.', code: 'email_not_configured' }, 503);
+  if (!emailConfig(env).configured) return json({ error: 'Brevo transactional email is not fully configured.', code: 'email_not_configured' }, 503);
   const body = await request.json().catch(() => ({}));
   const listId = cleanText(body.listId, 100);
   const list = await visibleList(env, user, listId);
@@ -1662,43 +1672,66 @@ async function updateUser(request, env, user, targetUserId) {
   return listUsers(env, user);
 }
 
-async function verifyWebhookSignature(signingKey, timestamp, token, signature) {
-  if (!signingKey || !timestamp || !token || !signature) return false;
-  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 900) return false;
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(signingKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const digest = bytesToHex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}${token}`)));
-  if (digest.length !== signature.length) return false;
-  let mismatch = 0;
-  for (let index = 0; index < digest.length; index += 1) mismatch |= digest.charCodeAt(index) ^ signature.charCodeAt(index);
-  return mismatch === 0;
+function normalizedBrevoEvent(value) {
+  return cleanText(value, 80).replace(/([a-z])([A-Z])/g, '$1_$2').replace(/[ -]+/g, '_').toLowerCase() || 'unknown';
 }
 
-async function handleMailgunWebhook(request, env) {
+function brevoInvitationId(eventData) {
+  const custom = cleanText(eventData['X-Mailin-custom'] || eventData['x-mailin-custom'], 500);
+  return cleanText(custom.match(/(?:^|\|)invitation_id:([^|]+)/)?.[1], 100) || null;
+}
+
+function brevoInvitationStatus(eventType) {
+  if (['request', 'sent'].includes(eventType)) return 'accepted';
+  if (eventType === 'delivered') return 'delivered';
+  if (['deferred', 'soft_bounce'].includes(eventType)) return 'deferred';
+  if (eventType === 'hard_bounce') return 'hard_bounce';
+  if (eventType === 'invalid_email') return 'invalid_email';
+  if (eventType === 'spam') return 'complained';
+  if (['blocked', 'unsubscribed', 'error'].includes(eventType)) return eventType;
+  return null;
+}
+
+async function handleBrevoWebhook(request, env) {
+  const config = emailConfig(env);
+  if (!config.webhookConfigured) return json({ error: 'Brevo webhook authentication is not configured.' }, 503);
+  const authorization = String(request.headers.get('authorization') || '');
+  if (!constantTimeEqual(authorization, `Bearer ${config.webhookToken}`)) return json({ error: 'Invalid webhook authorization.' }, 401);
   const body = await request.json().catch(() => null);
   if (!body) return json({ error: 'Invalid webhook payload.' }, 400);
-  const signature = body.signature || {};
-  const valid = await verifyWebhookSignature(String(env.MAILGUN_WEBHOOK_SIGNING_KEY || ''), signature.timestamp, signature.token, signature.signature);
-  if (!valid) return json({ error: 'Invalid webhook signature.' }, 401);
+  const events = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [body];
+  if (!events.length || events.length > 1000) return json({ error: 'Invalid webhook event count.' }, 422);
   await ensureSchema(env);
-  const eventData = body['event-data'] || {};
-  const variables = eventData['user-variables'] || {};
-  const invitationId = cleanText(variables.invitation_id, 100) || null;
-  const eventType = cleanText(eventData.event, 80) || 'unknown';
-  const messageId = cleanText(eventData.message?.headers?.['message-id'], 300) || null;
-  const severity = cleanText(eventData.severity, 80) || null;
-  const createdAt = new Date().toISOString();
-  await env.DB.prepare(`INSERT INTO email_events (id, invitation_id, provider_message_id, event_type, severity, provider_timestamp, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(crypto.randomUUID(), invitationId, messageId, eventType, severity, String(eventData.timestamp || ''), JSON.stringify(eventData), createdAt).run();
-  if (invitationId && eventType === 'accepted') await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('accepted', invitationId).run();
-  if (invitationId && eventType === 'delivered') await env.DB.prepare(`UPDATE invitations SET status = ?, delivered_at = ? WHERE id = ?`).bind('delivered', createdAt, invitationId).run();
-  if (invitationId && eventType === 'temporary_fail') await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('deferred', invitationId).run();
-  if (invitationId && ['failed', 'permanent_fail', 'complained', 'unsubscribed'].includes(eventType)) await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind(eventType, invitationId).run();
-  return json({ received: true });
+  let received = 0;
+  for (const eventData of events) {
+    if (!eventData || typeof eventData !== 'object') continue;
+    const eventType = normalizedBrevoEvent(eventData.event);
+    const rawMessageId = cleanText(eventData['message-id'] || eventData.messageId, 300);
+    const normalizedMessageId = rawMessageId.replace(/^<|>$/g, '');
+    let invitationId = brevoInvitationId(eventData);
+    if (!invitationId && normalizedMessageId) {
+      const invitation = await env.DB.prepare(`SELECT id FROM invitations WHERE replace(replace(provider_message_id, '<', ''), '>', '') = ? ORDER BY created_at DESC LIMIT 1`).bind(normalizedMessageId).first();
+      invitationId = invitation?.id || null;
+    }
+    const severity = cleanText(eventData.reason || eventData.code, 160) || null;
+    const providerTimestamp = String(eventData.ts_event || eventData.ts_epoch || eventData.ts || eventData.date || '');
+    const createdAt = new Date().toISOString();
+    await env.DB.prepare(`INSERT INTO email_events (id, invitation_id, provider_message_id, event_type, severity, provider_timestamp, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), invitationId, rawMessageId || null, eventType, severity, providerTimestamp, JSON.stringify(eventData), createdAt).run();
+    const invitationStatus = brevoInvitationStatus(eventType);
+    if (invitationId && invitationStatus === 'delivered') {
+      await env.DB.prepare(`UPDATE invitations SET status = ?, delivered_at = ? WHERE id = ?`).bind(invitationStatus, createdAt, invitationId).run();
+    } else if (invitationId && invitationStatus) {
+      await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind(invitationStatus, invitationId).run();
+    }
+    received += 1;
+  }
+  return json({ received: true, eventCount: received });
 }
 
 async function handleApi(request, env, context) {
   const url = new URL(request.url);
-  if (url.pathname === '/api/mailgun/webhook' && request.method === 'POST') return handleMailgunWebhook(request, env);
+  if (url.pathname === '/api/brevo/webhook' && request.method === 'POST') return handleBrevoWebhook(request, env);
   if (request.method !== 'GET' && !sameOrigin(request)) return json({ error: 'Invalid request origin.' }, 403);
   await ensureSchema(env);
   if (url.pathname === '/api/auth/bootstrap-status' && request.method === 'GET') {
@@ -1721,7 +1754,14 @@ async function handleApi(request, env, context) {
     const ai = openAiConfig(env);
     return json({
       database: true,
-      email: { configured: email.configured, provider: 'Mailgun', region: email.region, domain: email.domain || null, from: email.from || null },
+      email: {
+        configured: email.configured,
+        sendingConfigured: email.sendingConfigured,
+        webhookConfigured: email.webhookConfigured,
+        provider: 'Brevo',
+        senderEmail: email.senderEmail || null,
+        senderName: email.senderName,
+      },
       ai: { configured: ai.configured, provider: 'OpenAI', model: ai.model, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
       assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
       modelVersion: GazelleAssessmentEngine.MODEL_VERSION,

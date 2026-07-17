@@ -51,7 +51,7 @@ const context = {
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
       if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
-      return { database: true, email: { configured: false, provider: 'Mailgun', region: 'US' }, ai: { configured: true, model: 'gpt-5.5-2026-04-23' } };
+      return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, ai: { configured: true, model: 'gpt-5.5-2026-04-23' } };
     },
   };
   },
@@ -108,10 +108,10 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260717\.7/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260717\.7/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260717\.7/);
-assert.match(indexSource, /pdf-report\.js\?v=20260717\.7/);
+assert.match(indexSource, /app\.js\?v=20260717\.8/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260717\.8/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260717\.8/);
+assert.match(indexSource, /pdf-report\.js\?v=20260717\.8/);
 assert.match(serverSource, /\/assessment\?invite=/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);
@@ -119,7 +119,8 @@ assert.match(serverSource, /ai-analysis/);
 assert.match(serverSource, /\/api\/preview\/ai-analysis/);
 assert.match(serverSource, /assetHeaders\('text\/html; charset=utf-8', 'no-cache', true\)/);
 assert.match(serverSource, /assessments_invitation_unique/);
-assert.match(serverSource, /temporary_fail/);
+assert.match(serverSource, /soft_bounce/);
+assert.match(serverSource, /hard_bounce/);
 assert.match(serverSource, /A valid experience branch is required/);
 assert.match(appSource, /Create your account/);
 assert.match(appSource, /Activate super administrator/);
@@ -142,15 +143,22 @@ for (const securityControl of [
 ]) assert.match(serverSource, new RegExp(securityControl));
 
 for (const variable of [
-  'MAILGUN_API_KEY',
-  'MAILGUN_DOMAIN',
-  'MAILGUN_FROM',
-  'MAILGUN_REGION',
-  'MAILGUN_WEBHOOK_SIGNING_KEY',
+  'BREVO_API_KEY',
+  'BREVO_SENDER_EMAIL',
+  'BREVO_SENDER_NAME',
+  'BREVO_WEBHOOK_TOKEN',
 ]) {
   assert.match(serverSource, new RegExp(variable));
   assert.match(readmeSource, new RegExp(variable));
 }
+
+for (const providerControl of [
+  '/api/brevo/webhook', 'https://api.brevo.com/v3/smtp/email',
+  'idempotencyKey', 'X-Mailin-custom', 'Bearer',
+]) assert.match(serverSource, new RegExp(providerControl.replaceAll('/', '\\/')));
+
+assert.doesNotMatch(`${appSource}\n${serverSource}\n${readmeSource}`, /mailgun/i);
+assert.doesNotMatch(serverSource, /MAILGUN_/);
 
 for (const variable of ['OPENAI_API_KEY', 'OPENAI_MODEL']) {
   assert.match(serverSource, new RegExp(variable));

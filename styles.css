@@ -566,9 +566,9 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .settings-title p { margin: 0; color: var(--muted); font-size: 12px; }
 .email-test { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .inline-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.setup-list { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: mailgun-setup; }
-.setup-list li { position: relative; padding: 0 0 0 38px; counter-increment: mailgun-setup; }
-.setup-list li::before { content: counter(mailgun-setup); position: absolute; left: 0; top: 0; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: var(--orange-soft); color: var(--orange-dark); font-size: 12px; font-weight: 850; }
+.setup-list { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: brevo-setup; }
+.setup-list li { position: relative; padding: 0 0 0 38px; counter-increment: brevo-setup; }
+.setup-list li::before { content: counter(brevo-setup); position: absolute; left: 0; top: 0; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: var(--orange-soft); color: var(--orange-dark); font-size: 12px; font-weight: 850; }
 .setup-list strong,
 .setup-list span { display: block; }
 .setup-list strong { font-size: 13px; }
