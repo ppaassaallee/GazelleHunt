@@ -124,6 +124,136 @@ const schemaStatements = [
     updated_at TEXT NOT NULL,
     FOREIGN KEY (assessment_id) REFERENCES assessments(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS companies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    company_id TEXT,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    password_iterations INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL,
+    requested_company_name TEXT,
+    approved_by TEXT,
+    approved_at TEXT,
+    last_login_at TEXT,
+    password_changed_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (approved_by) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    ip_hash TEXT,
+    user_agent_hash TEXT,
+    revoked_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS auth_rate_limits (
+    rate_key TEXT NOT NULL,
+    action TEXT NOT NULL,
+    window_started_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL,
+    PRIMARY KEY (rate_key, action)
+  )`,
+  `CREATE TABLE IF NOT EXISTS assessment_tests (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    slug TEXT NOT NULL UNIQUE,
+    name_en TEXT NOT NULL,
+    name_es TEXT NOT NULL,
+    description_en TEXT NOT NULL,
+    description_es TEXT NOT NULL,
+    engine_key TEXT NOT NULL,
+    version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    estimated_minutes INTEGER NOT NULL,
+    item_count INTEGER NOT NULL,
+    created_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_lists (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (owner_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_list_members (
+    list_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    added_by_user_id TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (list_id, candidate_id),
+    FOREIGN KEY (list_id) REFERENCES candidate_lists(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (added_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_list_tests (
+    list_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    added_by_user_id TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (list_id, test_id),
+    FOREIGN KEY (list_id) REFERENCES candidate_lists(id) ON DELETE CASCADE,
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id),
+    FOREIGN KEY (added_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS send_batches (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    list_id TEXT NOT NULL,
+    created_by_user_id TEXT NOT NULL,
+    locale TEXT NOT NULL,
+    status TEXT NOT NULL,
+    total_count INTEGER NOT NULL,
+    queued_count INTEGER NOT NULL,
+    accepted_count INTEGER NOT NULL,
+    failed_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (list_id) REFERENCES candidate_lists(id),
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS send_batch_items (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    invitation_id TEXT,
+    status TEXT NOT NULL,
+    provider_message_id TEXT,
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (batch_id, candidate_id, test_id),
+    FOREIGN KEY (batch_id) REFERENCES send_batches(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id),
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id),
+    FOREIGN KEY (invitation_id) REFERENCES invitations(id)
+  )`,
   `CREATE INDEX IF NOT EXISTS invitations_candidate_idx ON invitations(candidate_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessments_candidate_idx ON assessments(candidate_id, completed_at DESC)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS assessments_invitation_unique ON assessments(invitation_id) WHERE invitation_id IS NOT NULL`,
@@ -131,6 +261,11 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS email_invitation_idx ON email_events(invitation_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS scenario_invitation_idx ON invitation_scenarios(invitation_id, question_order)`,
   `CREATE INDEX IF NOT EXISTS scenario_response_assessment_idx ON assessment_scenario_responses(assessment_id)`,
+  `CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS candidate_lists_scope_idx ON candidate_lists(company_id, owner_user_id, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS candidate_list_members_candidate_idx ON candidate_list_members(candidate_id, list_id)`,
+  `CREATE INDEX IF NOT EXISTS send_batches_scope_idx ON send_batches(company_id, created_by_user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS send_batch_items_batch_idx ON send_batch_items(batch_id, status)`,
 ];
 
 let schemaReady = false;
@@ -138,8 +273,31 @@ let schemaReady = false;
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+      'referrer-policy': 'no-referrer',
+      'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+      'strict-transport-security': 'max-age=31536000; includeSubDomains',
+      ...headers,
+    },
   });
+}
+
+function assetHeaders(contentType, cacheControl = 'no-cache', html = false) {
+  const headers = {
+    'content-type': contentType,
+    'cache-control': cacheControl,
+    'x-content-type-options': 'nosniff',
+    'x-frame-options': 'DENY',
+    'referrer-policy': 'strict-origin-when-cross-origin',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains',
+  };
+  if (html) headers['content-security-policy'] = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'";
+  return headers;
 }
 
 function cleanText(value, max = 200) {
@@ -208,15 +366,6 @@ function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' })[character]);
 }
 
-function adminEmail(request) {
-  return cleanEmail(request.headers.get('oai-authenticated-user-email'));
-}
-
-function requireAdmin(request) {
-  const email = adminEmail(request);
-  return email ? { email } : null;
-}
-
 async function ensureSchema(env) {
   if (!env.DB) throw new Error('database_unavailable');
   if (schemaReady) return;
@@ -235,6 +384,281 @@ async function sha256(value) {
 function randomToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+const SESSION_COOKIE = '__Host-gz_session';
+const PASSWORD_ITERATIONS = 600000;
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const OWNER_EMAIL = 'david.alejandro.pa@gmail.com';
+const commonPasswords = new Set([
+  'password', 'password123', '12345678', '123456789', 'qwerty123', 'letmein123',
+  'admin123', 'welcome123', 'contraseña', 'contrasena', 'gazelle123',
+]);
+
+function base64Url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function bytesFromBase64Url(value) {
+  const padded = String(value).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((String(value).length + 3) % 4);
+  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+}
+
+function constantTimeEqual(left, right) {
+  const a = typeof left === 'string' ? new TextEncoder().encode(left) : left;
+  const b = typeof right === 'string' ? new TextEncoder().encode(right) : right;
+  let mismatch = a.length ^ b.length;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) mismatch |= (a[index] || 0) ^ (b[index] || 0);
+  return mismatch === 0;
+}
+
+function authPepper(env) {
+  const value = String(env.AUTH_PEPPER || '');
+  if (value.length < 32) throw new Error('auth_not_configured');
+  return value;
+}
+
+function validatePassword(password) {
+  const value = String(password || '');
+  if (value.length < 12) return 'Use at least 12 characters.';
+  if (value.length > 128) return 'Use no more than 128 characters.';
+  if (commonPasswords.has(value.toLowerCase())) return 'Choose a less common password.';
+  return '';
+}
+
+async function derivePassword(password, salt, iterations, pepper) {
+  const material = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(`${password}\u0000${pepper}`),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, material, 256));
+}
+
+async function passwordRecord(password, env) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await derivePassword(password, salt, PASSWORD_ITERATIONS, authPepper(env));
+  return { hash: base64Url(hash), salt: base64Url(salt), iterations: PASSWORD_ITERATIONS };
+}
+
+async function verifyPassword(password, user, env) {
+  const actual = await derivePassword(password, bytesFromBase64Url(user.password_salt), Number(user.password_iterations), authPepper(env));
+  return constantTimeEqual(actual, bytesFromBase64Url(user.password_hash));
+}
+
+function cookieValue(request, name) {
+  const cookies = String(request.headers.get('cookie') || '').split(';');
+  for (const cookie of cookies) {
+    const [key, ...parts] = cookie.trim().split('=');
+    if (key === name) return decodeURIComponent(parts.join('='));
+  }
+  return '';
+}
+
+function sessionCookie(token, expiresAt) {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Expires=${new Date(expiresAt).toUTCString()}; HttpOnly; Secure; SameSite=Strict`;
+}
+
+function clearSessionCookie() {
+  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`;
+}
+
+function requestIp(request) {
+  return cleanText(request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown', 100);
+}
+
+async function rateLimit(env, request, action, identity, limit, windowSeconds) {
+  const rateKey = await sha256(`${requestIp(request)}|${cleanText(identity, 254)}`);
+  const now = Math.floor(Date.now() / 1000);
+  const row = await env.DB.prepare(`SELECT window_started_at, attempts FROM auth_rate_limits WHERE rate_key = ? AND action = ?`).bind(rateKey, action).first();
+  if (!row || now - Number(row.window_started_at) >= windowSeconds) {
+    await env.DB.prepare(`INSERT INTO auth_rate_limits (rate_key, action, window_started_at, attempts) VALUES (?, ?, ?, 1) ON CONFLICT(rate_key, action) DO UPDATE SET window_started_at = excluded.window_started_at, attempts = 1`)
+      .bind(rateKey, action, now).run();
+    return true;
+  }
+  if (Number(row.attempts) >= limit) return false;
+  await env.DB.prepare(`UPDATE auth_rate_limits SET attempts = attempts + 1 WHERE rate_key = ? AND action = ?`).bind(rateKey, action).run();
+  return true;
+}
+
+function sameOrigin(request) {
+  const origin = request.headers.get('origin');
+  if (!origin) return true;
+  try { return new URL(origin).origin === new URL(request.url).origin; } catch { return false; }
+}
+
+async function sessionTokenHash(token, env) {
+  return sha256(`${token}:${authPepper(env)}`);
+}
+
+async function createSession(request, env, userId) {
+  const token = randomToken();
+  const tokenHash = await sessionTokenHash(token, env);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
+  const ipHash = await sha256(`${requestIp(request)}:${authPepper(env)}`);
+  const agentHash = await sha256(`${cleanText(request.headers.get('user-agent'), 500)}:${authPepper(env)}`);
+  await env.DB.prepare(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen_at, ip_hash, user_agent_hash) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(tokenHash, userId, now.toISOString(), expiresAt.toISOString(), now.toISOString(), ipHash, agentHash).run();
+  return { token, expiresAt };
+}
+
+function publicUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    status: row.status,
+    companyId: row.company_id,
+    companyName: row.company_name || null,
+    requestedCompanyName: row.requested_company_name || null,
+  };
+}
+
+async function authenticatedUser(request, env) {
+  const token = cookieValue(request, SESSION_COOKIE);
+  if (!token) return null;
+  const tokenHash = await sessionTokenHash(token, env);
+  const row = await env.DB.prepare(`
+    SELECT u.*, c.name AS company_name, s.token_hash AS session_token_hash, s.expires_at AS session_expires_at
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    LEFT JOIN companies c ON c.id = u.company_id
+    WHERE s.token_hash = ? AND s.revoked_at IS NULL
+  `).bind(tokenHash).first();
+  if (!row || row.status !== 'active' || new Date(row.session_expires_at).getTime() <= Date.now()) return null;
+  await env.DB.prepare(`UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?`).bind(new Date().toISOString(), tokenHash).run();
+  return { ...publicUser(row), sessionTokenHash: tokenHash };
+}
+
+function isSuperAdmin(user) {
+  return user?.status === 'active' && user.role === 'super_admin' && user.email === OWNER_EMAIL;
+}
+
+function candidateScope(user, alias = 'c') {
+  if (isSuperAdmin(user)) return { sql: '1 = 1', bindings: [] };
+  if (user.role === 'admin') return { sql: `${alias}.company_id = ?`, bindings: [user.companyId] };
+  return { sql: `${alias}.owner_user_id = ?`, bindings: [user.id] };
+}
+
+function listScope(user, alias = 'l') {
+  if (isSuperAdmin(user)) return { sql: '1 = 1', bindings: [] };
+  if (user.role === 'admin') return { sql: `${alias}.company_id = ?`, bindings: [user.companyId] };
+  return { sql: `${alias}.owner_user_id = ?`, bindings: [user.id] };
+}
+
+async function signUp(request, env) {
+  if (!sameOrigin(request)) return json({ error: 'Invalid request origin.' }, 403);
+  const body = await request.json().catch(() => ({}));
+  const email = cleanEmail(body.email);
+  const name = cleanText(body.name, 140);
+  const requestedCompanyName = cleanText(body.companyName, 140);
+  const password = String(body.password || '');
+  if (!await rateLimit(env, request, 'signup', email || 'invalid', 8, 60 * 60)) return json({ error: 'Too many registration attempts. Try again later.', code: 'rate_limited' }, 429);
+  if (!email || !name) return json({ error: 'A valid name and email are required.' }, 422);
+  const passwordError = validatePassword(password);
+  if (passwordError) return json({ error: passwordError, code: 'weak_password' }, 422);
+  const existing = await env.DB.prepare(`SELECT id, status FROM users WHERE email = ? COLLATE NOCASE`).bind(email).first();
+  if (existing) return json({ error: 'An account already exists for this email.', code: 'account_exists' }, 409);
+
+  const isOwnerBootstrap = email === OWNER_EMAIL;
+  const currentSuperAdmin = await env.DB.prepare(`SELECT id FROM users WHERE role = 'super_admin' AND status = 'active'`).first();
+  if (isOwnerBootstrap && currentSuperAdmin) return json({ error: 'The super administrator account is already active.', code: 'owner_already_active' }, 409);
+  if (isOwnerBootstrap) {
+    const configuredOwner = cleanEmail(env.SUPER_ADMIN_EMAIL);
+    const configuredToken = String(env.SUPER_ADMIN_BOOTSTRAP_TOKEN || '');
+    if (configuredOwner !== OWNER_EMAIL || configuredToken.length < 24 || !constantTimeEqual(String(body.bootstrapToken || ''), configuredToken)) {
+      return json({ error: 'The owner activation key is invalid.', code: 'invalid_owner_activation' }, 403);
+    }
+  } else if (!requestedCompanyName) {
+    return json({ error: 'Company name is required.' }, 422);
+  }
+
+  const passwordData = await passwordRecord(password, env);
+  const userId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const companyId = isOwnerBootstrap ? 'org_legacy' : null;
+  const role = isOwnerBootstrap ? 'super_admin' : 'recruiter';
+  const status = isOwnerBootstrap ? 'active' : 'pending';
+  await env.DB.prepare(`
+    INSERT INTO users (id, company_id, email, name, password_hash, password_salt, password_iterations, role, status, requested_company_name, approved_by, approved_at, password_changed_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    userId, companyId, email, name, passwordData.hash, passwordData.salt, passwordData.iterations, role, status,
+    requestedCompanyName || null, isOwnerBootstrap ? userId : null, isOwnerBootstrap ? now : null, now, now, now,
+  ).run();
+
+  if (isOwnerBootstrap) {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE candidates SET owner_user_id = ? WHERE company_id = ? AND owner_user_id IS NULL`).bind(userId, companyId),
+      env.DB.prepare(`UPDATE invitations SET created_by_user_id = ? WHERE company_id = ? AND created_by_user_id IS NULL`).bind(userId, companyId),
+    ]);
+    const session = await createSession(request, env, userId);
+    await audit(env, email, 'super_admin_bootstrapped', 'user', userId, { companyId });
+    return json({ user: { id: userId, email, name, role, status, companyId, companyName: 'Gazelle Platform' } }, 201, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
+  }
+
+  await audit(env, email, 'user_registration_requested', 'user', userId, { requestedCompanyName });
+  return json({ status: 'pending', message: 'Your account is awaiting approval by Alejandro Pascual.' }, 202);
+}
+
+async function logIn(request, env) {
+  if (!sameOrigin(request)) return json({ error: 'Invalid request origin.' }, 403);
+  const body = await request.json().catch(() => ({}));
+  const email = cleanEmail(body.email);
+  const password = String(body.password || '');
+  if (!await rateLimit(env, request, 'login', email || 'invalid', 6, 15 * 60)) return json({ error: 'Too many sign-in attempts. Try again later.', code: 'rate_limited' }, 429);
+  const user = email ? await env.DB.prepare(`SELECT * FROM users WHERE email = ? COLLATE NOCASE`).bind(email).first() : null;
+  let valid = false;
+  if (user && password) valid = await verifyPassword(password, user, env);
+  else await derivePassword(password || 'invalid', new Uint8Array(16), PASSWORD_ITERATIONS, authPepper(env));
+  if (!valid) return json({ error: 'Email or password is incorrect.', code: 'invalid_credentials' }, 401);
+  if (user.status !== 'active') {
+    const message = user.status === 'pending' ? 'Your account is awaiting approval by Alejandro Pascual.' : 'This account is not active.';
+    return json({ error: message, code: `account_${user.status}` }, 403);
+  }
+  if (user.role === 'super_admin' && user.email !== OWNER_EMAIL) return json({ error: 'This account has an invalid role assignment.' }, 403);
+  const session = await createSession(request, env, user.id);
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?`).bind(now, now, user.id),
+    env.DB.prepare(`DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL`).bind(now),
+  ]);
+  await audit(env, user.email, 'user_signed_in', 'user', user.id, {});
+  const company = user.company_id ? await env.DB.prepare(`SELECT name FROM companies WHERE id = ?`).bind(user.company_id).first() : null;
+  return json({ user: publicUser({ ...user, company_name: company?.name || null }) }, 200, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
+}
+
+async function logOut(request, env) {
+  if (!sameOrigin(request)) return json({ error: 'Invalid request origin.' }, 403);
+  const token = cookieValue(request, SESSION_COOKIE);
+  if (token) {
+    const tokenHash = await sessionTokenHash(token, env);
+    await env.DB.prepare(`UPDATE sessions SET revoked_at = ? WHERE token_hash = ?`).bind(new Date().toISOString(), tokenHash).run();
+  }
+  return json({ signedOut: true }, 200, { 'set-cookie': clearSessionCookie() });
+}
+
+async function changePassword(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const currentPassword = String(body.currentPassword || '');
+  const newPassword = String(body.newPassword || '');
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) return json({ error: passwordError, code: 'weak_password' }, 422);
+  const stored = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(user.id).first();
+  if (!stored || !await verifyPassword(currentPassword, stored, env)) return json({ error: 'Current password is incorrect.', code: 'invalid_credentials' }, 401);
+  const passwordData = await passwordRecord(newPassword, env);
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ?, password_changed_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(passwordData.hash, passwordData.salt, passwordData.iterations, now, now, user.id),
+    env.DB.prepare(`UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND token_hash <> ?`).bind(now, user.id, user.sessionTokenHash),
+  ]);
+  await audit(env, user.email, 'password_changed', 'user', user.id, {});
+  return json({ changed: true });
 }
 
 function emailConfig(env) {
@@ -306,7 +730,7 @@ async function sendMailgun(env, message) {
   form.append('subject', message.subject);
   form.append('text', message.text);
   form.append('html', message.html);
-  form.append('o:tag', 'tenure-potential');
+  form.append('o:tag', cleanText(message.tag, 80) || 'tenure-potential');
   form.append('o:tracking-opens', 'no');
   form.append('o:tracking-clicks', 'no');
   form.append('o:require-tls', 'yes');
@@ -350,7 +774,8 @@ async function audit(env, actor, type, entityType, entityId, payload) {
     .run();
 }
 
-async function listCandidates(env) {
+async function listCandidates(env, user) {
+  const scope = candidateScope(user);
   const result = await env.DB.prepare(`
     WITH latest_invitation AS (
       SELECT *, ROW_NUMBER() OVER (PARTITION BY candidate_id ORDER BY created_at DESC) AS row_number
@@ -359,8 +784,11 @@ async function listCandidates(env) {
       SELECT *, ROW_NUMBER() OVER (PARTITION BY candidate_id ORDER BY completed_at DESC) AS row_number
       FROM assessments
     )
-    SELECT c.id, c.name, c.email, c.phone, c.role, c.site, c.created_at, c.updated_at,
+    SELECT c.id, c.company_id, c.owner_user_id, c.name, c.email, c.phone, c.role, c.site, c.created_at, c.updated_at,
+      company.name AS company_name, owner.name AS owner_name,
+      (SELECT COUNT(*) FROM candidate_list_members clm WHERE clm.candidate_id = c.id) AS list_count,
       i.id AS invitation_id, i.locale AS invitation_locale, i.status AS invitation_status, i.provider_message_id,
+      i.test_id AS invitation_test_id, invitation_test.name_en AS invitation_test_name,
       i.created_at AS invitation_created_at, i.delivered_at, i.completed_at AS invitation_completed_at,
       a.id AS assessment_id, a.assessment_version, a.model_version, a.model_status, a.locale AS assessment_locale,
       a.experience_branch, a.completed_at AS assessment_completed_at, a.duration_ms, a.potential_index,
@@ -372,11 +800,15 @@ async function listCandidates(env) {
       ai.evidence_claims_json AS ai_evidence_claims_json, ai.limitations_json AS ai_limitations_json,
       ai.error_code AS ai_error_code, ai.updated_at AS ai_analysis_updated_at
     FROM candidates c
+    JOIN companies company ON company.id = c.company_id
+    LEFT JOIN users owner ON owner.id = c.owner_user_id
     LEFT JOIN latest_invitation i ON i.candidate_id = c.id AND i.row_number = 1
+    LEFT JOIN assessment_tests invitation_test ON invitation_test.id = i.test_id
     LEFT JOIN latest_assessment a ON a.candidate_id = c.id AND a.row_number = 1
     LEFT JOIN ai_analyses ai ON ai.assessment_id = a.id
+    WHERE ${scope.sql}
     ORDER BY c.created_at DESC
-  `).all();
+  `).bind(...scope.bindings).all();
   const rows = (result.results || []).map((row) => ({
     ...row,
     support_profile: row.support_profile_json ? JSON.parse(row.support_profile_json) : null,
@@ -419,10 +851,14 @@ async function listCandidates(env) {
   return rows;
 }
 
-async function importCandidates(request, env, admin) {
+async function importCandidates(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const candidates = Array.isArray(body.candidates) ? body.candidates.slice(0, 500) : [];
   if (!candidates.length) return json({ error: 'No valid candidate rows supplied.' }, 400);
+  const companyId = isSuperAdmin(user) ? cleanText(body.companyId, 100) || user.companyId : user.companyId;
+  if (!companyId) return json({ error: 'A company is required before importing candidates.' }, 422);
+  const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
+  if (!company) return json({ error: 'Company not found.' }, 404);
   const now = new Date().toISOString();
   const statements = [];
   let accepted = 0;
@@ -433,53 +869,80 @@ async function importCandidates(request, env, admin) {
     if (!email || !name || !role) continue;
     accepted += 1;
     statements.push(env.DB.prepare(`
-      INSERT INTO candidates (id, email, name, phone, role, site, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(email) DO UPDATE SET name = excluded.name, phone = excluded.phone, role = excluded.role, site = excluded.site, updated_at = excluded.updated_at
-    `).bind(crypto.randomUUID(), email, name, cleanText(input.phone, 40), role, cleanText(input.site, 120), now, now));
+      INSERT INTO candidates (id, company_id, owner_user_id, email, name, phone, role, site, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(company_id, email) DO UPDATE SET name = excluded.name, phone = excluded.phone, role = excluded.role, site = excluded.site,
+        owner_user_id = CASE WHEN candidates.owner_user_id IS NULL THEN excluded.owner_user_id ELSE candidates.owner_user_id END,
+        updated_at = excluded.updated_at
+    `).bind(crypto.randomUUID(), companyId, user.id, email, name, cleanText(input.phone, 40), role, cleanText(input.site, 120), now, now));
   }
   if (!statements.length) return json({ error: 'Each row needs a valid name, email, and role.' }, 422);
   await env.DB.batch(statements);
-  await audit(env, admin.email, 'candidates_imported', 'candidate_batch', crypto.randomUUID(), { accepted });
-  return json({ accepted, candidates: await listCandidates(env) }, 201);
+  await audit(env, user.email, 'candidates_imported', 'candidate_batch', crypto.randomUUID(), { accepted, companyId });
+  return json({ accepted, candidates: await listCandidates(env, user) }, 201);
 }
 
-async function createInvitation(request, env, admin) {
-  const body = await request.json().catch(() => ({}));
-  const candidateInput = body.candidate || {};
-  const email = cleanEmail(candidateInput.email);
-  const name = cleanText(candidateInput.name, 140);
-  const role = cleanText(candidateInput.role, 140);
-  const locale = body.locale === 'es' ? 'es' : 'en';
-  if (!email || !name || !role) return json({ error: 'A valid candidate name, email, and role are required.' }, 422);
-  if (!emailConfig(env).configured) return json({ error: 'Mailgun is not configured.', code: 'email_not_configured' }, 503);
-
+async function sendInvitationForCandidate({ env, user, candidate, test, locale, origin, listId = null, batchId = null }) {
   const now = new Date();
-  const candidateId = crypto.randomUUID();
-  await env.DB.prepare(`
-    INSERT INTO candidates (id, email, name, phone, role, site, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(email) DO UPDATE SET name = excluded.name, phone = excluded.phone, role = excluded.role, site = excluded.site, updated_at = excluded.updated_at
-  `).bind(candidateId, email, name, cleanText(candidateInput.phone, 40), role, cleanText(candidateInput.site, 120), now.toISOString(), now.toISOString()).run();
-  const candidateRow = await env.DB.prepare(`SELECT * FROM candidates WHERE email = ?`).bind(email).first();
   const token = randomToken();
   const tokenHash = await sha256(token);
   const invitationId = crypto.randomUUID();
   const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
-  await env.DB.prepare(`INSERT INTO invitations (id, candidate_id, token_hash, locale, status, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(invitationId, candidateRow.id, tokenHash, locale, 'sending', admin.email, now.toISOString(), expiresAt).run();
-
-  const origin = cleanText(env.APP_BASE_URL, 500) || new URL(request.url).origin;
+  await env.DB.prepare(`
+    INSERT INTO invitations (id, candidate_id, token_hash, locale, status, created_by, created_at, expires_at, company_id, test_id, list_id, batch_id, created_by_user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(invitationId, candidate.id, tokenHash, locale, 'sending', user.email, now.toISOString(), expiresAt, candidate.company_id, test.id, listId, batchId, user.id).run();
   const link = `${origin}/assessment?invite=${encodeURIComponent(token)}`;
-  const copy = invitationCopy(candidateRow, locale, link);
+  const copy = invitationCopy(candidate, locale, link);
   try {
-    const provider = await sendMailgun(env, { to: email, ...copy, invitationId });
+    const provider = await sendMailgun(env, { to: candidate.email, ...copy, invitationId, tag: test.slug });
     await env.DB.prepare(`UPDATE invitations SET status = ?, provider_message_id = ? WHERE id = ?`).bind('accepted', provider.id, invitationId).run();
-    await audit(env, admin.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION });
-    return json({ invitationId, status: 'accepted', providerMessageId: provider.id, expiresAt }, 201);
+    await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, testId: test.id, listId, batchId });
+    return { invitationId, status: 'accepted', providerMessageId: provider.id, expiresAt };
   } catch (error) {
     await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('failed', invitationId).run();
-    await audit(env, admin.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null });
+    await audit(env, user.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null, testId: test.id, listId, batchId });
+    error.invitationId = invitationId;
+    throw error;
+  }
+}
+
+async function executableTest(env, testId) {
+  const test = await env.DB.prepare(`SELECT * FROM assessment_tests WHERE id = ? AND status = 'active'`).bind(testId || 'test_tenure_potential').first();
+  return test?.engine_key === 'tenure_potential' ? test : null;
+}
+
+async function createInvitation(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  if (!emailConfig(env).configured) return json({ error: 'Mailgun is not configured.', code: 'email_not_configured' }, 503);
+  const test = await executableTest(env, cleanText(body.testId, 100) || 'test_tenure_potential');
+  if (!test) return json({ error: 'This test is not active or does not have an executable engine.', code: 'test_not_executable' }, 422);
+  let candidate;
+  const candidateId = cleanText(body.candidateId, 100);
+  if (candidateId) {
+    const scope = candidateScope(user);
+    candidate = await env.DB.prepare(`SELECT c.* FROM candidates c WHERE c.id = ? AND ${scope.sql}`).bind(candidateId, ...scope.bindings).first();
+    if (!candidate) return json({ error: 'Candidate not found.' }, 404);
+  } else {
+    const input = body.candidate || {};
+    const email = cleanEmail(input.email);
+    const name = cleanText(input.name, 140);
+    const role = cleanText(input.role, 140);
+    const companyId = isSuperAdmin(user) ? cleanText(body.companyId, 100) || user.companyId : user.companyId;
+    if (!email || !name || !role || !companyId) return json({ error: 'A valid candidate name, email, role, and company are required.' }, 422);
+    const now = new Date().toISOString();
+    await env.DB.prepare(`
+      INSERT INTO candidates (id, company_id, owner_user_id, email, name, phone, role, site, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(company_id, email) DO UPDATE SET name = excluded.name, phone = excluded.phone, role = excluded.role, site = excluded.site, updated_at = excluded.updated_at
+    `).bind(crypto.randomUUID(), companyId, user.id, email, name, cleanText(input.phone, 40), role, cleanText(input.site, 120), now, now).run();
+    candidate = await env.DB.prepare(`SELECT * FROM candidates WHERE company_id = ? AND email = ? COLLATE NOCASE`).bind(companyId, email).first();
+  }
+  const locale = body.locale === 'es' ? 'es' : 'en';
+  const origin = cleanText(env.APP_BASE_URL, 500) || new URL(request.url).origin;
+  try {
+    return json(await sendInvitationForCandidate({ env, user, candidate, test, locale, origin }), 201);
+  } catch (error) {
     return json({ error: error.providerMessage || 'The email provider did not accept the message.', code: error.message }, error.providerStatus || 502);
   }
 }
@@ -489,17 +952,21 @@ async function getInvitation(request, env) {
   if (!token) return json({ error: 'Invitation token is required.' }, 400);
   const tokenHash = await sha256(token);
   const row = await env.DB.prepare(`
-    SELECT i.id AS invitation_id, i.locale, i.status, i.expires_at, c.id AS candidate_id, c.name, c.role, c.site
-    FROM invitations i JOIN candidates c ON c.id = i.candidate_id WHERE i.token_hash = ?
+    SELECT i.id AS invitation_id, i.locale, i.status, i.expires_at, i.test_id,
+      c.id AS candidate_id, c.name, c.role, c.site, t.name_en AS test_name_en, t.name_es AS test_name_es, t.engine_key
+    FROM invitations i JOIN candidates c ON c.id = i.candidate_id
+    JOIN assessment_tests t ON t.id = i.test_id WHERE i.token_hash = ?
   `).bind(tokenHash).first();
   if (!row) return json({ error: 'Invitation not found.' }, 404);
   if (new Date(row.expires_at).getTime() < Date.now()) return json({ error: 'This invitation has expired.', code: 'expired' }, 410);
   if (row.status === 'completed') return json({ error: 'This assessment has already been completed.', code: 'completed' }, 409);
+  if (row.engine_key !== 'tenure_potential') return json({ error: 'This assessment engine is not available.', code: 'test_not_executable' }, 422);
   return json({
     invitationId: row.invitation_id,
     candidate: { id: row.candidate_id, name: row.name, role: row.role, site: row.site },
     suggestedLocale: row.locale,
     assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
+    test: { id: row.test_id, name_en: row.test_name_en, name_es: row.test_name_es, engineKey: row.engine_key },
     roleConditions: {
       en: ['Rotating evening or weekend schedule', 'Back-to-back customer conversations', 'Quality, productivity, and attendance targets'],
       es: ['Horario rotativo nocturno o de fin de semana', 'Conversaciones consecutivas con clientes', 'Metas de calidad, productividad y asistencia'],
@@ -786,14 +1253,14 @@ async function submitAssessment(request, env, context) {
   const auditHash = await sha256(GazelleAssessmentEngine.stableStringify(auditPayload));
   const statements = [
     env.DB.prepare(`
-      INSERT INTO assessments (id, candidate_id, invitation_id, assessment_version, model_version, model_status, locale, experience_branch, started_at, completed_at, duration_ms, potential_index, potential_band, fit_score, intent_score, reliability_score, context_score, support_profile_json, response_quality_json, scoring_trace_json, weights_json, audit_hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO assessments (id, candidate_id, invitation_id, assessment_version, model_version, model_status, locale, experience_branch, started_at, completed_at, duration_ms, potential_index, potential_band, fit_score, intent_score, reliability_score, context_score, support_profile_json, response_quality_json, scoring_trace_json, weights_json, audit_hash, test_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       assessmentId, invitation.candidate_id, invitation.id, result.assessmentVersion, result.modelVersion, result.modelStatus,
       locale, result.experienceBranch, startedAt.toISOString(), completedAt.toISOString(), durationMs, result.potentialIndex,
       result.potentialBand, result.subscales.fit.score, result.subscales.intent.score, result.subscales.reliability.score,
       result.subscales.context.score, JSON.stringify(result.supportProfile), JSON.stringify(result.quality),
-      JSON.stringify(result.scoringTrace), JSON.stringify(result.weights), auditHash,
+      JSON.stringify(result.scoringTrace), JSON.stringify(result.weights), auditHash, invitation.test_id || 'test_tenure_potential',
     ),
     env.DB.prepare(`UPDATE invitations SET status = ?, completed_at = ? WHERE id = ?`).bind('completed', completedAt.toISOString(), invitation.id),
     env.DB.prepare(`INSERT INTO audit_events (id, actor_email, event_type, entity_type, entity_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -839,11 +1306,12 @@ async function sendTestEmail(request, env, admin) {
   }
 }
 
-async function regenerateAiAnalysis(env, admin, assessmentId) {
+async function regenerateAiAnalysis(env, user, assessmentId) {
   if (!openAiConfig(env).configured) return json({ error: 'OpenAI is not configured.', code: 'openai_not_configured' }, 503);
-  const assessment = await env.DB.prepare(`SELECT id FROM assessments WHERE id = ?`).bind(assessmentId).first();
+  const scope = candidateScope(user, 'c');
+  const assessment = await env.DB.prepare(`SELECT a.id FROM assessments a JOIN candidates c ON c.id = a.candidate_id WHERE a.id = ? AND ${scope.sql}`).bind(assessmentId, ...scope.bindings).first();
   if (!assessment) return json({ error: 'Assessment not found.' }, 404);
-  const result = await generateAndStoreAiAnalysis(env, assessmentId, admin.email);
+  const result = await generateAndStoreAiAnalysis(env, assessmentId, user.email);
   if (result.status !== 'completed') return json({ error: 'The AI analysis could not be completed.', code: result.errorCode || result.status }, 502);
   return json(result);
 }
@@ -962,6 +1430,238 @@ async function analyzePreview(request, env, admin) {
   }
 }
 
+async function listTests(env, user) {
+  const result = await env.DB.prepare(`
+    SELECT t.*, u.name AS created_by_name,
+      (SELECT COUNT(*) FROM candidate_list_tests clt WHERE clt.test_id = t.id) AS list_count,
+      (SELECT COUNT(*) FROM invitations i WHERE i.test_id = t.id) AS invitation_count
+    FROM assessment_tests t LEFT JOIN users u ON u.id = t.created_by_user_id
+    ${isSuperAdmin(user) ? '' : "WHERE t.status = 'active'"}
+    ORDER BY CASE t.status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, t.created_at
+  `).all();
+  return result.results || [];
+}
+
+async function createTest(request, env, user) {
+  if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can manage the test catalog.' }, 403);
+  const body = await request.json().catch(() => ({}));
+  const nameEn = cleanText(body.nameEn, 140);
+  const nameEs = cleanText(body.nameEs, 140);
+  const descriptionEn = cleanText(body.descriptionEn, 800);
+  const descriptionEs = cleanText(body.descriptionEs, 800);
+  if (!nameEn || !nameEs || !descriptionEn || !descriptionEs) return json({ error: 'Names and descriptions are required in both languages.' }, 422);
+  const slug = cleanText(body.slug, 100).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!slug) return json({ error: 'A valid slug is required.' }, 422);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const code = `GZ-${Math.floor(Date.now() / 1000).toString(36).toUpperCase()}`;
+  try {
+    await env.DB.prepare(`
+      INSERT INTO assessment_tests (id, code, slug, name_en, name_es, description_en, description_es, engine_key, version, status, estimated_minutes, item_count, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+    `).bind(id, code, slug, nameEn, nameEs, descriptionEn, descriptionEs, `draft:${slug}`, cleanText(body.version, 40) || '0.1.0-draft', Math.max(1, Math.min(180, Number(body.estimatedMinutes || 15))), Math.max(0, Math.min(500, Number(body.itemCount || 0))), user.id, now, now).run();
+  } catch {
+    return json({ error: 'A test with that slug already exists.' }, 409);
+  }
+  await audit(env, user.email, 'test_catalog_entry_created', 'assessment_test', id, { slug, status: 'draft' });
+  return json({ tests: await listTests(env, user) }, 201);
+}
+
+async function visibleList(env, user, listId) {
+  const scope = listScope(user, 'l');
+  return env.DB.prepare(`SELECT l.*, c.name AS company_name, u.name AS owner_name FROM candidate_lists l JOIN companies c ON c.id = l.company_id JOIN users u ON u.id = l.owner_user_id WHERE l.id = ? AND l.status = 'active' AND ${scope.sql}`)
+    .bind(listId, ...scope.bindings).first();
+}
+
+async function listCandidateLists(env, user) {
+  const scope = listScope(user, 'l');
+  const result = await env.DB.prepare(`
+    SELECT l.*, c.name AS company_name, u.name AS owner_name,
+      (SELECT COUNT(*) FROM candidate_list_members m WHERE m.list_id = l.id) AS member_count,
+      (SELECT COUNT(*) FROM candidate_list_tests lt WHERE lt.list_id = l.id) AS test_count,
+      (SELECT GROUP_CONCAT(m.candidate_id) FROM candidate_list_members m WHERE m.list_id = l.id) AS member_ids_csv,
+      (SELECT GROUP_CONCAT(lt.test_id) FROM candidate_list_tests lt WHERE lt.list_id = l.id) AS test_ids_csv,
+      (SELECT COUNT(*) FROM send_batches b WHERE b.list_id = l.id) AS batch_count
+    FROM candidate_lists l JOIN companies c ON c.id = l.company_id JOIN users u ON u.id = l.owner_user_id
+    WHERE l.status = 'active' AND ${scope.sql}
+    ORDER BY l.updated_at DESC
+  `).bind(...scope.bindings).all();
+  return (result.results || []).map((row) => ({
+    ...row,
+    member_ids: row.member_ids_csv ? row.member_ids_csv.split(',') : [],
+    test_ids: row.test_ids_csv ? row.test_ids_csv.split(',') : [],
+  }));
+}
+
+async function createCandidateList(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const name = cleanText(body.name, 140);
+  const description = cleanText(body.description, 500);
+  const companyId = isSuperAdmin(user) ? cleanText(body.companyId, 100) || user.companyId : user.companyId;
+  if (!name || !companyId) return json({ error: 'List name and company are required.' }, 422);
+  const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
+  if (!company) return json({ error: 'Company not found.' }, 404);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO candidate_lists (id, company_id, owner_user_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`)
+    .bind(id, companyId, user.id, name, description || null, now, now).run();
+  await audit(env, user.email, 'candidate_list_created', 'candidate_list', id, { companyId, name });
+  return json({ listId: id, lists: await listCandidateLists(env, user) }, 201);
+}
+
+async function updateCandidateList(request, env, user, listId) {
+  const list = await visibleList(env, user, listId);
+  if (!list) return json({ error: 'List not found.' }, 404);
+  const body = await request.json().catch(() => ({}));
+  const name = cleanText(body.name, 140) || list.name;
+  const description = body.description === undefined ? list.description : cleanText(body.description, 500) || null;
+  const candidateIds = Array.isArray(body.candidateIds) ? [...new Set(body.candidateIds.map((id) => cleanText(id, 100)).filter(Boolean))].slice(0, 1000) : null;
+  const testIds = Array.isArray(body.testIds) ? [...new Set(body.testIds.map((id) => cleanText(id, 100)).filter(Boolean))].slice(0, 50) : null;
+  if (candidateIds) {
+    const scope = candidateScope(user);
+    const candidates = candidateIds.length ? await env.DB.prepare(`SELECT c.id FROM candidates c WHERE c.company_id = ? AND c.id IN (${candidateIds.map(() => '?').join(',')}) AND ${scope.sql}`).bind(list.company_id, ...candidateIds, ...scope.bindings).all() : { results: [] };
+    if ((candidates.results || []).length !== candidateIds.length) return json({ error: 'One or more candidates are outside this list company.' }, 422);
+  }
+  if (testIds) {
+    const tests = testIds.length ? await env.DB.prepare(`SELECT id FROM assessment_tests WHERE id IN (${testIds.map(() => '?').join(',')}) AND status <> 'archived'`).bind(...testIds).all() : { results: [] };
+    if ((tests.results || []).length !== testIds.length) return json({ error: 'One or more tests are unavailable.' }, 422);
+  }
+  const now = new Date().toISOString();
+  const statements = [env.DB.prepare(`UPDATE candidate_lists SET name = ?, description = ?, updated_at = ? WHERE id = ?`).bind(name, description, now, listId)];
+  if (candidateIds) {
+    statements.push(env.DB.prepare(`DELETE FROM candidate_list_members WHERE list_id = ?`).bind(listId));
+    candidateIds.forEach((candidateId) => statements.push(env.DB.prepare(`INSERT INTO candidate_list_members (list_id, candidate_id, added_by_user_id, added_at) VALUES (?, ?, ?, ?)`).bind(listId, candidateId, user.id, now)));
+  }
+  if (testIds) {
+    statements.push(env.DB.prepare(`DELETE FROM candidate_list_tests WHERE list_id = ?`).bind(listId));
+    testIds.forEach((testId) => statements.push(env.DB.prepare(`INSERT INTO candidate_list_tests (list_id, test_id, added_by_user_id, added_at) VALUES (?, ?, ?, ?)`).bind(listId, testId, user.id, now)));
+  }
+  await env.DB.batch(statements);
+  await audit(env, user.email, 'candidate_list_updated', 'candidate_list', listId, { candidateCount: candidateIds?.length, testCount: testIds?.length });
+  return json({ lists: await listCandidateLists(env, user) });
+}
+
+async function processSendBatch(env, user, batchId, origin) {
+  const startedAt = new Date().toISOString();
+  await env.DB.prepare(`UPDATE send_batches SET status = 'processing', started_at = ? WHERE id = ?`).bind(startedAt, batchId).run();
+  const result = await env.DB.prepare(`
+    SELECT bi.id AS item_id, c.*, t.id AS test_record_id, t.slug AS test_slug, t.name_en, t.name_es, t.engine_key, t.status AS test_status,
+      b.locale, b.list_id
+    FROM send_batch_items bi JOIN send_batches b ON b.id = bi.batch_id
+    JOIN candidates c ON c.id = bi.candidate_id JOIN assessment_tests t ON t.id = bi.test_id
+    WHERE bi.batch_id = ? AND bi.status = 'queued' ORDER BY c.name, t.name_en
+  `).bind(batchId).all();
+  for (const row of result.results || []) {
+    await env.DB.prepare(`UPDATE send_batch_items SET status = 'sending', updated_at = ? WHERE id = ?`).bind(new Date().toISOString(), row.item_id).run();
+    const test = { id: row.test_record_id, slug: row.test_slug, name_en: row.name_en, name_es: row.name_es, engine_key: row.engine_key, status: row.test_status };
+    try {
+      const sent = await sendInvitationForCandidate({ env, user, candidate: row, test, locale: row.locale, origin, listId: row.list_id, batchId });
+      await env.DB.prepare(`UPDATE send_batch_items SET status = 'accepted', invitation_id = ?, provider_message_id = ?, updated_at = ? WHERE id = ?`)
+        .bind(sent.invitationId, sent.providerMessageId, new Date().toISOString(), row.item_id).run();
+    } catch (error) {
+      await env.DB.prepare(`UPDATE send_batch_items SET status = 'failed', invitation_id = ?, error_code = ?, updated_at = ? WHERE id = ?`)
+        .bind(error.invitationId || null, cleanText(error.message, 120), new Date().toISOString(), row.item_id).run();
+    }
+  }
+  const counts = await env.DB.prepare(`SELECT COUNT(*) AS total_count, SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued_count, SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted_count, SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count FROM send_batch_items WHERE batch_id = ?`).bind(batchId).first();
+  const failedCount = Number(counts.failed_count || 0);
+  const acceptedCount = Number(counts.accepted_count || 0);
+  const status = failedCount === 0 ? 'completed' : acceptedCount > 0 ? 'completed_with_errors' : 'failed';
+  const completedAt = new Date().toISOString();
+  await env.DB.prepare(`UPDATE send_batches SET status = ?, total_count = ?, queued_count = ?, accepted_count = ?, failed_count = ?, completed_at = ? WHERE id = ?`)
+    .bind(status, Number(counts.total_count || 0), Number(counts.queued_count || 0), acceptedCount, failedCount, completedAt, batchId).run();
+  await audit(env, user.email, 'send_batch_completed', 'send_batch', batchId, { status, acceptedCount, failedCount });
+}
+
+async function createSendBatch(request, env, user, context) {
+  if (!emailConfig(env).configured) return json({ error: 'Mailgun is not configured.', code: 'email_not_configured' }, 503);
+  const body = await request.json().catch(() => ({}));
+  const listId = cleanText(body.listId, 100);
+  const list = await visibleList(env, user, listId);
+  if (!list) return json({ error: 'List not found.' }, 404);
+  let testIds = Array.isArray(body.testIds) ? [...new Set(body.testIds.map((id) => cleanText(id, 100)).filter(Boolean))] : [];
+  if (!testIds.length) {
+    const selected = await env.DB.prepare(`SELECT test_id FROM candidate_list_tests WHERE list_id = ?`).bind(listId).all();
+    testIds = (selected.results || []).map((row) => row.test_id);
+  }
+  if (!testIds.length) return json({ error: 'Select at least one test for this list.' }, 422);
+  const tests = await env.DB.prepare(`SELECT * FROM assessment_tests WHERE id IN (${testIds.map(() => '?').join(',')}) AND status = 'active' AND engine_key = 'tenure_potential'`).bind(...testIds).all();
+  if ((tests.results || []).length !== testIds.length) return json({ error: 'Every selected test must be active and executable.' }, 422);
+  const scope = candidateScope(user);
+  const members = await env.DB.prepare(`SELECT c.id FROM candidate_list_members m JOIN candidates c ON c.id = m.candidate_id WHERE m.list_id = ? AND c.company_id = ? AND ${scope.sql}`).bind(listId, list.company_id, ...scope.bindings).all();
+  if (!(members.results || []).length) return json({ error: 'Add candidates to the list before sending.' }, 422);
+  const total = members.results.length * testIds.length;
+  if (total > 500) return json({ error: 'A batch can contain at most 500 candidate-test sends.' }, 422);
+  const batchId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const locale = body.locale === 'es' ? 'es' : 'en';
+  const statements = [env.DB.prepare(`INSERT INTO send_batches (id, company_id, list_id, created_by_user_id, locale, status, total_count, queued_count, accepted_count, failed_count, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, 0, 0, ?)`)
+    .bind(batchId, list.company_id, listId, user.id, locale, total, total, now)];
+  members.results.forEach((member) => testIds.forEach((testId) => statements.push(env.DB.prepare(`INSERT INTO send_batch_items (id, batch_id, candidate_id, test_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'queued', ?, ?)`)
+    .bind(crypto.randomUUID(), batchId, member.id, testId, now, now))));
+  await env.DB.batch(statements);
+  await audit(env, user.email, 'send_batch_queued', 'send_batch', batchId, { listId, testIds, total });
+  const origin = cleanText(env.APP_BASE_URL, 500) || new URL(request.url).origin;
+  const work = processSendBatch(env, user, batchId, origin);
+  if (context?.waitUntil) context.waitUntil(work);
+  else work.catch(() => {});
+  return json({ batchId, status: 'queued', total }, 202);
+}
+
+async function listSendBatches(env, user) {
+  const scope = listScope(user, 'l');
+  const result = await env.DB.prepare(`
+    SELECT b.*, l.name AS list_name, c.name AS company_name, u.name AS created_by_name,
+      (SELECT COUNT(*) FROM send_batch_items bi JOIN invitations i ON i.id = bi.invitation_id WHERE bi.batch_id = b.id AND i.status = 'completed') AS completed_assessments
+    FROM send_batches b JOIN candidate_lists l ON l.id = b.list_id JOIN companies c ON c.id = b.company_id JOIN users u ON u.id = b.created_by_user_id
+    WHERE ${scope.sql} ORDER BY b.created_at DESC LIMIT 100
+  `).bind(...scope.bindings).all();
+  return result.results || [];
+}
+
+async function listCompanies(env, user) {
+  if (!isSuperAdmin(user)) return [];
+  const result = await env.DB.prepare(`SELECT c.*, (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.status = 'active') AS user_count, (SELECT COUNT(*) FROM candidates ca WHERE ca.company_id = c.id) AS candidate_count FROM companies c ORDER BY c.name`).all();
+  return result.results || [];
+}
+
+async function listUsers(env, user) {
+  if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can manage users.' }, 403);
+  const result = await env.DB.prepare(`SELECT u.id, u.company_id, u.email, u.name, u.role, u.status, u.requested_company_name, u.approved_at, u.last_login_at, u.created_at, u.updated_at, c.name AS company_name FROM users u LEFT JOIN companies c ON c.id = u.company_id ORDER BY CASE u.status WHEN 'pending' THEN 0 ELSE 1 END, u.created_at DESC`).all();
+  return json({ users: result.results || [], companies: await listCompanies(env, user) });
+}
+
+async function updateUser(request, env, user, targetUserId) {
+  if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can manage users.' }, 403);
+  const target = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(targetUserId).first();
+  if (!target) return json({ error: 'User not found.' }, 404);
+  if (target.email === OWNER_EMAIL || target.role === 'super_admin') return json({ error: 'The sole super administrator account cannot be reassigned here.' }, 403);
+  const body = await request.json().catch(() => ({}));
+  const status = ['active', 'suspended', 'rejected'].includes(body.status) ? body.status : target.status;
+  const role = ['recruiter', 'admin'].includes(body.role) ? body.role : target.role;
+  let companyId = cleanText(body.companyId, 100) || target.company_id;
+  const companyName = cleanText(body.companyName, 140) || target.requested_company_name;
+  if (status === 'active' && !companyId && companyName) {
+    const existing = await env.DB.prepare(`SELECT id FROM companies WHERE lower(name) = lower(?)`).bind(companyName).first();
+    companyId = existing?.id || crypto.randomUUID();
+    if (!existing) {
+      const now = new Date().toISOString();
+      await env.DB.prepare(`INSERT INTO companies (id, name, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)`).bind(companyId, companyName, now, now).run();
+    }
+  }
+  if (status === 'active' && !companyId) return json({ error: 'Assign a company before approving this user.' }, 422);
+  if (companyId) {
+    const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
+    if (!company) return json({ error: 'Company not found.' }, 404);
+  }
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE users SET company_id = ?, role = ?, status = ?, approved_by = ?, approved_at = CASE WHEN ? = 'active' THEN COALESCE(approved_at, ?) ELSE approved_at END, updated_at = ? WHERE id = ?`)
+    .bind(companyId || null, role, status, user.id, status, now, now, targetUserId).run();
+  if (status !== 'active') await env.DB.prepare(`UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`).bind(now, targetUserId).run();
+  await audit(env, user.email, 'user_access_updated', 'user', targetUserId, { status, role, companyId });
+  return listUsers(env, user);
+}
+
 async function verifyWebhookSignature(signingKey, timestamp, token, signature) {
   if (!signingKey || !timestamp || !token || !signature) return false;
   if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 900) return false;
@@ -998,42 +1698,53 @@ async function handleMailgunWebhook(request, env) {
 
 async function handleApi(request, env, context) {
   const url = new URL(request.url);
-  if (url.pathname === '/api/health') {
-    let database = false;
-    if (env.DB) {
-      try { await ensureSchema(env); database = true; } catch { database = false; }
-    }
-    const email = emailConfig(env);
-    const ai = openAiConfig(env);
-    return json({
-      database,
-      email: { configured: email.configured, provider: 'Mailgun', region: email.region, domain: email.domain || null, from: email.from || null },
-      ai: {
-        configured: ai.configured,
-        provider: 'OpenAI',
-        model: ai.model,
-        scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION,
-        analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION,
-      },
-      assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
-      modelVersion: GazelleAssessmentEngine.MODEL_VERSION,
-    });
-  }
   if (url.pathname === '/api/mailgun/webhook' && request.method === 'POST') return handleMailgunWebhook(request, env);
+  if (request.method !== 'GET' && !sameOrigin(request)) return json({ error: 'Invalid request origin.' }, 403);
+  await ensureSchema(env);
+  if (url.pathname === '/api/auth/bootstrap-status' && request.method === 'GET') {
+    const row = await env.DB.prepare(`SELECT id FROM users WHERE role = 'super_admin' AND status = 'active'`).first();
+    return json({ ownerSetupRequired: !row, ownerEmail: OWNER_EMAIL, registrationOpen: true });
+  }
+  if (url.pathname === '/api/auth/signup' && request.method === 'POST') return signUp(request, env);
+  if (url.pathname === '/api/auth/login' && request.method === 'POST') return logIn(request, env);
+  if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logOut(request, env);
   if (url.pathname === '/api/assessment' && request.method === 'GET') { await ensureSchema(env); return getInvitation(request, env); }
   if (url.pathname === '/api/assessment/scenarios' && request.method === 'POST') { await ensureSchema(env); return createScenarioQuestions(request, env); }
   if (url.pathname === '/api/assessment/submit' && request.method === 'POST') { await ensureSchema(env); return submitAssessment(request, env, context); }
 
-  const admin = requireAdmin(request);
-  if (!admin) return json({ error: 'Authenticated workspace access is required.' }, 401);
-  await ensureSchema(env);
-  if (url.pathname === '/api/candidates' && request.method === 'GET') return json({ candidates: await listCandidates(env) });
-  if (url.pathname === '/api/candidates/import' && request.method === 'POST') return importCandidates(request, env, admin);
-  if (url.pathname === '/api/invitations' && request.method === 'POST') return createInvitation(request, env, admin);
-  if (url.pathname === '/api/email/test' && request.method === 'POST') return sendTestEmail(request, env, admin);
-  if (url.pathname === '/api/preview/ai-analysis' && request.method === 'POST') return analyzePreview(request, env, admin);
+  const user = await authenticatedUser(request, env);
+  if (!user) return json({ error: 'Sign in is required.', code: 'authentication_required' }, 401, { 'set-cookie': clearSessionCookie() });
+  if (url.pathname === '/api/auth/me' && request.method === 'GET') return json({ user });
+  if (url.pathname === '/api/auth/password' && request.method === 'POST') return changePassword(request, env, user);
+  if (url.pathname === '/api/health' && request.method === 'GET') {
+    const email = emailConfig(env);
+    const ai = openAiConfig(env);
+    return json({
+      database: true,
+      email: { configured: email.configured, provider: 'Mailgun', region: email.region, domain: email.domain || null, from: email.from || null },
+      ai: { configured: ai.configured, provider: 'OpenAI', model: ai.model, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
+      assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
+      modelVersion: GazelleAssessmentEngine.MODEL_VERSION,
+    });
+  }
+  if (url.pathname === '/api/candidates' && request.method === 'GET') return json({ candidates: await listCandidates(env, user) });
+  if (url.pathname === '/api/candidates/import' && request.method === 'POST') return importCandidates(request, env, user);
+  if (url.pathname === '/api/invitations' && request.method === 'POST') return createInvitation(request, env, user);
+  if (url.pathname === '/api/tests' && request.method === 'GET') return json({ tests: await listTests(env, user) });
+  if (url.pathname === '/api/tests' && request.method === 'POST') return createTest(request, env, user);
+  if (url.pathname === '/api/lists' && request.method === 'GET') return json({ lists: await listCandidateLists(env, user) });
+  if (url.pathname === '/api/lists' && request.method === 'POST') return createCandidateList(request, env, user);
+  const listMatch = url.pathname.match(/^\/api\/lists\/([^/]+)$/);
+  if (listMatch && request.method === 'PATCH') return updateCandidateList(request, env, user, cleanText(listMatch[1], 100));
+  if (url.pathname === '/api/batches' && request.method === 'GET') return json({ batches: await listSendBatches(env, user) });
+  if (url.pathname === '/api/batches' && request.method === 'POST') return createSendBatch(request, env, user, context);
+  if (url.pathname === '/api/admin/users' && request.method === 'GET') return listUsers(env, user);
+  const userMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if (userMatch && request.method === 'PATCH') return updateUser(request, env, user, cleanText(userMatch[1], 100));
+  if (url.pathname === '/api/email/test' && request.method === 'POST') return sendTestEmail(request, env, user);
+  if (url.pathname === '/api/preview/ai-analysis' && request.method === 'POST') return analyzePreview(request, env, user);
   const aiAnalysisMatch = url.pathname.match(/^\/api\/assessments\/([^/]+)\/ai-analysis$/);
-  if (aiAnalysisMatch && request.method === 'POST') return regenerateAiAnalysis(env, admin, cleanText(aiAnalysisMatch[1], 100));
+  if (aiAnalysisMatch && request.method === 'POST') return regenerateAiAnalysis(env, user, cleanText(aiAnalysisMatch[1], 100));
   return json({ error: 'API route not found.' }, 404);
 }
 
@@ -1042,13 +1753,13 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, context);
-      if (url.pathname === '/styles.css') return new Response(stylesAsset, { headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-cache' } });
-      if (url.pathname === '/assessment-engine.js') return new Response(engineAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
-      if (url.pathname === '/ai-assessment.js') return new Response(aiAssessmentAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
-      if (url.pathname === '/pdf-report.js') return new Response(pdfReportAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
-      if (url.pathname === '/app.js') return new Response(appAsset, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
-      if (url.pathname === '/og.png' && ogAsset) return new Response(decodeAsset(ogAsset), { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
-      if (url.pathname === '/' || !url.pathname.includes('.')) return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' } });
+      if (url.pathname === '/styles.css') return new Response(stylesAsset, { headers: assetHeaders('text/css; charset=utf-8') });
+      if (url.pathname === '/assessment-engine.js') return new Response(engineAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
+      if (url.pathname === '/ai-assessment.js') return new Response(aiAssessmentAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
+      if (url.pathname === '/pdf-report.js') return new Response(pdfReportAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
+      if (url.pathname === '/app.js') return new Response(appAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
+      if (url.pathname === '/og.png' && ogAsset) return new Response(decodeAsset(ogAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
+      if (url.pathname === '/' || !url.pathname.includes('.')) return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
       return new Response('Not found', { status: 404 });
     } catch (error) {
       const code = error?.message === 'database_unavailable' ? 'database_unavailable' : 'server_error';

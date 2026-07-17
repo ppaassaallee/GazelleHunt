@@ -1,11 +1,19 @@
-# Gazelle Assessment — Tenure Potential
+# Gazelle Assessment Platform
 
-Gazelle Assessment is an auditable bilingual research application for measuring **Tenure Potential** in high-volume BPO and contact-center hiring.
+Gazelle Assessment is a public multi-company, multi-test hiring platform. Its first executable test is the bilingual **Tenure Potential** assessment for high-volume BPO and contact-center hiring.
 
 It does not claim to predict that a candidate will stay. The current `TP-0.2.0` assessment produces a transparent pilot index that must be calibrated against local 90-day and 180-day voluntary-retention outcomes before anyone may describe it as predictive.
 
 ## What is implemented
 
+- Public email/password registration with approval required before access
+- Alejandro Pascual (`david.alejandro.pa@gmail.com`) as the only permitted super administrator
+- Server-enforced recruiter, company administrator, and super administrator scopes
+- Secure PBKDF2 password derivation, revocable server-side sessions, secure cookies, and authentication rate limits
+- Multi-company candidate records with company-scoped email uniqueness
+- Versioned multi-test catalog with explicit active, draft, and archived states
+- Reusable candidate lists; candidates may belong to multiple lists
+- Multiple tests per list, batch sends, and durable batch progress
 - English/Spanish language choice before the assessment
 - Separate experienced and first-job context branches of equal length
 - 27 items per candidate path
@@ -26,7 +34,37 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 - Persistent candidate, invitation, assessment, response, audit, and email-event records
 - Real Mailgun REST API integration with signed delivery webhooks
 - OpenAI Responses API integration with strict structured outputs and `store: false`
-- CSV import and authenticated admin attribution
+- CSV import and authenticated user attribution
+
+## Accounts and roles
+
+Public registrations are created with `pending` status. Only the super administrator can approve them, assign a company, and choose one of these roles:
+
+- `recruiter`: sees only candidates and lists they own
+- `admin`: sees all candidates and lists in their company
+- `super_admin`: sees all companies; restricted in code and database triggers to `david.alejandro.pa@gmail.com`
+
+The first owner activation also claims legacy pilot candidates for the Gazelle Platform company. The activation key becomes unusable after the sole super administrator exists.
+
+Required authentication variables:
+
+- `SUPER_ADMIN_EMAIL=david.alejandro.pa@gmail.com`
+- `SUPER_ADMIN_BOOTSTRAP_TOKEN` as a secret random value of at least 24 characters
+- `AUTH_PEPPER` as a secret random value of at least 32 characters
+
+Passwords are derived with PBKDF2-HMAC-SHA-256 and a per-user random salt. Browser sessions use a `__Host-` cookie with `Secure`, `HttpOnly`, and `SameSite=Strict`; only a hash of each random session token is stored.
+
+## Lists and tests
+
+The operating workflow is:
+
+1. Import or create candidates.
+2. Create a named list.
+3. Add visible candidates and one or more active tests.
+4. Send the list as a batch in English or Spanish.
+5. Monitor provider acceptance, failures, and completed assessments.
+
+`Tenure Potential` is the first active executable engine. Super administrators can add future catalog entries, but they remain drafts and cannot be sent until a real scoring engine is implemented. This prevents the interface from presenting an unimplemented test as operational.
 
 ## Transparent scoring
 
@@ -79,11 +117,11 @@ The server sends deidentified, job-related assessment evidence to the Responses 
 
 The AI narrative is advisory only. It is prohibited from diagnosing the candidate, inferring protected or sensitive characteristics, estimating retention probability, ranking candidates, or recommending hire/reject decisions. A trained person must review it with other job-related evidence.
 
-## Candidate access
+## Public access
 
 Invitation links use `/assessment?invite=...` and open a candidate-only interface. The first interactive screen always asks `Choose your language · Elige tu idioma`; the suggested email language never bypasses this choice. Consent explicitly describes the three scenario questions and AI-assisted recruiter report before any response is recorded.
 
-The hosting access policy must allow the intended candidates to reach `/assessment`. A private owner-only deployment is suitable for internal review but not for external candidate delivery.
+The Sites access policy must be public so account registration and candidate invitation routes are reachable. Hiring-team data remains protected by the application's own server-side sessions and role/company checks. Invitation tokens grant access only to a single candidate assessment and are stored only as SHA-256 hashes.
 
 ## Production boundary
 

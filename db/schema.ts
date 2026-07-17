@@ -1,7 +1,9 @@
-export const schemaVersion = '0002_ai_scenarios_and_analysis';
+export const schemaVersion = '0003_multitenant_accounts_lists_tests';
 
 export type CandidateRecord = {
   id: string;
+  company_id: string;
+  owner_user_id: string | null;
   email: string;
   name: string;
   phone: string | null;
@@ -9,6 +11,39 @@ export type CandidateRecord = {
   site: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type UserRole = 'recruiter' | 'admin' | 'super_admin';
+export type UserStatus = 'pending' | 'active' | 'suspended' | 'rejected';
+
+export type UserRecord = {
+  id: string;
+  company_id: string | null;
+  email: string;
+  name: string;
+  role: UserRole;
+  status: UserStatus;
+  requested_company_name: string | null;
+};
+
+export type AssessmentTestRecord = {
+  id: string;
+  code: string;
+  slug: string;
+  name_en: string;
+  name_es: string;
+  engine_key: string;
+  version: string;
+  status: 'active' | 'draft' | 'archived';
+};
+
+export type CandidateListRecord = {
+  id: string;
+  company_id: string;
+  owner_user_id: string;
+  name: string;
+  description: string | null;
+  status: 'active' | 'archived';
 };
 
 export type AssessmentRecord = {

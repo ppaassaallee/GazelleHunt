@@ -38,6 +38,7 @@ const context = {
     ok: true,
     status: 200,
     async json() {
+      if (url === '/api/auth/me') return { user: { id: 'owner-1', name: 'Alejandro Pascual', email: 'david.alejandro.pa@gmail.com', role: 'super_admin', status: 'active', companyId: 'org_legacy', companyName: 'Gazelle Platform' } };
       if (url === '/api/preview/ai-analysis') return { analysis: previewAnalysis };
       if (String(url).startsWith('/api/assessment')) {
         return {
@@ -46,6 +47,10 @@ const context = {
         };
       }
       if (url === '/api/candidates') return { candidates: [] };
+      if (url === '/api/tests') return { tests: [{ id: 'test_tenure_potential', code: 'TP-001', name_en: 'Tenure Potential', name_es: 'Potencial de Permanencia', description_en: 'Transparent assessment.', description_es: 'Evaluacion transparente.', engine_key: 'tenure_potential', status: 'active', version: '2.0.0-pilot', estimated_minutes: 15, item_count: 27 }] };
+      if (url === '/api/lists') return { lists: [] };
+      if (url === '/api/batches') return { batches: [] };
+      if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
       return { database: true, email: { configured: false, provider: 'Mailgun', region: 'US' }, ai: { configured: true, model: 'gpt-5.5-2026-04-23' } };
     },
   };
@@ -103,24 +108,38 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260717\.6/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260717\.6/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260717\.6/);
-assert.match(indexSource, /pdf-report\.js\?v=20260717\.6/);
+assert.match(indexSource, /app\.js\?v=20260717\.7/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260717\.7/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260717\.7/);
+assert.match(indexSource, /pdf-report\.js\?v=20260717\.7/);
 assert.match(serverSource, /\/assessment\?invite=/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);
 assert.match(serverSource, /ai-analysis/);
 assert.match(serverSource, /\/api\/preview\/ai-analysis/);
-assert.match(serverSource, /'cache-control': 'no-cache'/);
+assert.match(serverSource, /assetHeaders\('text\/html; charset=utf-8', 'no-cache', true\)/);
 assert.match(serverSource, /assessments_invitation_unique/);
 assert.match(serverSource, /temporary_fail/);
 assert.match(serverSource, /A valid experience branch is required/);
-assert.match(appSource, /Administrator sign-in/);
+assert.match(appSource, /Create your account/);
+assert.match(appSource, /Activate super administrator/);
+assert.match(appSource, /Candidate lists/);
+assert.match(appSource, /Send selected tests/);
 assert.match(appSource, /Continue to scenarios/);
 assert.match(appSource, /Download PDF/);
 assert.match(appSource, /Human review required/);
 assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/);
+assert.doesNotMatch(appSource, /signin-with-chatgpt/);
+
+for (const route of [
+  '/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me',
+  '/api/tests', '/api/lists', '/api/batches', '/api/admin/users',
+]) assert.match(serverSource, new RegExp(route.replaceAll('/', '\\/')));
+
+for (const securityControl of [
+  '__Host-gz_session', 'PBKDF2', 'SameSite=Strict', 'HttpOnly', 'PASSWORD_ITERATIONS',
+  'candidateScope', 'listScope', 'rateLimit',
+]) assert.match(serverSource, new RegExp(securityControl));
 
 for (const variable of [
   'MAILGUN_API_KEY',
@@ -139,7 +158,7 @@ for (const variable of ['OPENAI_API_KEY', 'OPENAI_MODEL']) {
 }
 
 assert.match(readmeSource, /first interactive screen always asks/);
-assert.match(readmeSource, /private owner-only deployment is suitable for internal review but not for external candidate delivery/);
+assert.match(readmeSource, /Sites access policy must be public/);
 assert.match(readmeSource, /Scenario responses and the GPT-5\.5 narrative also have a weight of zero/);
 
 console.log('Workflow tests passed.');

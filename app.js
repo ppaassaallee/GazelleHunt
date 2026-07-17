@@ -23,12 +23,22 @@ const icons = {
   headphones: '<path d="M4 14a8 8 0 0 1 16 0"/><path d="M18 19c0 1.7-1.3 3-3 3h-3"/><path d="M4 14v4a2 2 0 0 0 2 2h1v-8H6a2 2 0 0 0-2 2ZM20 14v4a2 2 0 0 1-2 2h-1v-8h1a2 2 0 0 1 2 2Z"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   refresh: '<path d="M20 11a8 8 0 1 0 2 5.3"/><path d="M20 4v7h-7"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
+  layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>',
+  building: '<path d="M3 21h18M6 21V4h12v17M9 8h2M13 8h2M9 12h2M13 12h2M9 16h2M13 16h2"/>',
+  logout: '<path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/>',
+  key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m11 12 9-9M15 8l3 3M17 6l3 3"/>',
 };
 
-const navItems = [
-  ['home', 'Home', 'home'], ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'],
-  ['send', 'Send Test', 'send'], ['progress', 'Test Progress', 'clock'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
+const baseNavItems = [
+  ['home', 'Overview', 'home'], ['tests', 'Test catalog', 'layers'], ['lists', 'Candidate lists', 'list'],
+  ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'], ['send', 'Direct send', 'send'],
+  ['progress', 'Send progress', 'clock'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
 ];
+
+function navItems() {
+  return state.user?.role === 'super_admin' ? [...baseNavItems.slice(0, -1), ['team', 'Users & companies', 'building'], baseNavItems.at(-1)] : baseNavItems;
+}
 
 const state = {
   view: 'home', reportTab: 'report', reportLocale: 'en', candidates: [], filteredStatus: 'All', search: '',
@@ -37,7 +47,10 @@ const state = {
     email: { configured: false, provider: 'Mailgun', region: 'US', domain: null, from: null },
     ai: { configured: false, provider: 'OpenAI', model: 'gpt-5.5-2026-04-23' },
   },
-  loading: true, busy: false, error: '', adminAuthenticated: null, csv: null, reportCandidateId: null, previewReport: null, runner: null,
+  loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
+  bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
+  tests: [], lists: [], batches: [], users: [], companies: [], selectedListId: null,
+  csv: null, reportCandidateId: null, previewReport: null, runner: null,
 };
 
 function icon(name) {
@@ -68,20 +81,28 @@ async function loadWorkspace() {
   state.loading = true;
   render();
   try {
-    state.health = await fetchJson('/api/health');
-    if (state.health.database) {
-      const data = await fetchJson('/api/candidates');
-      state.candidates = data.candidates || [];
-      state.adminAuthenticated = true;
-      if (!state.reportCandidateId && state.candidates.some((candidate) => candidate.assessment_id)) {
-        state.reportCandidateId = state.candidates.find((candidate) => candidate.assessment_id).id;
-      }
-    }
+    const auth = await fetchJson('/api/auth/me');
+    state.user = auth.user;
+    state.adminAuthenticated = true;
+    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches')];
+    if (state.user.role === 'super_admin') requests.push(fetchJson('/api/admin/users'));
+    const [health, candidates, tests, lists, batches, team] = await Promise.all(requests);
+    state.health = health;
+    state.candidates = candidates.candidates || [];
+    state.tests = tests.tests || [];
+    state.lists = lists.lists || [];
+    state.batches = batches.batches || [];
+    state.users = team?.users || [];
+    state.companies = team?.companies || [];
+    if (!state.selectedListId && state.lists.length) state.selectedListId = state.lists[0].id;
+    if (!state.reportCandidateId && state.candidates.some((candidate) => candidate.assessment_id)) state.reportCandidateId = state.candidates.find((candidate) => candidate.assessment_id).id;
     state.error = '';
   } catch (error) {
     if (error.status === 401) {
       state.adminAuthenticated = false;
+      state.user = null;
       state.error = '';
+      try { state.bootstrap = await fetchJson('/api/auth/bootstrap-status'); } catch { /* Render normal sign-in if status cannot load. */ }
     } else {
       state.error = error.message;
     }
@@ -107,12 +128,19 @@ function statusBadge(status) {
 }
 
 function shell(content) {
-  const current = navItems.find(([id]) => id === state.view) || navItems[0];
-  return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Assessment</strong><span>Tenure Potential</span></div></div><nav class="nav" aria-label="Main navigation">${navItems.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">AP</div><div><strong>Research pilot</strong><span>${engine.ASSESSMENT_VERSION}</span></div></div></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${current[1]}</h1><p>Tenure Potential Assessment · ${engine.MODEL_VERSION}</p></div></div><div class="top-actions"><span class="badge badge-${state.health.database ? 'teal' : 'orange'}">${state.health.database ? 'Audit database active' : 'Database unavailable'}</span><button class="button button-secondary icon-button" data-action="reload" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}`;
+  const items = navItems();
+  const current = items.find(([id]) => id === state.view) || items[0];
+  const user = state.user || {};
+  return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Assessment</strong><span>Multi-test platform</span></div></div><nav class="nav" aria-label="Main navigation">${items.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">${initials(user.name)}</div><div><strong>${esc(user.name || '')}</strong><span>${esc(user.companyName || 'Platform')} · ${esc((user.role || '').replace('_', ' '))}</span></div></div><button class="button button-quiet sidebar-signout" data-action="logout">${icon('logout')}Sign out</button></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${current[1]}</h1><p>${esc(user.companyName || 'Gazelle Platform')} · Role-based workspace</p></div></div><div class="top-actions"><span class="badge badge-${state.health.database ? 'teal' : 'orange'}">${state.health.database ? 'Audit database active' : 'Database unavailable'}</span><button class="button button-secondary icon-button" data-action="reload" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}`;
 }
 
 function adminSignInPage() {
-  return `<main class="candidate-app"><div class="candidate-stage"><section class="candidate-panel admin-signin">${icon('lock')}<p class="eyebrow">Gazelle Assessment</p><h1>Administrator sign-in</h1><p>Candidate assessments open only from a valid invitation link. Hiring-team records and settings require an authenticated workspace account.</p><a class="button button-primary" href="/signin-with-chatgpt?return_to=%2F">Sign in with ChatGPT</a></section></div></main>`;
+  if (state.accountPending) return `<main class="auth-app"><section class="auth-panel auth-message">${icon('clock')}<p class="eyebrow">Registration received</p><h1>Awaiting approval</h1><p>Alejandro Pascual will review your company and assign your recruiter or administrator role. Return here and sign in after approval.</p><button class="button button-primary" data-auth-mode="login">Back to sign in</button></section></main>`;
+  const setup = state.authMode === 'setup';
+  const signup = state.authMode === 'signup';
+  const title = setup ? 'Activate super administrator' : signup ? 'Create your account' : 'Sign in to Gazelle';
+  const subtitle = setup ? 'Reserved for Alejandro Pascual. This activation can be completed only once.' : signup ? 'Your account remains pending until Alejandro approves it.' : 'Access candidates, lists, tests, sends, and reports for your role.';
+  return `<main class="auth-app"><section class="auth-brand"><div class="brand-mark">G</div><p class="eyebrow">Gazelle Assessment</p><h1>One platform for structured candidate assessments.</h1><p>Run bilingual tests, organize candidates into reusable lists, send batches, and keep every result auditable.</p><div class="auth-proof"><span>${icon('shield')}Server-enforced company access</span><span>${icon('list')}Lists and multi-test batches</span><span>${icon('file')}Bilingual PDF reports</span></div></section><section class="auth-panel"><div><p class="eyebrow">Secure account access</p><h2>${title}</h2><p>${subtitle}</p></div><form id="auth-form" class="auth-form" data-mode="${state.authMode}"><label class="field"><span>Email</span><input class="input" id="auth-email" type="email" autocomplete="email" required value="${setup ? esc(state.bootstrap.ownerEmail) : ''}" ${setup ? 'readonly' : ''}></label>${state.authMode !== 'login' ? `<label class="field"><span>Full name</span><input class="input" id="auth-name" autocomplete="name" required></label>` : ''}${signup ? `<label class="field"><span>Company</span><input class="input" id="auth-company" autocomplete="organization" required></label>` : ''}<label class="field"><span>Password</span><input class="input" id="auth-password" type="password" autocomplete="${state.authMode === 'login' ? 'current-password' : 'new-password'}" minlength="12" maxlength="128" required></label>${setup ? `<label class="field"><span>Owner activation key</span><input class="input" id="auth-bootstrap" type="password" autocomplete="one-time-code" required></label>` : ''}${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}<button class="button button-primary auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Please wait…' : setup ? 'Activate account' : signup ? 'Request access' : 'Sign in'}</button></form><div class="auth-switch">${state.authMode !== 'login' ? '<button data-auth-mode="login">Already have an account? Sign in</button>' : '<button data-auth-mode="signup">Create an account</button>'}${state.bootstrap.ownerSetupRequired && state.authMode !== 'setup' ? '<button data-auth-mode="setup">Alejandro: activate owner account</button>' : ''}</div><p class="auth-security">Passwords are never stored in plain text. Sessions use secure, HTTP-only cookies.</p></section></main>`;
 }
 
 function pageIntro(kicker, title, description, action = '') {
@@ -125,16 +153,45 @@ function metric(label, value, note, iconName) {
 
 function renderHome() {
   const completed = state.candidates.filter((candidate) => candidate.assessment_id).length;
-  const active = state.candidates.filter((candidate) => candidate.invitation_id && !candidate.assessment_id).length;
-  return `<div class="stack"><section class="card mission-panel"><div class="mission-copy"><span class="badge badge-teal">Evidence-first redesign</span><h2>Measure Tenure Potential, then learn what actually predicts staying.</h2><p>The candidate score is a transparent pilot index, not a probability or a hidden risk label. It separates observed fit, stay intention, and work reliability from the support conditions the employer can improve.</p><div class="mission-actions"><button class="button button-primary" data-action="preview">${icon('file')}Start test · Choose English or Spanish</button><button class="button button-secondary" data-nav="send">${icon('send')}Send real invitation</button></div><div class="language-proof"><strong>First candidate screen</strong><span>Choose your language · Elige tu idioma</span></div></div><div class="pilot-panel"><div><p class="eyebrow">Model status</p><div class="pilot-meta"><strong>Pilot · uncalibrated</strong><span>${engine.ASSESSMENT_VERSION}</span></div></div><p>No 90-day or 180-day probability is shown until local outcome data supports calibration. Every completed result stores its item responses, transformations, version, timing, quality flags, and cryptographic audit hash.</p></div></section>
-    <section class="grid grid-4">${metric('Candidates', state.candidates.length, 'Persistent records', 'users')}${metric('Active invitations', active, 'Provider and delivery states', 'send')}${metric('Audited results', completed, 'Server-scored assessments', 'shield')}${metric('Email connection', state.health.email?.configured ? 'Ready' : 'Open', state.health.email?.configured ? 'Mailgun configured' : 'Credentials required', 'send')}</section>
-    <div class="section-title"><div><h3>What the assessment measures</h3><p>Three scored constructs plus one separate employer-action profile.</p></div><span class="badge badge-neutral">27 items per branch</span></div>
-    <section class="grid grid-4">${dimensionCard('Role reality alignment', '33⅓%', 'Schedule, location, compensation model, work intensity, and performance expectations.')}${dimensionCard('Stay intention', '33⅓%', 'Current commitment to train, invest, and stay if the stated conditions are honored.')}${dimensionCard('Work reliability', '33⅓%', 'Follow-through, recovery, self-regulation, and asking for help before problems grow.')}${dimensionCard('Support leverage', 'Not scored', 'Clear expectations, coaching, schedule notice, feedback, and psychological safety.')}</section>
-    <section class="grid grid-2"><article class="card"><div class="card-header"><div><h3>Reverse-engineering result</h3><p>What the four legacy reports reveal.</p></div></div><div class="card-body stack"><div class="evidence-row"><strong>Composite</strong><span>The supplied overall scores match the rounded arithmetic mean of available subscales within 0.5 points.</span></div><div class="evidence-row"><strong>No-experience branch</strong><span>The prior-behavior measure is displayed as zero but appears excluded from the overall calculation.</span></div><div class="evidence-row"><strong>Missing evidence</strong><span>No item trace, reliability estimate, uncertainty interval, scoring version, or local validity result is shown.</span></div><button class="button button-secondary" data-action="method">Open method review</button></div></article><article class="card"><div class="card-header"><div><h3>Scientific boundary</h3><p>What makes the new system honest.</p></div>${icon('shield')}</div><div class="card-body stack"><div class="notice"><strong>No pass/fail rule.</strong> The index summarizes current responses. It does not claim that a person will stay.</div><div class="guardrail-list">${guardrail('Criterion validation', 'Link assessment versions to voluntary 90-day and 180-day outcomes.', 'Required')}${guardrail('Bilingual equivalence', 'Cognitive interviews, measurement invariance, and differential item functioning.', 'Required')}${guardrail('Adverse-impact review', 'Monitor by role and lawful groups without using protected data in scoring.', 'Required')}</div></div></article></section></div>`;
+  const activeBatches = state.batches.filter((batch) => ['queued', 'processing'].includes(batch.status)).length;
+  const pendingUsers = state.users.filter((user) => user.status === 'pending').length;
+  return `<div class="stack"><section class="workflow-hero"><div><span class="badge badge-teal">${esc(state.user?.companyName || 'Gazelle Platform')}</span><h2>Build a list, assign tests, and send one auditable batch.</h2><p>Candidate lists are the operating unit. A candidate can belong to multiple lists, and each list can carry one or more tests as the catalog grows.</p><div class="mission-actions"><button class="button button-primary" data-nav="lists">${icon('list')}Create or open a list</button><button class="button button-secondary" data-nav="tests">${icon('layers')}Browse test catalog</button></div></div><div class="workflow-steps"><div><span>1</span><strong>List</strong><small>Define the hiring cohort</small></div><div><span>2</span><strong>Tests</strong><small>Select the assessment set</small></div><div><span>3</span><strong>Batch</strong><small>Send and monitor delivery</small></div></div></section>
+    <section class="grid grid-4">${metric('Candidate lists', state.lists.length, 'Reusable cohorts', 'list')}${metric('Available tests', state.tests.filter((test) => test.status === 'active').length, 'Extensible catalog', 'layers')}${metric('Audited results', completed, 'Scoped to your role', 'shield')}${metric('Active batches', activeBatches, 'Queued or processing', 'send')}</section>
+    ${pendingUsers ? `<button class="pending-strip" data-nav="team">${icon('users')}<span><strong>${pendingUsers} account${pendingUsers === 1 ? '' : 's'} awaiting approval</strong><small>Assign a company and role before access is granted.</small></span></button>` : ''}
+    <section><div class="section-title"><div><h3>Test catalog</h3><p>The platform is multi-test; only validated executable engines can be sent.</p></div><button class="button button-secondary" data-nav="tests">View all</button></div><div class="grid grid-3">${state.tests.slice(0, 3).map(testCatalogCard).join('') || '<div class="empty-panel"><h3>No tests available</h3></div>'}</div></section>
+    <section class="grid grid-2"><article class="card"><div class="card-header"><div><h3>Tenure Potential boundaries</h3><p>The first executable assessment remains transparent.</p></div></div><div class="card-body guardrail-list">${guardrail('No retention probability', 'The current pilot index does not claim a 90-day or 180-day probability.', 'Locked')}${guardrail('Scenario score weight', 'Open responses and the GPT narrative have zero score weight.', 'Zero')}${guardrail('Human review', 'No automatic hire, reject, pass, fail, or ranking action is produced.', 'Required')}</div></article><article class="card"><div class="card-header"><div><h3>Access scope</h3><p>Visibility is enforced on the server.</p></div>${icon('shield')}</div><div class="card-body stack"><div class="scope-line"><strong>${esc((state.user?.role || '').replace('_', ' '))}</strong><span>${state.user?.role === 'recruiter' ? 'Your candidates and lists only' : state.user?.role === 'admin' ? 'All candidates and lists in your company' : 'All companies, users, candidates, and lists'}</span></div><div class="scope-line"><strong>Company</strong><span>${esc(state.user?.companyName || 'All companies')}</span></div><div class="scope-line"><strong>Email</strong><span>${state.health.email?.configured ? 'Mailgun connected' : 'Mailgun configuration required before sending'}</span></div></div></article></section></div>`;
+}
+
+function testCatalogCard(test) {
+  const active = test.status === 'active' && test.engine_key === 'tenure_potential';
+  return `<article class="card test-catalog-card"><div class="test-code"><code>${esc(test.code)}</code><span class="badge badge-${active ? 'teal' : 'neutral'}">${esc(test.status)}</span></div><h3>${esc(test.name_en)}</h3><p class="test-es">${esc(test.name_es)}</p><p>${esc(test.description_en)}</p><div class="test-meta"><span>${Number(test.estimated_minutes)} min</span><span>${Number(test.item_count)} items</span><span>v${esc(test.version)}</span></div>${active ? `<button class="button button-secondary" data-action="preview">${icon('file')}Preview</button>` : '<span class="draft-note">Catalog entry only. Engine not yet released.</span>'}</article>`;
 }
 
 function dimensionCard(title, weight, text) { return `<article class="card dimension-card"><div class="dimension-head"><h3>${title}</h3><span>${weight}</span></div><p>${text}</p></article>`; }
 function guardrail(title, text, badge) { return `<div class="guardrail"><div><strong>${title}</strong><span>${text}</span></div><span class="badge badge-orange">${badge}</span></div>`; }
+
+function renderTests() {
+  const active = state.tests.filter((test) => test.status === 'active').length;
+  const create = state.user?.role === 'super_admin' ? `<section class="card"><div class="card-header"><div><h3>Add a future test</h3><p>New entries start as drafts. A catalog entry cannot be sent until its scoring engine and validation package are implemented.</p></div>${icon('plus')}</div><form class="card-body form-grid" id="test-form"><label class="field"><span>English name</span><input class="input" id="test-name-en" required></label><label class="field"><span>Spanish name</span><input class="input" id="test-name-es" required></label><label class="field"><span>Slug</span><input class="input" id="test-slug" placeholder="customer-service-judgment" required></label><label class="field"><span>Estimated minutes</span><input class="input" id="test-minutes" type="number" min="1" max="180" value="15"></label><label class="field form-wide"><span>English description</span><textarea class="textarea" id="test-description-en" required></textarea></label><label class="field form-wide"><span>Spanish description</span><textarea class="textarea" id="test-description-es" required></textarea></label><div class="form-span"><button class="button button-primary" type="submit">${icon('plus')}Create draft</button></div></form></section>` : '';
+  return `<div class="stack">${pageIntro('Multi-test architecture', 'Test catalog', 'Tests are versioned entities. Active means the assessment has an executable engine; draft means design work remains.', `<span class="badge badge-teal">${active} active</span>`)}<section class="grid grid-3">${state.tests.map(testCatalogCard).join('')}</section>${create}</div>`;
+}
+
+function renderLists() {
+  const selected = state.lists.find((list) => list.id === state.selectedListId) || state.lists[0];
+  const companyCandidates = selected ? state.candidates.filter((candidate) => candidate.company_id === selected.company_id) : [];
+  const activeTests = state.tests.filter((test) => test.status === 'active');
+  const companyChoice = state.user?.role === 'super_admin' ? `<label class="field"><span>Company</span><select class="select" id="list-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></label>` : '';
+  const editor = selected ? `<section class="list-editor"><div class="list-editor-head"><div><p class="eyebrow">${esc(selected.company_name)}</p><h3>${esc(selected.name)}</h3><p>${esc(selected.description || 'No description')}</p></div><span class="badge badge-neutral">${Number(selected.member_count)} candidates · ${Number(selected.test_count)} tests</span></div><form id="list-editor-form"><div class="list-editor-grid"><div class="selection-panel"><div class="selection-title"><div><h4>Candidates</h4><p>A candidate can belong to multiple lists.</p></div><span>${companyCandidates.length} available</span></div><div class="check-list">${companyCandidates.map((candidate) => `<label><input type="checkbox" name="list-candidate" value="${candidate.id}" ${selected.member_ids.includes(candidate.id) ? 'checked' : ''}><span><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}</small></span></label>`).join('') || '<p class="empty-value">No visible candidates in this company.</p>'}</div></div><div class="selection-panel"><div class="selection-title"><div><h4>Tests</h4><p>Select one or more active tests for this list.</p></div><span>${activeTests.length} active</span></div><div class="check-list">${activeTests.map((test) => `<label><input type="checkbox" name="list-test" value="${test.id}" ${selected.test_ids.includes(test.id) ? 'checked' : ''}><span><strong>${esc(test.name_en)}</strong><small>${esc(test.name_es)} · ${Number(test.estimated_minutes)} min</small></span></label>`).join('')}</div></div></div><div class="list-actions"><button class="button button-secondary" type="submit">${icon('check')}Save list</button><label class="compact-select"><span>Email language</span><select class="select" id="batch-locale"><option value="en">English</option><option value="es">Español</option></select></label><button class="button button-primary" type="button" data-batch-list="${selected.id}" ${!state.health.email?.configured || !Number(selected.member_count) || !Number(selected.test_count) || state.busy ? 'disabled' : ''}>${icon('send')}Send selected tests</button></div>${!state.health.email?.configured ? '<p class="field-help list-help">Connect Mailgun before starting a batch.</p>' : ''}</form></section>` : `<div class="empty-panel"><h3>Create the first candidate list</h3><p>Lists connect candidates, tests, and batch delivery.</p></div>`;
+  return `<div class="stack">${pageIntro('Core workflow', 'Candidate lists', 'Create reusable cohorts, assign multiple tests, and send the full matrix as a tracked batch.', '')}<div class="lists-layout"><aside class="lists-rail"><form class="card card-body list-create" id="list-form"><h3>New list</h3><label class="field"><span>Name</span><input class="input" id="list-name" required placeholder="July customer care cohort"></label><label class="field"><span>Description</span><textarea class="textarea" id="list-description" maxlength="500"></textarea></label>${companyChoice}<button class="button button-primary" type="submit">${icon('plus')}Create list</button></form><div class="list-nav">${state.lists.map((list) => `<button class="list-nav-item ${selected?.id === list.id ? 'active' : ''}" data-list-id="${list.id}"><span><strong>${esc(list.name)}</strong><small>${esc(list.company_name)} · ${Number(list.member_count)} candidates</small></span><span>${Number(list.test_count)}</span></button>`).join('')}</div></aside>${editor}</div></div>`;
+}
+
+function renderTeam() {
+  if (state.user?.role !== 'super_admin') return '<div class="notice notice-error">Super administrator access is required.</div>';
+  const pending = state.users.filter((user) => user.status === 'pending');
+  const active = state.users.filter((user) => user.status !== 'pending');
+  const companyOptions = state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('');
+  return `<div class="stack">${pageIntro('Platform control', 'Users & companies', 'Only Alejandro Pascual can approve accounts and assign recruiter or company administrator roles.', `<span class="badge badge-${pending.length ? 'orange' : 'teal'}">${pending.length} pending</span>`)}<section class="card"><div class="card-header"><div><h3>Approval queue</h3><p>Confirm company and minimum required role before activation.</p></div></div>${pending.length ? `<div class="approval-list">${pending.map((user) => `<article class="approval-row"><div class="person"><div class="person-avatar">${initials(user.name)}</div><div><strong>${esc(user.name)}</strong><span>${esc(user.email)} · requested ${esc(user.requested_company_name || 'no company')}</span></div></div><select class="select" id="approve-role-${user.id}"><option value="recruiter">Recruiter</option><option value="admin">Company admin</option></select><select class="select" id="approve-company-${user.id}"><option value="">Create/use company below</option>${companyOptions}</select><input class="input" id="approve-company-name-${user.id}" value="${esc(user.requested_company_name || '')}" placeholder="Company name"><div class="approval-actions"><button class="button button-primary" data-approve-user="${user.id}">Approve</button><button class="button button-secondary" data-reject-user="${user.id}">Reject</button></div></article>`).join('')}</div>` : '<div class="empty-panel"><h3>No accounts awaiting approval</h3><p>New public registrations will appear here.</p></div>'}</section><section class="card"><div class="card-header"><div><h3>Platform accounts</h3><p>One super administrator; all other accounts are company scoped.</p></div><span class="badge badge-neutral">${active.length} accounts</span></div><div class="table-scroll"><table><thead><tr><th>User</th><th>Company</th><th>Role</th><th>Status</th><th>Last sign-in</th></tr></thead><tbody>${active.map((user) => `<tr><td><strong>${esc(user.name)}</strong><br><span class="empty-value">${esc(user.email)}</span></td><td>${esc(user.company_name || 'Platform')}</td><td>${esc(user.role.replace('_', ' '))}</td><td>${statusBadge(user.status)}</td><td>${formatDate(user.last_login_at)}</td></tr>`).join('')}</tbody></table></div></section></div>`;
+}
 
 function filteredCandidates() {
   return state.candidates.filter((candidate) => {
@@ -146,12 +203,13 @@ function filteredCandidates() {
 
 function renderCandidates() {
   const candidates = filteredCandidates();
-  return `${pageIntro('Persistent candidate records', 'Candidates', 'Candidate, invitation, and assessment states come from the audit database.', `<button class="button button-primary" data-nav="import">${icon('plus')}Import candidates</button>`)}<section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search candidates"></div><select class="select" id="candidate-status"><option>All</option><option>Not invited</option><option>accepted</option><option>delivered</option><option>Completed</option><option>failed</option></select></div><span class="badge badge-neutral">${candidates.length} records</span></div>${candidateTable(candidates)}</section>`;
+  const scope = state.user?.role === 'recruiter' ? 'Candidates you own' : state.user?.role === 'admin' ? `All candidates at ${state.user.companyName}` : 'Candidates across every company';
+  return `${pageIntro('Role-scoped records', 'Candidates', `${scope}. Invitation and assessment states come from the audit database.`, `<button class="button button-primary" data-nav="import">${icon('plus')}Import candidates</button>`)}<section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search candidates"></div><select class="select" id="candidate-status"><option>All</option><option>Not invited</option><option>accepted</option><option>delivered</option><option>Completed</option><option>failed</option></select></div><span class="badge badge-neutral">${candidates.length} records</span></div>${candidateTable(candidates)}</section>`;
 }
 
 function candidateTable(candidates) {
   if (!candidates.length) return `<div class="empty-panel"><h3>No candidate records yet</h3><p>Import a CSV or send a real invitation to create the first durable record.</p></div>`;
-  return `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Role / site</th><th>Invitation</th><th>Assessment</th><th>Updated</th><th></th></tr></thead><tbody>${candidates.map((candidate) => `<tr><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.site || 'No site')}</span></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td>${formatDate(candidate.updated_at)}</td><td><div class="row-actions">${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open audited report</button>` : `<button class="row-button" data-send-candidate="${candidate.id}">Invite</button>`}</div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Role / company</th><th>Lists</th><th>Invitation</th><th>Assessment</th><th></th></tr></thead><tbody>${candidates.map((candidate) => `<tr><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.company_name || candidate.site || 'No company')}</span></td><td><span class="badge badge-neutral">${Number(candidate.list_count || 0)} lists</span></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td><div class="row-actions">${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open report</button>` : `<button class="row-button" data-send-candidate="${candidate.id}">Direct send</button>`}</div></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function parseCsv(text) {
@@ -180,17 +238,22 @@ function guessedMapping(header) {
 
 function renderImport() {
   const csv = state.csv;
-  return `${pageIntro('Persistent CSV import', 'Import candidates', 'Parse locally, verify the mapping, then write valid candidate rows to the audit database.', '')}<div class="grid grid-2"><section class="card card-body"><div class="dropzone">${icon('upload')}<div><h3>${csv ? esc(csv.name) : 'Choose a candidate CSV'}</h3><p>${csv ? `${csv.rows.length} rows detected` : 'Required: name, email, and role'}</p><label class="button button-secondary" for="csv-file">${csv ? 'Choose another file' : 'Browse files'}</label><input class="file-input" id="csv-file" type="file" accept=".csv,text/csv"></div></div></section><section class="card"><div class="card-header"><div><h3>Data boundaries</h3><p>Import only data needed for the workflow.</p></div>${icon('shield')}</div><div class="card-body guardrail-list">${guardrail('Do not score protected data', 'Birth date, sex, race, ethnicity, disability, and family status stay outside the assessment model.', 'Blocked')}${guardrail('Duplicate control', 'Email is the unique candidate key; existing records are updated.', 'Active')}${guardrail('Audit event', 'Each import records the authenticated actor and accepted row count.', 'Active')}</div></section></div>${csv ? `<section class="card"><div class="card-header"><div><h3>Column mapping</h3><p>Confirm fields before writing records.</p></div><button class="button button-primary" data-action="confirm-import" ${state.busy ? 'disabled' : ''}>${icon('check')}Import ${csv.rows.length}</button></div><div class="card-body mapping-list">${csv.headers.map((header, index) => `<div class="mapping-row"><div class="source-column"><strong>${esc(header)}</strong><small>Sample: ${esc(csv.rows[0]?.[index] || '')}</small></div><span>→</span><select class="select mapping-select" data-column="${index}">${['name','email','phone','role','site','ignore'].map((target) => `<option value="${target}" ${guessedMapping(header) === target ? 'selected' : ''}>${target}</option>`).join('')}</select></div>`).join('')}</div></section>` : ''}`;
+  const companySelect = state.user?.role === 'super_admin' ? `<label class="compact-select"><span>Import into company</span><select class="select" id="import-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></label>` : '';
+  return `${pageIntro('Persistent CSV import', 'Import candidates', 'Parse locally, verify the mapping, then write valid candidate rows inside the selected company scope.', '')}<div class="grid grid-2"><section class="card card-body"><div class="dropzone">${icon('upload')}<div><h3>${csv ? esc(csv.name) : 'Choose a candidate CSV'}</h3><p>${csv ? `${csv.rows.length} rows detected` : 'Required: name, email, and role'}</p><label class="button button-secondary" for="csv-file">${csv ? 'Choose another file' : 'Browse files'}</label><input class="file-input" id="csv-file" type="file" accept=".csv,text/csv"></div></div></section><section class="card"><div class="card-header"><div><h3>Data boundaries</h3><p>Import only data needed for the workflow.</p></div>${icon('shield')}</div><div class="card-body guardrail-list">${guardrail('Do not score protected data', 'Birth date, sex, race, ethnicity, disability, and family status stay outside the assessment model.', 'Blocked')}${guardrail('Duplicate control', 'Email is unique inside each company; existing records are updated.', 'Active')}${guardrail('Audit event', 'Each import records the signed-in actor, company, and accepted row count.', 'Active')}</div></section></div>${csv ? `<section class="card"><div class="card-header"><div><h3>Column mapping</h3><p>Confirm fields before writing records.</p></div><div class="toolbar">${companySelect}<button class="button button-primary" data-action="confirm-import" ${state.busy ? 'disabled' : ''}>${icon('check')}Import ${csv.rows.length}</button></div></div><div class="card-body mapping-list">${csv.headers.map((header, index) => `<div class="mapping-row"><div class="source-column"><strong>${esc(header)}</strong><small>Sample: ${esc(csv.rows[0]?.[index] || '')}</small></div><span>→</span><select class="select mapping-select" data-column="${index}">${['name','email','phone','role','site','ignore'].map((target) => `<option value="${target}" ${guessedMapping(header) === target ? 'selected' : ''}>${target}</option>`).join('')}</select></div>`).join('')}</div></section>` : ''}`;
 }
 
 function renderSend(prefill = {}) {
   const emailReady = state.health.email?.configured;
-  return `${pageIntro('Transactional email', 'Send Tenure Potential Assessment', 'The server creates a one-time token, stores its hash, and reports success only after Mailgun accepts the message.', `<button class="button button-secondary" data-action="preview">${icon('file')}Preview test</button>`)}<div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Candidate invitation</h3><p>English or Spanish can be suggested; the candidate chooses before starting.</p></div>${statusBadge(emailReady ? 'delivered' : 'Not configured')}</div><form class="card-body form-grid" id="invite-form"><div class="field"><label for="invite-name">Candidate name</label><input class="input" id="invite-name" required value="${esc(prefill.name || '')}"></div><div class="field"><label for="invite-email">Email</label><input class="input" id="invite-email" type="email" required value="${esc(prefill.email || '')}"></div><div class="field"><label for="invite-phone">Phone</label><input class="input" id="invite-phone" value="${esc(prefill.phone || '')}"></div><div class="field"><label for="invite-role">Role</label><input class="input" id="invite-role" required value="${esc(prefill.role || 'Bilingual Customer Care')}"></div><div class="field"><label for="invite-site">Site</label><input class="input" id="invite-site" value="${esc(prefill.site || 'Guatemala City')}"></div><div class="field"><label for="invite-locale">Suggested email language</label><select class="select" id="invite-locale"><option value="en">English</option><option value="es">Español</option></select></div><div class="form-span"><button class="button button-primary" type="submit" ${!emailReady || state.busy ? 'disabled' : ''}>${icon('send')}${state.busy ? 'Sending…' : 'Send real invitation'}</button>${!emailReady ? '<p class="field-help">Connect and verify Mailgun in Settings before sending.</p>' : ''}</div></form></section><section class="stack"><article class="card test-summary"><div class="test-main"><p class="eyebrow">Candidate-facing name</p><h3>Tenure Potential Assessment</h3><p>27 scored and context items plus three bilingual, job-related scenario questions. The scenario responses inform a separate GPT-5.5 recruiter narrative and never change the transparent index.</p><div class="notice"><strong>Score status:</strong> transparent pilot index. No retention probability or hiring cutoff is produced.</div></div></article><article class="card"><div class="card-header"><div><h3>Delivery controls</h3><p>High-deliverability requirements.</p></div></div><div class="card-body guardrail-list">${guardrail('Verified sending domain', 'SPF and DKIM must verify in Mailgun; publish DMARC with your domain policy.', emailReady ? 'Configured' : 'Open')}${guardrail('TLS required', 'Messages are submitted with required TLS and both text and HTML bodies.', 'Active')}${guardrail('Delivery webhooks', 'Delivered, failed, complaint, and unsubscribe events update invitation status.', 'Implemented')}</div></article></section></div>`;
+  const activeTests = state.tests.filter((test) => test.status === 'active');
+  const companyField = state.user?.role === 'super_admin' && !prefill.id ? `<div class="field"><label for="invite-company">Company</label><select class="select" id="invite-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></div>` : '';
+  return `${pageIntro('One-off delivery', 'Direct test send', 'Use lists for cohorts and test sets. Direct send is available for an individual exception.', `<button class="button button-secondary" data-nav="lists">${icon('list')}Use a list instead</button>`)}<div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Candidate invitation</h3><p>The candidate still chooses English or Spanish before starting.</p></div>${statusBadge(emailReady ? 'delivered' : 'Not configured')}</div><form class="card-body form-grid" id="invite-form"><input type="hidden" id="invite-candidate-id" value="${esc(prefill.id || '')}"><div class="field"><label for="invite-name">Candidate name</label><input class="input" id="invite-name" required value="${esc(prefill.name || '')}"></div><div class="field"><label for="invite-email">Email</label><input class="input" id="invite-email" type="email" required value="${esc(prefill.email || '')}"></div><div class="field"><label for="invite-phone">Phone</label><input class="input" id="invite-phone" value="${esc(prefill.phone || '')}"></div><div class="field"><label for="invite-role">Role</label><input class="input" id="invite-role" required value="${esc(prefill.role || 'Bilingual Customer Care')}"></div><div class="field"><label for="invite-site">Site</label><input class="input" id="invite-site" value="${esc(prefill.site || '')}"></div>${companyField}<div class="field"><label for="invite-test">Test</label><select class="select" id="invite-test">${activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('')}</select></div><div class="field"><label for="invite-locale">Suggested email language</label><select class="select" id="invite-locale"><option value="en">English</option><option value="es">Español</option></select></div><div class="form-span"><button class="button button-primary" type="submit" ${!emailReady || state.busy ? 'disabled' : ''}>${icon('send')}${state.busy ? 'Sending…' : 'Send invitation'}</button>${!emailReady ? '<p class="field-help">Connect and verify Mailgun in Settings before sending.</p>' : ''}</div></form></section><section class="stack">${activeTests.map(testCatalogCard).join('')}<article class="card"><div class="card-header"><div><h3>Delivery controls</h3><p>High-deliverability requirements.</p></div></div><div class="card-body guardrail-list">${guardrail('Verified sending domain', 'SPF and DKIM must verify in Mailgun; publish DMARC with your domain policy.', emailReady ? 'Configured' : 'Open')}${guardrail('TLS required', 'Messages are submitted with required TLS and both text and HTML bodies.', 'Active')}${guardrail('Signed webhooks', 'Delivery failures and complaints update the invitation record.', 'Implemented')}</div></article></section></div>`;
 }
 
 function renderProgress() {
-  const invited = state.candidates.filter((candidate) => candidate.invitation_id);
-  return `${pageIntro('Provider and candidate events', 'Test progress', 'Invitation status is based on stored provider events and completed assessment records.', '')}<section class="grid grid-3">${metric('Accepted by provider', invited.filter((candidate) => ['accepted', 'deferred'].includes(candidate.invitation_status)).length, 'Queued or retrying delivery', 'send')}${metric('Delivered', invited.filter((candidate) => candidate.invitation_status === 'delivered').length, 'Recipient server accepted', 'check')}${metric('Completed', invited.filter((candidate) => candidate.assessment_id).length, 'Audited server score', 'shield')}</section><section class="card">${candidateTable(invited)}</section>`;
+  const total = state.batches.reduce((sum, batch) => sum + Number(batch.total_count || 0), 0);
+  const accepted = state.batches.reduce((sum, batch) => sum + Number(batch.accepted_count || 0), 0);
+  const completed = state.batches.reduce((sum, batch) => sum + Number(batch.completed_assessments || 0), 0);
+  return `${pageIntro('Batch and candidate events', 'Send progress', 'Each batch tracks one row per candidate and test. Refresh to see provider acceptance and completed assessments.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}<section class="grid grid-3">${metric('Batch sends', total, 'Candidate-test combinations', 'send')}${metric('Accepted', accepted, 'Mailgun accepted', 'check')}${metric('Assessments completed', completed, 'Audited results', 'shield')}</section><section class="card"><div class="table-scroll"><table><thead><tr><th>List</th><th>Company</th><th>Status</th><th>Progress</th><th>Assessments</th><th>Created</th></tr></thead><tbody>${state.batches.map((batch) => { const processed = Number(batch.accepted_count || 0) + Number(batch.failed_count || 0); const pct = Number(batch.total_count) ? Math.round(processed / Number(batch.total_count) * 100) : 0; return `<tr><td><strong>${esc(batch.list_name)}</strong><br><span class="empty-value">by ${esc(batch.created_by_name)}</span></td><td>${esc(batch.company_name)}</td><td>${statusBadge(batch.status)}</td><td><div class="batch-progress"><div class="progress-track"><span style="width:${pct}%"></span></div><small>${processed} / ${Number(batch.total_count)} · ${Number(batch.failed_count)} failed</small></div></td><td>${Number(batch.completed_assessments)} completed</td><td>${formatDate(batch.created_at)}</td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty-panel"><h3>No batches yet</h3><p>Create a list, assign tests, and send the first batch.</p></div></td></tr>'}</tbody></table></div></section>`;
 }
 
 function reportRecord() {
@@ -271,7 +334,7 @@ function renderSettings() {
   const email = state.health.email || {};
   const ai = state.health.ai || {};
   const webhookUrl = `${location.origin}/api/mailgun/webhook`;
-  return `${pageIntro('Secure runtime configuration', 'Settings', 'Email and OpenAI credentials stay server-side; the browser sees only connection status and safe metadata.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button>`)}<div class="grid grid-2"><section class="card settings-card"><div class="settings-title"><div><h3>Mailgun delivery</h3><p>Real REST API integration with verified-domain sending.</p></div><span class="badge badge-${email.configured ? 'teal' : 'orange'}">${email.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'Mailgun Email API', 'Implemented')}${settingLine('Region', email.region || 'US', 'Configured')}${settingLine('Sending domain', email.domain || 'Missing MAILGUN_DOMAIN', email.domain ? 'Present' : 'Required')}${settingLine('Sender', email.from || 'Missing MAILGUN_FROM', email.from ? 'Present' : 'Required')}<div class="field email-test"><label for="email-test-recipient">Connection test recipient</label><div class="inline-field"><input class="input" id="email-test-recipient" type="email" placeholder="you@company.com"><button class="button button-primary" data-action="test-email" ${!email.configured || state.busy ? 'disabled' : ''}>Send test</button></div><small>A successful test means Mailgun accepted the message. Delivery is confirmed separately through the signed webhook.</small></div></section><section class="card settings-card"><h3>Connect Mailgun</h3><p>Complete these steps once, in order.</p><ol class="setup-list"><li><strong>Add a dedicated sending subdomain in Mailgun.</strong><span>Example: <code>assessment.yourcompany.com</code>. Select the correct US or EU region.</span></li><li><strong>Publish and verify the DNS records.</strong><span>Add Mailgun's SPF and DKIM records, then add DMARC under your organization's policy.</span></li><li><strong>Create a domain sending key and the hosted runtime values.</strong><span><code>MAILGUN_API_KEY</code>, <code>MAILGUN_DOMAIN</code>, <code>MAILGUN_FROM</code>, <code>MAILGUN_REGION</code>, and <code>MAILGUN_WEBHOOK_SIGNING_KEY</code>. Keep both keys secret.</span></li><li><strong>Register signed webhooks.</strong><span>Use <code>${esc(webhookUrl)}</code> for accepted, delivered, temporary fail, permanent fail, complained, and unsubscribed events.</span></li><li><strong>Refresh and send a connection test.</strong><span>The status above changes to Connected when all sending and webhook values are present.</span></li></ol><p class="settings-link"><a href="https://documentation.mailgun.com/docs/mailgun/user-manual/domains/domains-verify" target="_blank" rel="noreferrer">Open Mailgun domain-verification documentation</a></p></section><section class="card settings-card"><div class="settings-title"><div><h3>GPT-5.5 analysis</h3><p>Structured bilingual recruiter narrative with separate evidence and output hashes.</p></div><span class="badge badge-${ai.configured ? 'teal' : 'orange'}">${ai.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'OpenAI Responses API', 'Implemented')}${settingLine('Model', ai.model || 'gpt-5.5-2026-04-23', 'Pinned')}${settingLine('Scenario prompt', ai.scenarioPromptVersion || 'scenario-v1.0.0', 'Versioned')}${settingLine('Analysis prompt', ai.analysisPromptVersion || 'analysis-v1.0.0', 'Versioned')}<div class="notice"><strong>Configuration:</strong> add <code>OPENAI_API_KEY</code> as a secret and optionally set <code>OPENAI_MODEL</code>. Candidate identity and contact fields are excluded from AI evidence.</div></section><section class="card settings-card"><h3>AI governance</h3><p>Controls enforced by the current build.</p>${settingLine('Score contribution', 'Zero; narrative is separate from the index', 'Locked')}${settingLine('Automatic hiring action', 'No hire, reject, pass, fail, or ranking output', 'Blocked')}${settingLine('Clinical interpretation', 'Diagnosis and protected-trait inference prohibited', 'Blocked')}${settingLine('Human review', 'Required with other job-related evidence', 'Required')}</section><section class="card settings-card"><h3>Assessment governance</h3><p>Controls enforced by the current build.</p>${settingLine('Automatic rejection', 'Disabled by product design', 'Locked off')}${settingLine('Model status', 'Pilot · uncalibrated', engine.MODEL_VERSION)}${settingLine('Assessment version', engine.ASSESSMENT_VERSION, 'Versioned')}${settingLine('Result fingerprint', 'SHA-256 over inputs, score, version, and timestamps', 'Active')}</section><section class="card settings-card"><h3>Data and access</h3><p>Current private workspace architecture.</p>${settingLine('Structured records', 'Platform database', state.health.database ? 'Active' : 'Unavailable')}${settingLine('Admin attribution', 'Authenticated workspace email header', 'Server-side')}${settingLine('Candidate invitation', 'One-time random token; only hash stored', 'Implemented')}${settingLine('Candidate access', 'Public or candidate-authenticated hosting is required before external delivery', 'Action required')}${settingLine('Secret handling', 'Hosted runtime variables only', 'Server-side')}</section></div>`;
+  return `${pageIntro('Secure runtime configuration', 'Settings', 'Email, OpenAI, and authentication secrets stay server-side; the browser sees only connection status.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button>`)}<div class="grid grid-2"><section class="card settings-card"><div class="settings-title"><div><h3>Mailgun delivery</h3><p>Real REST API integration with verified-domain sending.</p></div><span class="badge badge-${email.configured ? 'teal' : 'orange'}">${email.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'Mailgun Email API', 'Implemented')}${settingLine('Region', email.region || 'US', 'Configured')}${settingLine('Sending domain', email.domain || 'Missing MAILGUN_DOMAIN', email.domain ? 'Present' : 'Required')}${settingLine('Sender', email.from || 'Missing MAILGUN_FROM', email.from ? 'Present' : 'Required')}<div class="field email-test"><label for="email-test-recipient">Connection test recipient</label><div class="inline-field"><input class="input" id="email-test-recipient" type="email" placeholder="you@company.com"><button class="button button-primary" data-action="test-email" ${!email.configured || state.busy ? 'disabled' : ''}>Send test</button></div><small>Acceptance is recorded immediately; signed webhooks confirm delivery.</small></div></section><section class="card settings-card"><h3>Connect Mailgun</h3><ol class="setup-list"><li><strong>Add a dedicated sending subdomain.</strong><span>Select the correct US or EU region.</span></li><li><strong>Publish SPF, DKIM, and DMARC.</strong><span>Wait for Mailgun to verify the DNS records.</span></li><li><strong>Add hosted runtime values.</strong><span><code>MAILGUN_API_KEY</code>, <code>MAILGUN_DOMAIN</code>, <code>MAILGUN_FROM</code>, <code>MAILGUN_REGION</code>, and <code>MAILGUN_WEBHOOK_SIGNING_KEY</code>.</span></li><li><strong>Register signed webhooks.</strong><span>Use <code>${esc(webhookUrl)}</code> for delivery and failure events.</span></li></ol><p class="settings-link"><a href="https://documentation.mailgun.com/docs/mailgun/user-manual/domains/domains-verify" target="_blank" rel="noreferrer">Open Mailgun documentation</a></p></section><section class="card settings-card"><div class="settings-title"><div><h3>GPT-5.5 analysis</h3><p>Structured bilingual recruiter narrative with evidence and output hashes.</p></div><span class="badge badge-${ai.configured ? 'teal' : 'orange'}">${ai.configured ? 'Connected' : 'Not connected'}</span></div>${settingLine('Provider', 'OpenAI Responses API', 'Implemented')}${settingLine('Model', ai.model || 'gpt-5.5-2026-04-23', 'Pinned')}${settingLine('Scenario prompt', ai.scenarioPromptVersion || 'scenario-v1.0.0', 'Versioned')}${settingLine('Analysis prompt', ai.analysisPromptVersion || 'analysis-v1.0.0', 'Versioned')}<div class="notice"><strong>Configuration:</strong> add <code>OPENAI_API_KEY</code> as a secret. Candidate identity and contact fields are excluded from AI evidence.</div></section><section class="card settings-card"><h3>Account security</h3><p>${esc(state.user?.email || '')}</p><form id="password-form" class="stack"><label class="field"><span>Current password</span><input class="input" id="current-password" type="password" autocomplete="current-password" required></label><label class="field"><span>New password</span><input class="input" id="new-password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><button class="button button-secondary" type="submit">${icon('key')}Change password</button></form></section><section class="card settings-card"><h3>Data and access</h3>${settingLine('Structured records', 'Platform database', state.health.database ? 'Active' : 'Unavailable')}${settingLine('Signed-in identity', 'App-owned secure session', 'HTTP-only')}${settingLine('Role scope', (state.user?.role || '').replace('_', ' '), 'Server-side')}${settingLine('Company scope', state.user?.companyName || 'All companies', 'Server-side')}${settingLine('Candidate invitation', 'Random one-time token; only hash stored', 'Implemented')}${settingLine('Public access', 'Account pages and invitation links', 'Enabled')}</section><section class="card settings-card"><h3>Assessment governance</h3>${settingLine('Automatic rejection', 'Disabled by product design', 'Locked off')}${settingLine('AI score contribution', 'Zero', 'Locked')}${settingLine('Model status', 'Pilot · uncalibrated', engine.MODEL_VERSION)}${settingLine('Result fingerprint', 'SHA-256 over inputs, score, version, and timestamps', 'Active')}</section></div>`;
 }
 
 function settingLine(title, text, badge) { return `<div class="setting-line"><div><strong>${title}</strong><span>${text}</span></div><span class="badge badge-neutral">${badge}</span></div>`; }
@@ -449,14 +512,134 @@ function downloadPdf() {
 
 async function sendInvitation(event) {
   event.preventDefault();
+  const candidateId = document.getElementById('invite-candidate-id')?.value;
   const candidate = { name: document.getElementById('invite-name')?.value, email: document.getElementById('invite-email')?.value, phone: document.getElementById('invite-phone')?.value, role: document.getElementById('invite-role')?.value, site: document.getElementById('invite-site')?.value };
   const locale = document.getElementById('invite-locale')?.value || 'en';
+  const testId = document.getElementById('invite-test')?.value;
   state.busy = true; render();
   try {
-    const response = await fetchJson('/api/invitations', { method: 'POST', body: JSON.stringify({ candidate, locale }) });
+    const response = await fetchJson('/api/invitations', { method: 'POST', body: JSON.stringify({ candidateId: candidateId || undefined, candidate: candidateId ? undefined : candidate, companyId: document.getElementById('invite-company')?.value, testId, locale }) });
     toast(`Mailgun accepted the invitation: ${response.providerMessageId}`);
     await loadWorkspace(); state.view = 'progress';
   } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function submitAuth(event) {
+  event.preventDefault();
+  const mode = event.currentTarget.dataset.mode;
+  const payload = {
+    email: document.getElementById('auth-email')?.value,
+    password: document.getElementById('auth-password')?.value,
+    name: document.getElementById('auth-name')?.value,
+    companyName: document.getElementById('auth-company')?.value,
+    bootstrapToken: document.getElementById('auth-bootstrap')?.value,
+  };
+  state.busy = true; state.error = ''; render();
+  try {
+    const response = await fetchJson(mode === 'login' ? '/api/auth/login' : '/api/auth/signup', { method: 'POST', body: JSON.stringify(payload) });
+    if (response.status === 'pending') {
+      state.accountPending = true;
+      state.adminAuthenticated = false;
+      state.busy = false;
+      render();
+      return;
+    }
+    state.accountPending = false;
+    await loadWorkspace();
+  } catch (error) {
+    state.error = error.message;
+  } finally { state.busy = false; render(); }
+}
+
+async function signOut() {
+  state.busy = true;
+  try { await fetchJson('/api/auth/logout', { method: 'POST', body: '{}' }); } catch { /* Local state is cleared even if the server is unavailable. */ }
+  state.user = null; state.adminAuthenticated = false; state.accountPending = false; state.authMode = 'login'; state.busy = false; state.error = ''; render();
+}
+
+async function createList(event) {
+  event.preventDefault();
+  const payload = { name: document.getElementById('list-name')?.value, description: document.getElementById('list-description')?.value, companyId: document.getElementById('list-company')?.value };
+  state.busy = true;
+  try {
+    const response = await fetchJson('/api/lists', { method: 'POST', body: JSON.stringify(payload) });
+    state.lists = response.lists || [];
+    state.selectedListId = response.listId;
+    toast('Candidate list created.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function updateList(event) {
+  event.preventDefault();
+  const list = state.lists.find((entry) => entry.id === state.selectedListId);
+  if (!list) return;
+  const candidateIds = [...document.querySelectorAll('input[name="list-candidate"]:checked')].map((input) => input.value);
+  const testIds = [...document.querySelectorAll('input[name="list-test"]:checked')].map((input) => input.value);
+  state.busy = true;
+  try {
+    const response = await fetchJson(`/api/lists/${encodeURIComponent(list.id)}`, { method: 'PATCH', body: JSON.stringify({ candidateIds, testIds }) });
+    state.lists = response.lists || [];
+    toast('List membership and tests saved.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function sendBatch(listId) {
+  const list = state.lists.find((entry) => entry.id === listId);
+  if (!list) return;
+  const checkedTests = [...document.querySelectorAll('input[name="list-test"]:checked')].map((input) => input.value);
+  const locale = document.getElementById('batch-locale')?.value || 'en';
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/batches', { method: 'POST', body: JSON.stringify({ listId, testIds: checkedTests.length ? checkedTests : list.test_ids, locale }) });
+    toast(`Batch queued with ${response.total} candidate-test sends.`);
+    state.view = 'progress';
+    await loadWorkspace();
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function createTest(event) {
+  event.preventDefault();
+  const payload = {
+    nameEn: document.getElementById('test-name-en')?.value,
+    nameEs: document.getElementById('test-name-es')?.value,
+    slug: document.getElementById('test-slug')?.value,
+    estimatedMinutes: document.getElementById('test-minutes')?.value,
+    descriptionEn: document.getElementById('test-description-en')?.value,
+    descriptionEs: document.getElementById('test-description-es')?.value,
+  };
+  state.busy = true;
+  try { const response = await fetchJson('/api/tests', { method: 'POST', body: JSON.stringify(payload) }); state.tests = response.tests || []; toast('Draft test added to the catalog.'); }
+  catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function updateUserAccess(userId, status) {
+  const payload = status === 'rejected' ? { status } : {
+    status: 'active',
+    role: document.getElementById(`approve-role-${userId}`)?.value,
+    companyId: document.getElementById(`approve-company-${userId}`)?.value,
+    companyName: document.getElementById(`approve-company-name-${userId}`)?.value,
+  };
+  state.busy = true;
+  try {
+    const response = await fetchJson(`/api/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+    state.users = response.users || [];
+    state.companies = response.companies || [];
+    toast(status === 'rejected' ? 'Registration rejected.' : 'User approved and access assigned.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function changePassword(event) {
+  event.preventDefault();
+  const payload = { currentPassword: document.getElementById('current-password')?.value, newPassword: document.getElementById('new-password')?.value };
+  state.busy = true;
+  try { await fetchJson('/api/auth/password', { method: 'POST', body: JSON.stringify(payload) }); toast('Password changed. Other sessions were revoked.'); }
+  catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
 }
 
@@ -468,7 +651,7 @@ async function confirmImport() {
   });
   state.busy = true; render();
   try {
-    const response = await fetchJson('/api/candidates/import', { method: 'POST', body: JSON.stringify({ candidates }) });
+    const response = await fetchJson('/api/candidates/import', { method: 'POST', body: JSON.stringify({ candidates, companyId: document.getElementById('import-company')?.value }) });
     state.candidates = response.candidates || []; state.csv = null; state.view = 'candidates'; toast(`${response.accepted} candidates written to the audit database.`);
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
@@ -491,15 +674,18 @@ function render() {
   }
   if (state.adminAuthenticated === false && !state.loading) {
     document.getElementById('app').innerHTML = adminSignInPage();
+    bindEvents();
     return;
   }
-  const views = { home: renderHome, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, reports: renderReports, settings: renderSettings };
+  const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, reports: renderReports, team: renderTeam, settings: renderSettings };
   document.getElementById('app').innerHTML = shell(state.loading ? '<div class="loading-panel"><div class="spinner"></div><p>Loading secure workspace…</p></div>' : (views[state.view] || renderHome)());
   bindEvents();
 }
 
 function bindEvents() {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => { state.view = button.dataset.nav; render(); }));
+  document.querySelectorAll('[data-auth-mode]').forEach((button) => button.addEventListener('click', () => { state.authMode = button.dataset.authMode; state.accountPending = false; state.error = ''; render(); }));
+  document.getElementById('auth-form')?.addEventListener('submit', submitAuth);
   document.getElementById('mobile-menu')?.addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
   document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () => {
     const action = button.dataset.action;
@@ -510,8 +696,17 @@ function bindEvents() {
     if (action === 'test-email') testEmail();
     if (action === 'generate-ai') generateAiAnalysis();
     if (action === 'download-pdf') downloadPdf();
+    if (action === 'logout') signOut();
   }));
   document.getElementById('invite-form')?.addEventListener('submit', sendInvitation);
+  document.getElementById('list-form')?.addEventListener('submit', createList);
+  document.getElementById('list-editor-form')?.addEventListener('submit', updateList);
+  document.getElementById('test-form')?.addEventListener('submit', createTest);
+  document.getElementById('password-form')?.addEventListener('submit', changePassword);
+  document.querySelectorAll('[data-list-id]').forEach((button) => button.addEventListener('click', () => { state.selectedListId = button.dataset.listId; render(); }));
+  document.querySelectorAll('[data-batch-list]').forEach((button) => button.addEventListener('click', () => sendBatch(button.dataset.batchList)));
+  document.querySelectorAll('[data-approve-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.approveUser, 'active')));
+  document.querySelectorAll('[data-reject-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.rejectUser, 'rejected')));
   document.getElementById('candidate-search')?.addEventListener('input', (event) => { state.search = event.target.value; render(); });
   document.getElementById('candidate-status')?.addEventListener('change', (event) => { state.filteredStatus = event.target.value; render(); });
   document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { state.csv = { name: file.name, ...parseCsv(reader.result) }; render(); }; reader.readAsText(file); });
