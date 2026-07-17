@@ -588,7 +588,9 @@ async function authenticatedUser(request, env) {
   `).bind(tokenHash).first();
   if (!row || row.status !== 'active' || new Date(row.session_expires_at).getTime() <= Date.now()) return null;
   await env.DB.prepare(`UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?`).bind(new Date().toISOString(), tokenHash).run();
-  return { ...publicUser(row), sessionTokenHash: tokenHash };
+  const user = publicUser(row);
+  Object.defineProperty(user, 'sessionTokenHash', { value: tokenHash, enumerable: false });
+  return user;
 }
 
 function isSuperAdmin(user) {

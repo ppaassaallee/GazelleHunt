@@ -5,6 +5,7 @@ import { webcrypto } from 'node:crypto';
 
 const source = (await readFile(new URL('../server-worker.js', import.meta.url), 'utf8'))
   .replace('export default {', 'globalThis.__worker = {');
+assert.match(source, /sessionTokenHash', \{ value: tokenHash, enumerable: false \}/);
 const context = {
   globalThis: null,
   crypto: webcrypto,
