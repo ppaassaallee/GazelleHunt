@@ -5,11 +5,12 @@ import '../assessment-engine.js';
 import '../ai-assessment.js';
 import '../pdf-report.js';
 
-const [appSource, indexSource, serverSource, readmeSource] = await Promise.all([
+const [appSource, indexSource, serverSource, readmeSource, buildSource] = await Promise.all([
   readFile(new URL('../app.js', import.meta.url), 'utf8'),
   readFile(new URL('../index.html', import.meta.url), 'utf8'),
   readFile(new URL('../server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../README.md', import.meta.url), 'utf8'),
+  readFile(new URL('../build.mjs', import.meta.url), 'utf8'),
 ]);
 
 const appElement = { innerHTML: '' };
@@ -119,6 +120,7 @@ assert.match(serverSource, /ai-analysis/);
 assert.match(serverSource, /scenarioId: GazelleAiAssessment\.stableScenarioId\(row\.question_order\)/);
 assert.match(serverSource, /database_scenario_id: scenario\.scenario_id/);
 assert.match(serverSource, /initialAiStatus = ai\.configured \? 'not_generated'/);
+assert.match(buildSource, /dist\/\.openai\/hosting\.json/);
 assert.match(serverSource, /\/api\/preview\/ai-analysis/);
 assert.match(serverSource, /assetHeaders\('text\/html; charset=utf-8', 'no-cache', true\)/);
 assert.match(serverSource, /assessments_invitation_unique/);

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = new URL('.', import.meta.url);
-const [html, css, engine, aiAssessment, pdfReport, app, server] = await Promise.all([
+const [html, css, engine, aiAssessment, pdfReport, app, server, hosting] = await Promise.all([
   readFile(new URL('index.html', root), 'utf8'),
   readFile(new URL('styles.css', root), 'utf8'),
   readFile(new URL('assessment-engine.js', root), 'utf8'),
@@ -11,6 +11,7 @@ const [html, css, engine, aiAssessment, pdfReport, app, server] = await Promise.
   readFile(new URL('pdf-report.js', root), 'utf8'),
   readFile(new URL('app.js', root), 'utf8'),
   readFile(new URL('server-worker.js', root), 'utf8'),
+  readFile(new URL('.openai/hosting.json', root), 'utf8'),
 ]);
 
 const ogPath = resolve(new URL('public/og.png', root).pathname);
@@ -33,5 +34,7 @@ ${server}
 `;
 
 await mkdir(new URL('dist/server/', root), { recursive: true });
+await mkdir(new URL('dist/.openai/', root), { recursive: true });
 await writeFile(new URL('dist/server/index.js', root), worker);
+await writeFile(new URL('dist/.openai/hosting.json', root), hosting);
 console.log('Gazelle Assessment build created.');
