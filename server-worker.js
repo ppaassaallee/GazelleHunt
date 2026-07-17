@@ -125,6 +125,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS ai_analyses (
     assessment_id TEXT PRIMARY KEY,
     status TEXT NOT NULL,
+    provider TEXT,
     model TEXT NOT NULL,
     prompt_version TEXT NOT NULL,
     provider_response_id TEXT,
@@ -301,6 +302,7 @@ const runtimeColumnMigrations = [
   ['invitations', 'batch_id', `ALTER TABLE invitations ADD COLUMN batch_id TEXT`],
   ['invitations', 'created_by_user_id', `ALTER TABLE invitations ADD COLUMN created_by_user_id TEXT REFERENCES users(id)`],
   ['assessments', 'test_id', `ALTER TABLE assessments ADD COLUMN test_id TEXT REFERENCES assessment_tests(id)`],
+  ['ai_analyses', 'provider', `ALTER TABLE ai_analyses ADD COLUMN provider TEXT`],
 ];
 
 const postMigrationStatements = [
@@ -394,15 +396,41 @@ function validateAnalysisOutput(output, evidence) {
     const words = cleanText(paragraph, 5000).split(/\s+/).filter(Boolean).length;
     return words < 45 || words > 160 || sensitiveEvidencePattern.test(paragraph) || prohibitedAnalysisPattern.test(paragraph);
   })) return false;
+  for (const localized of [output.en, output.es]) {
+    if (!cleanText(localized?.executive_summary, 3000)
+      || !Array.isArray(localized?.observed_strengths) || localized.observed_strengths.length < 2
+      || !Array.isArray(localized?.watch_areas) || localized.watch_areas.length < 2
+      || !Array.isArray(localized?.interview_focus) || localized.interview_focus.length < 3
+      || !Array.isArray(localized?.support_actions) || localized.support_actions.length < 3) return false;
+  }
   const itemIds = new Set(evidence.scoringTrace.map((entry) => entry.itemId));
   const scenarioIds = new Set(evidence.scenarios.map((entry) => entry.scenarioId));
-  return Array.isArray(output.evidence_claims) && output.evidence_claims.length >= 3 && output.evidence_claims.every((claim) => {
+  const alignment = output?.job_alignment;
+  if (!Number.isInteger(alignment?.rating) || alignment.rating < 1 || alignment.rating > 5
+    || !['low', 'moderate', 'high'].includes(alignment?.confidence)
+    || !Array.isArray(alignment?.questionnaire_item_ids) || alignment.questionnaire_item_ids.length < 3
+    || !alignment.questionnaire_item_ids.every((id) => itemIds.has(id))
+    || !Array.isArray(alignment?.scenario_ids) || alignment.scenario_ids.length !== 3
+    || alignment.scenario_ids.some((id) => !scenarioIds.has(id))
+    || new Set(alignment.scenario_ids).size !== 3) return false;
+  if (!Array.isArray(output?.scenario_findings) || output.scenario_findings.length !== 3
+    || new Set(output.scenario_findings.map((entry) => entry.scenario_id)).size !== 3
+    || output.scenario_findings.some((entry) => !scenarioIds.has(entry.scenario_id))) return false;
+  return Array.isArray(output.evidence_claims) && output.evidence_claims.length >= 5 && output.evidence_claims.every((claim) => {
     const claimItems = claim.item_ids || [];
     const claimScenarios = claim.scenario_ids || [];
     return claim.claim && claimItems.concat(claimScenarios).length > 0
       && claimItems.every((id) => itemIds.has(id))
       && claimScenarios.every((id) => scenarioIds.has(id));
   });
+}
+
+function localizedAnalysisOutput(output, locale) {
+  return {
+    ...output[locale],
+    job_alignment: output.job_alignment,
+    scenario_findings: output.scenario_findings,
+  };
 }
 
 function escapeHtml(value) {
@@ -752,10 +780,23 @@ function emailConfig(env) {
   };
 }
 
-function openAiConfig(env) {
-  const apiKey = String(env.OPENAI_API_KEY || '');
-  const model = cleanText(env.OPENAI_MODEL, 120) || GazelleAiAssessment.DEFAULT_MODEL;
-  return { configured: Boolean(apiKey), apiKey, model };
+function aiConfig(env) {
+  const openAiKey = String(env.OPENAI_API_KEY || '');
+  const geminiKey = String(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '');
+  const requested = cleanText(env.AI_PROVIDER, 30).toLowerCase();
+  const providerKey = ['openai', 'gemini'].includes(requested)
+    ? requested
+    : openAiKey ? 'openai' : geminiKey ? 'gemini' : 'openai';
+  const openAiModel = cleanText(env.OPENAI_MODEL, 120) || GazelleAiAssessment.DEFAULT_MODEL;
+  const geminiModel = cleanText(env.GEMINI_MODEL, 120) || GazelleAiAssessment.DEFAULT_GEMINI_MODEL;
+  const apiKey = providerKey === 'gemini' ? geminiKey : openAiKey;
+  return {
+    configured: Boolean(apiKey),
+    providerKey,
+    provider: providerKey === 'gemini' ? 'Google Gemini' : 'OpenAI',
+    apiKey,
+    model: providerKey === 'gemini' ? geminiModel : openAiModel,
+  };
 }
 
 function responseOutputText(body) {
@@ -769,9 +810,7 @@ function responseOutputText(body) {
   return '';
 }
 
-async function callOpenAiJson(env, { instructions, input, schema, schemaName, safetyIdentifier, maxOutputTokens }) {
-  const config = openAiConfig(env);
-  if (!config.configured) throw new Error('openai_not_configured');
+async function callOpenAiJson(config, { instructions, input, schema, schemaName, safetyIdentifier, maxOutputTokens }) {
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
@@ -800,6 +839,52 @@ async function callOpenAiJson(env, { instructions, input, schema, schemaName, sa
   } catch {
     throw new Error('openai_invalid_json');
   }
+}
+
+async function callGeminiJson(config, { instructions, input, schema, maxOutputTokens }) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': config.apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: instructions }] },
+      contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: schema,
+        maxOutputTokens,
+        temperature: 0.2,
+      },
+    }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error('gemini_rejected');
+    error.providerStatus = response.status;
+    error.providerMessage = cleanText(body?.error?.message || 'Gemini rejected the request.', 400);
+    throw error;
+  }
+  const text = (body?.candidates?.[0]?.content?.parts || []).map((part) => part?.text || '').join('');
+  if (!text) throw new Error('gemini_empty_output');
+  try {
+    return {
+      data: JSON.parse(text),
+      responseId: cleanText(body.responseId, 200) || null,
+      model: cleanText(body.modelVersion, 120) || config.model,
+      provider: config.provider,
+    };
+  } catch {
+    throw new Error('gemini_invalid_json');
+  }
+}
+
+async function callAiJson(env, request) {
+  const config = aiConfig(env);
+  if (!config.configured) throw new Error('ai_not_configured');
+  const result = config.providerKey === 'gemini'
+    ? await callGeminiJson(config, request)
+    : await callOpenAiJson(config, request);
+  return { ...result, provider: config.provider };
 }
 
 async function sendBrevo(env, message) {
@@ -909,7 +994,7 @@ async function listCandidates(env, user) {
       a.experience_branch, a.completed_at AS assessment_completed_at, a.duration_ms, a.potential_index,
       a.potential_band, a.fit_score, a.intent_score, a.reliability_score, a.context_score,
       a.support_profile_json, a.response_quality_json, a.scoring_trace_json, a.weights_json, a.audit_hash,
-      ai.status AS ai_analysis_status, ai.model AS ai_analysis_model, ai.prompt_version AS ai_prompt_version,
+      ai.status AS ai_analysis_status, ai.provider AS ai_analysis_provider, ai.model AS ai_analysis_model, ai.prompt_version AS ai_prompt_version,
       ai.provider_response_id AS ai_provider_response_id, ai.evidence_hash AS ai_evidence_hash,
       ai.output_hash AS ai_output_hash, ai.output_en_json AS ai_output_en_json, ai.output_es_json AS ai_output_es_json,
       ai.evidence_claims_json AS ai_evidence_claims_json, ai.limitations_json AS ai_limitations_json,
@@ -932,6 +1017,7 @@ async function listCandidates(env, user) {
     weights: row.weights_json ? JSON.parse(row.weights_json) : null,
     ai_analysis: row.ai_analysis_status ? {
       status: row.ai_analysis_status,
+      provider: row.ai_analysis_provider,
       model: row.ai_analysis_model,
       prompt_version: row.ai_prompt_version,
       provider_response_id: row.ai_provider_response_id,
@@ -1153,7 +1239,7 @@ async function createScenarioQuestions(request, env) {
   let model = 'rules-v1';
   let providerResponseId = null;
   try {
-    const ai = await callOpenAiJson(env, {
+    const ai = await callAiJson(env, {
       instructions: GazelleAiAssessment.SCENARIO_INSTRUCTIONS,
       input: evidence,
       schema: GazelleAiAssessment.scenarioSchema,
@@ -1163,9 +1249,9 @@ async function createScenarioQuestions(request, env) {
     });
     const candidateQuestions = ai.data?.questions;
     const itemIds = new Set(result.scoringTrace.map((entry) => entry.itemId));
-    if (!validateScenarioOutput(candidateQuestions, itemIds)) throw new Error('openai_invalid_scenarios');
+    if (!validateScenarioOutput(candidateQuestions, itemIds)) throw new Error('ai_invalid_scenarios');
     questions = candidateQuestions.sort((a, b) => a.id.localeCompare(b.id));
-    source = 'gpt_5_5';
+    source = ai.provider === 'Google Gemini' ? 'google_gemini' : 'openai';
     model = ai.model;
     providerResponseId = ai.responseId;
   } catch (error) {
@@ -1245,14 +1331,14 @@ async function aiEvidenceForAssessment(env, assessmentId) {
 }
 
 async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) {
-  const config = openAiConfig(env);
+  const config = aiConfig(env);
   const now = new Date().toISOString();
   if (!config.configured) {
     await env.DB.prepare(`
-      INSERT INTO ai_analyses (assessment_id, status, model, prompt_version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(assessment_id) DO UPDATE SET status = excluded.status, model = excluded.model, prompt_version = excluded.prompt_version, updated_at = excluded.updated_at
-    `).bind(assessmentId, 'not_configured', config.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, now, now).run();
+      INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(assessment_id) DO UPDATE SET status = excluded.status, provider = excluded.provider, model = excluded.model, prompt_version = excluded.prompt_version, updated_at = excluded.updated_at
+    `).bind(assessmentId, 'not_configured', config.provider, config.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, now, now).run();
     return { status: 'not_configured' };
   }
 
@@ -1262,14 +1348,14 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
   const { assessmentId: omittedAssessmentId, ...modelEvidence } = evidence;
   const evidenceHash = await sha256(GazelleAssessmentEngine.stableStringify(modelEvidence));
   await env.DB.prepare(`
-    INSERT INTO ai_analyses (assessment_id, status, model, prompt_version, evidence_hash, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(assessment_id) DO UPDATE SET status = excluded.status, model = excluded.model, prompt_version = excluded.prompt_version,
+    INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, evidence_hash, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(assessment_id) DO UPDATE SET status = excluded.status, provider = excluded.provider, model = excluded.model, prompt_version = excluded.prompt_version,
       evidence_hash = excluded.evidence_hash, error_code = NULL, updated_at = excluded.updated_at
-  `).bind(assessmentId, 'processing', config.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, evidenceHash, now, now).run();
+  `).bind(assessmentId, 'processing', config.provider, config.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, evidenceHash, now, now).run();
 
   try {
-    const ai = await callOpenAiJson(env, {
+    const ai = await callAiJson(env, {
       instructions: GazelleAiAssessment.ANALYSIS_INSTRUCTIONS,
       input: modelEvidence,
       schema: GazelleAiAssessment.analysisSchema,
@@ -1277,24 +1363,24 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
       safetyIdentifier: `assessment_${assessmentId}`,
       maxOutputTokens: 9000,
     });
-    if (!validateAnalysisOutput(ai.data, modelEvidence)) throw new Error('openai_invalid_analysis');
+    if (!validateAnalysisOutput(ai.data, modelEvidence)) throw new Error('ai_invalid_analysis');
     const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(ai.data));
     const updatedAt = new Date().toISOString();
     await env.DB.prepare(`
-      UPDATE ai_analyses SET status = ?, model = ?, provider_response_id = ?, output_hash = ?, output_en_json = ?, output_es_json = ?,
+      UPDATE ai_analyses SET status = ?, provider = ?, model = ?, provider_response_id = ?, output_hash = ?, output_en_json = ?, output_es_json = ?,
         evidence_claims_json = ?, limitations_json = ?, error_code = NULL, updated_at = ? WHERE assessment_id = ?
     `).bind(
-      'completed', ai.model, ai.responseId, outputHash, JSON.stringify(ai.data.en), JSON.stringify(ai.data.es),
+      'completed', ai.provider, ai.model, ai.responseId, outputHash, JSON.stringify(localizedAnalysisOutput(ai.data, 'en')), JSON.stringify(localizedAnalysisOutput(ai.data, 'es')),
       JSON.stringify(ai.data.evidence_claims || []), JSON.stringify(ai.data.limitations || []), updatedAt, assessmentId,
     ).run();
     await audit(env, actorEmail, 'ai_analysis_completed', 'assessment', assessmentId, {
-      model: ai.model,
+      provider: ai.provider, model: ai.model,
       promptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION,
       providerResponseId: ai.responseId,
       evidenceHash,
       outputHash,
     });
-    return { status: 'completed', model: ai.model, evidenceHash, outputHash };
+    return { status: 'completed', provider: ai.provider, model: ai.model, evidenceHash, outputHash };
   } catch (error) {
     const errorCode = cleanText(error.message, 120) || 'ai_analysis_failed';
     await env.DB.prepare(`UPDATE ai_analyses SET status = ?, error_code = ?, updated_at = ? WHERE assessment_id = ?`)
@@ -1389,11 +1475,11 @@ async function submitAssessment(request, env, context) {
     INSERT INTO assessment_scenario_responses (assessment_id, scenario_id, response_text, response_locale, response_ms)
     VALUES (?, ?, ?, ?, ?)
   `).bind(assessmentId, entry.scenarioId, entry.response, locale, entry.responseMs)));
-  const ai = openAiConfig(env);
+  const ai = aiConfig(env);
   statements.push(env.DB.prepare(`
-    INSERT INTO ai_analyses (assessment_id, status, model, prompt_version, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(assessmentId, ai.configured ? 'queued' : 'not_configured', ai.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, completedAt.toISOString(), completedAt.toISOString()));
+    INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(assessmentId, ai.configured ? 'queued' : 'not_configured', ai.provider, ai.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, completedAt.toISOString(), completedAt.toISOString()));
   await env.DB.batch(statements);
   if (ai.configured) {
     const analysisWork = generateAndStoreAiAnalysis(env, assessmentId);
@@ -1462,7 +1548,7 @@ async function configureBrevoWebhook(request, env, user) {
 }
 
 async function regenerateAiAnalysis(env, user, assessmentId) {
-  if (!openAiConfig(env).configured) return json({ error: 'OpenAI is not configured.', code: 'openai_not_configured' }, 503);
+  if (!aiConfig(env).configured) return json({ error: 'An AI analysis provider is not configured.', code: 'ai_not_configured' }, 503);
   const scope = candidateScope(user, 'c');
   const assessment = await env.DB.prepare(`SELECT a.id FROM assessments a JOIN candidates c ON c.id = a.candidate_id WHERE a.id = ? AND ${scope.sql}`).bind(assessmentId, ...scope.bindings).first();
   if (!assessment) return json({ error: 'Assessment not found.' }, 404);
@@ -1472,8 +1558,8 @@ async function regenerateAiAnalysis(env, user, assessmentId) {
 }
 
 async function analyzePreview(request, env, admin) {
-  const config = openAiConfig(env);
-  if (!config.configured) return json({ error: 'OpenAI is not configured.', code: 'openai_not_configured' }, 503);
+  const config = aiConfig(env);
+  if (!config.configured) return json({ error: 'An AI analysis provider is not configured.', code: 'ai_not_configured' }, 503);
   const body = await request.json().catch(() => ({}));
   const role = cleanText(body.role, 140);
   const experienceBranch = body.experienceBranch;
@@ -1546,7 +1632,7 @@ async function analyzePreview(request, env, admin) {
   const evidenceHash = await sha256(GazelleAssessmentEngine.stableStringify(modelEvidence));
   const previewId = crypto.randomUUID();
   try {
-    const ai = await callOpenAiJson(env, {
+    const ai = await callAiJson(env, {
       instructions: GazelleAiAssessment.ANALYSIS_INSTRUCTIONS,
       input: modelEvidence,
       schema: GazelleAiAssessment.analysisSchema,
@@ -1554,11 +1640,11 @@ async function analyzePreview(request, env, admin) {
       safetyIdentifier: `preview_${previewId}`,
       maxOutputTokens: 9000,
     });
-    if (!validateAnalysisOutput(ai.data, modelEvidence)) throw new Error('openai_invalid_analysis');
+    if (!validateAnalysisOutput(ai.data, modelEvidence)) throw new Error('ai_invalid_analysis');
     const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(ai.data));
     const updatedAt = new Date().toISOString();
     await audit(env, admin.email, 'preview_ai_analysis_completed', 'preview', previewId, {
-      model: ai.model,
+      provider: ai.provider, model: ai.model,
       promptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION,
       providerResponseId: ai.responseId,
       evidenceHash,
@@ -1567,12 +1653,13 @@ async function analyzePreview(request, env, admin) {
     return json({
       analysis: {
         status: 'completed',
+        provider: ai.provider,
         model: ai.model,
         prompt_version: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION,
         provider_response_id: ai.responseId,
         evidence_hash: evidenceHash,
         output_hash: outputHash,
-        output: { en: ai.data.en, es: ai.data.es },
+        output: { en: localizedAnalysisOutput(ai.data, 'en'), es: localizedAnalysisOutput(ai.data, 'es') },
         evidence_claims: ai.data.evidence_claims || [],
         limitations: ai.data.limitations || [],
         updated_at: updatedAt,
@@ -1900,7 +1987,7 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/brevo/configure-webhook' && request.method === 'POST') return configureBrevoWebhook(request, env, user);
   if (url.pathname === '/api/health' && request.method === 'GET') {
     const email = emailConfig(env);
-    const ai = openAiConfig(env);
+    const ai = aiConfig(env);
     return json({
       database: true,
       email: {
@@ -1911,7 +1998,7 @@ async function handleApi(request, env, context) {
         senderEmail: email.senderEmail || null,
         senderName: email.senderName,
       },
-      ai: { configured: ai.configured, provider: 'OpenAI', model: ai.model, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
+      ai: { configured: ai.configured, provider: ai.provider, providerKey: ai.providerKey, model: ai.model, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
       assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
       modelVersion: GazelleAssessmentEngine.MODEL_VERSION,
     });

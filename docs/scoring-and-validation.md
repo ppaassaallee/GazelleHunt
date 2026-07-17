@@ -26,7 +26,7 @@ Each construct contributes one-third of the pilot index.
 
 **Scenario evidence** contains three job-related, behaviorally anchored responses selected after scoring. Questions cover role-reality sustainability, reliability/recovery, and realistic persistence. They are displayed separately and contribute zero weight to the index.
 
-**GPT-5.5 recruiter narrative** contains exactly five paragraphs in English and five equivalent paragraphs in Spanish. It summarizes evidence, identifies employer-controlled support, and proposes structured human follow-up. It contributes zero weight, cannot alter the score, and cannot produce a hire/reject recommendation.
+**AI-assisted recruiter interpretation** contains exactly five paragraphs in English and five equivalent paragraphs in Spanish. It also produces a 1–5 Job Alignment Evidence Rating that must cite at least three questionnaire items and all three scenarios. The rating summarizes cross-source job-alignment evidence; it does not alter the deterministic index and is not a cut score or selection decision.
 
 ## Item scoring
 
@@ -65,7 +65,7 @@ The server canonicalizes and hashes:
 
 The SHA-256 digest is stored with the result. A changed input or scoring result produces a different digest.
 
-AI provenance is stored separately: model snapshot, prompt version, provider response ID, evidence hash, output hash, generation status, and timestamp. This separation makes it possible to reproduce the transparent score without depending on a generative model and to audit a regenerated narrative independently.
+AI provenance is stored separately: provider, model snapshot, prompt version, provider response ID when available, evidence hash, output hash, generation status, and timestamp. This separation makes it possible to reproduce the transparent score without depending on a generative model and to audit a regenerated narrative independently.
 
 ## AI use boundary
 
@@ -73,6 +73,7 @@ AI provenance is stored separately: model snapshot, prompt version, provider res
 - Candidate identity and contact fields are excluded from model input.
 - Diagnosis, deception judgments, protected-trait inference, ranking, and automated employment decisions are prohibited.
 - The narrative must distinguish observed evidence, interpretation, and missing evidence.
+- The 1–5 rating must integrate the questionnaire and all three scenarios, record counterevidence, state confidence, and cite its evidence IDs.
 - Human review with other job-related information is mandatory.
 
 ## Validation gates

@@ -1,4 +1,4 @@
-export const schemaVersion = '0003_multitenant_accounts_lists_tests';
+export const schemaVersion = '0004_ai_provider_provenance';
 
 export type CandidateRecord = {
   id: string;
@@ -70,6 +70,7 @@ export type ScenarioResponseRecord = {
 export type AiAnalysisRecord = {
   assessment_id: string;
   status: 'queued' | 'processing' | 'completed' | 'failed' | 'not_configured';
+  provider: 'OpenAI' | 'Google Gemini' | null;
   model: string;
   prompt_version: string;
   evidence_hash: string | null;

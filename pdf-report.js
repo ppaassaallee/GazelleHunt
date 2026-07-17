@@ -49,10 +49,11 @@
     newPage() {
       this.page = [];
       this.pages.push(this.page);
-      this.page.push('0.973 0.969 0.949 rg 0 0 595 842 re f');
-      this.page.push('0.071 0.302 0.302 rg 0 806 595 36 re f');
-      this.text('GAZELLE ASSESSMENT', MARGIN, 819, 10, true, '1 1 1');
-      this.y = 780;
+      this.page.push('1 1 1 rg 0 0 595 842 re f');
+      this.page.push('0.090 0.247 0.259 rg 0 801 595 41 re f');
+      this.page.push('0.894 0.341 0.106 rg 0 798 595 3 re f');
+      this.text('GAZELLE ASSESSMENT', MARGIN, 817, 10, true, '1 1 1');
+      this.y = 771;
     }
 
     text(value, x, y, size = 10, bold = false, color = '0.125 0.153 0.157') {
@@ -70,8 +71,17 @@
 
     heading(value, size = 16) {
       this.ensure(size + 22);
-      this.text(value, MARGIN, this.y, size, true, '0.071 0.302 0.302');
+      this.text(value, MARGIN, this.y, size, true, '0.090 0.247 0.259');
       this.y -= size + 10;
+    }
+
+    section(value, eyebrow = '') {
+      this.ensure(46);
+      if (eyebrow) {
+        this.text(eyebrow.toUpperCase(), MARGIN, this.y, 7, true, '0.894 0.341 0.106');
+        this.y -= 14;
+      }
+      this.heading(value, 15);
     }
 
     paragraph(value, options = {}) {
@@ -94,11 +104,58 @@
       this.y -= 19;
     }
 
+    callout(value, options = {}) {
+      const size = options.size || 10;
+      const leading = options.leading || 14;
+      const lines = wrap(value, WIDTH - MARGIN * 2 - 28, size);
+      const height = lines.length * leading + 24;
+      this.ensure(height + 10);
+      this.page.push(`${options.fill || '0.922 0.969 0.965'} rg ${MARGIN} ${this.y - height + 8} ${WIDTH - MARGIN * 2} ${height} re f`);
+      this.page.push(`${options.accent || '0.035 0.498 0.514'} rg ${MARGIN} ${this.y - height + 8} 4 ${height} re f`);
+      let lineY = this.y - 8;
+      for (const line of lines) {
+        this.text(line, MARGIN + 16, lineY, size, Boolean(options.bold), options.color || '0.15 0.24 0.25');
+        lineY -= leading;
+      }
+      this.y -= height + 8;
+    }
+
+    bullets(items, options = {}) {
+      for (const item of items || []) this.paragraph(`- ${item}`, { size: options.size || 9, leading: options.leading || 13, after: options.after ?? 3, x: options.x, width: options.width });
+    }
+
+    bar(label, value) {
+      this.ensure(32);
+      const numeric = value == null ? null : Math.max(0, Math.min(100, Number(value)));
+      this.text(label, MARGIN, this.y, 9, true, '0.25 0.31 0.32');
+      this.text(numeric == null ? '-' : numeric.toFixed(1), WIDTH - MARGIN - 31, this.y, 9, true, '0.090 0.247 0.259');
+      this.y -= 12;
+      this.page.push(`0.894 0.914 0.910 rg ${MARGIN} ${this.y - 3} ${WIDTH - MARGIN * 2} 7 re f`);
+      if (numeric != null) this.page.push(`0.035 0.498 0.514 rg ${MARGIN} ${this.y - 3} ${(WIDTH - MARGIN * 2) * numeric / 100} 7 re f`);
+      this.y -= 18;
+    }
+
+    alignment(rating, labels) {
+      this.ensure(66);
+      const gap = 5;
+      const width = (WIDTH - MARGIN * 2 - gap * 4) / 5;
+      for (let index = 0; index < 5; index += 1) {
+        const x = MARGIN + index * (width + gap);
+        const active = index < rating;
+        const current = index + 1 === rating;
+        this.page.push(`${current ? '0.996 0.945 0.910' : active ? '0.922 0.969 0.965' : '0.965 0.972 0.970'} rg ${x} ${this.y - 42} ${width} 48 re f`);
+        this.page.push(`${current ? '0.894 0.341 0.106' : active ? '0.035 0.498 0.514' : '0.78 0.82 0.81'} RG ${current ? 1.8 : 0.7} w ${x} ${this.y - 42} ${width} 48 re S`);
+        this.text(String(index + 1), x + 8, this.y - 15, 13, true, current ? '0.72 0.235 0.031' : active ? '0.035 0.390 0.400' : '0.45 0.49 0.49');
+        this.text(labels[index], x + 8, this.y - 31, 7, true, '0.32 0.37 0.37');
+      }
+      this.y -= 62;
+    }
+
     score(label, value, x, y, width) {
-      this.page.push(`1 1 1 rg ${x} ${y - 30} ${width} 48 re f`);
-      this.page.push(`0.82 0.82 0.78 RG 0.7 w ${x} ${y - 30} ${width} 48 re S`);
-      this.text(label, x + 10, y + 4, 8, true, '0.42 0.45 0.44');
-      this.text(value == null ? '-' : Number(value).toFixed(1), x + 10, y - 16, 17, true, '0.071 0.302 0.302');
+      this.page.push(`0.965 0.972 0.970 rg ${x} ${y - 36} ${width} 56 re f`);
+      this.page.push(`0.82 0.85 0.84 RG 0.7 w ${x} ${y - 36} ${width} 56 re S`);
+      this.text(label, x + 10, y + 5, 7, true, '0.42 0.45 0.44');
+      this.text(value == null ? '-' : String(value), x + 10, y - 21, 18, true, '0.090 0.247 0.259');
     }
   }
 
@@ -111,6 +168,8 @@
     const pageIds = [];
 
     pages.forEach((commands, index) => {
+      commands.push(`0.82 0.85 0.84 RG 0.6 w ${MARGIN} 40 m ${WIDTH - MARGIN} 40 l S`);
+      commands.push(`0.42 0.45 0.44 rg BT /F1 7 Tf 1 0 0 1 ${MARGIN} 24 Tm (CONFIDENTIAL - STRUCTURED ASSESSMENT EVIDENCE) Tj ET`);
       commands.push(`0.42 0.45 0.44 rg BT /F1 8 Tf 1 0 0 1 ${WIDTH - MARGIN - 74} 24 Tm (Page ${index + 1} of ${pages.length}) Tj ET`);
       const stream = `${commands.join('\n')}\n`;
       const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
@@ -136,65 +195,107 @@
   function createBytes(report, locale = 'en') {
     const es = locale === 'es';
     const copy = es ? {
-      title: 'Reporte de Potencial de Permanencia', profile: 'Perfil de evidencia', ai: 'Análisis asistido por GPT-5.5', scenarios: 'Respuestas a escenarios', support: 'Palancas de apoyo', audit: 'Proveniencia y límites',
-      index: 'Índice', fit: 'Alineación con el puesto', intent: 'Intención de permanencia', reliability: 'Confiabilidad laboral', context: 'Contexto',
-      notice: 'Piloto sin calibrar. Este reporte no es una probabilidad de permanencia ni una decisión de contratación. Requiere revisión humana.',
-      noAi: 'El análisis de IA todavía no está disponible para este resultado.', answer: 'Respuesta', evidence: 'Evidencia',
+      title: 'Reporte de Potencial de Permanencia', subtitle: 'Perfil estructurado de evidencia laboral', profile: 'Perfil cuantitativo', alignment: 'Alineación laboral basada en evidencia', analysis: 'Interpretación profesional asistida', scenarios: 'Análisis de los tres escenarios', actions: 'Guía de entrevista e incorporación', audit: 'Registro técnico y alcance',
+      index: 'Índice del cuestionario', fit: 'Realidad del puesto', intent: 'Intención de permanencia', reliability: 'Confiabilidad laboral', context: 'Contexto de compromiso', aiRating: 'Alineación IA', quality: 'Calidad de respuesta',
+      noAi: 'El análisis de IA no se ha generado para este resultado.', answer: 'Respuesta del candidato', finding: 'Lectura conductual', strengths: 'Fortalezas observadas', watch: 'Aspectos por verificar', interview: 'Preguntas de entrevista', support: 'Acciones de incorporación',
+      scope: 'Utilice este perfil con una entrevista estructurada y otra evidencia relacionada con el puesto. La validación contra resultados locales de permanencia sigue en desarrollo.',
+      paragraphLabels: ['Integración de evidencia', 'Sostenibilidad e intención', 'Ejecución conductual', 'Condiciones de éxito', 'Conclusión equilibrada'],
+      alignmentLabels: ['Limitada', 'Baja', 'Mixta', 'Alineada', 'Sólida'],
     } : {
-      title: 'Tenure Potential Report', profile: 'Evidence profile', ai: 'GPT-5.5 assisted analysis', scenarios: 'Scenario responses', support: 'Support levers', audit: 'Provenance and limits',
-      index: 'Index', fit: 'Role reality alignment', intent: 'Stay intention', reliability: 'Work reliability', context: 'Context',
-      notice: 'Uncalibrated pilot. This report is not a retention probability or hiring decision. Human review is required.',
-      noAi: 'AI analysis is not yet available for this result.', answer: 'Answer', evidence: 'Evidence',
+      title: 'Tenure Potential Report', subtitle: 'Structured profile of job-related evidence', profile: 'Quantitative profile', alignment: 'Evidence-based job alignment', analysis: 'Assisted professional interpretation', scenarios: 'Analysis of all three scenarios', actions: 'Interview and onboarding guide', audit: 'Technical record and scope',
+      index: 'Questionnaire index', fit: 'Role reality', intent: 'Stay intention', reliability: 'Work reliability', context: 'Commitment context', aiRating: 'AI alignment', quality: 'Response quality',
+      noAi: 'AI analysis has not been generated for this result.', answer: 'Candidate response', finding: 'Behavioral finding', strengths: 'Observed strengths', watch: 'Areas to verify', interview: 'Structured interview probes', support: 'Onboarding actions',
+      scope: 'Use this profile with a structured interview and other job-related evidence. Validation against local tenure outcomes remains in progress.',
+      paragraphLabels: ['Evidence integration', 'Sustainability and intention', 'Behavioral execution', 'Conditions for success', 'Balanced conclusion'],
+      alignmentLabels: ['Limited', 'Below', 'Mixed', 'Aligned', 'Strong'],
     };
 
     const builder = new ReportBuilder(locale);
-    builder.text(copy.title, MARGIN, builder.y, 25, true, '0.071 0.302 0.302');
-    builder.y -= 40;
-    builder.paragraph(copy.notice, { size: 10, leading: 15, color: '0.45 0.20 0.08' });
-    builder.labelValue(es ? 'Candidato' : 'Candidate', report.name || '-');
-    builder.labelValue(es ? 'Puesto' : 'Role', report.role || '-');
-    builder.labelValue(es ? 'Sede' : 'Site', report.site || '-');
-    builder.labelValue(es ? 'Completado' : 'Completed', report.completedAt ? new Date(report.completedAt).toLocaleString(es ? 'es' : 'en') : '-');
-    builder.y -= 10;
-    builder.score(copy.index, report.potentialIndex, MARGIN, builder.y, 94);
-    builder.score(copy.fit, report.subscales?.fit?.score, 148, builder.y, 124);
-    builder.score(copy.intent, report.subscales?.intent?.score, 282, builder.y, 124);
-    builder.score(copy.reliability, report.subscales?.reliability?.score, 416, builder.y, 133);
-    builder.y -= 70;
-    builder.rule();
-
-    builder.heading(copy.profile);
-    builder.paragraph(`${copy.index}: ${Number(report.potentialIndex).toFixed(1)} / 100. ${copy.context}: ${report.subscales?.context?.score == null ? '-' : Number(report.subscales.context.score).toFixed(1)}. ${es ? 'Estado de calidad' : 'Quality status'}: ${report.quality?.status || '-'}.`);
-    (report.supportLabels || []).forEach((label) => builder.paragraph(`- ${label}`, { after: 2 }));
-
-    builder.heading(copy.ai);
     const analysis = report.aiAnalysis?.output?.[es ? 'es' : 'en'];
+    const alignment = analysis?.job_alignment;
+    const rating = Number.isInteger(alignment?.rating) ? alignment.rating : null;
+    const provider = report.aiAnalysis?.provider || 'AI';
+    const quality = report.quality?.status === 'pilot_usable'
+      ? (es ? 'Patrón claro' : 'Clear pattern')
+      : report.quality?.status === 'review_required'
+        ? (es ? 'Revisar calidad' : 'Review quality')
+        : (es ? 'Registrada' : 'Recorded');
+
+    builder.text(copy.title, MARGIN, builder.y, 24, true, '0.090 0.247 0.259');
+    builder.y -= 28;
+    builder.text(copy.subtitle, MARGIN, builder.y, 11, false, '0.37 0.43 0.43');
+    builder.y -= 28;
+    builder.callout(`${report.name || '-'}  |  ${report.role || '-'}${report.site ? `  |  ${report.site}` : ''}`, { bold: true, fill: '0.965 0.972 0.970', accent: '0.894 0.341 0.106' });
+    builder.labelValue(es ? 'Completado' : 'Completed', report.completedAt ? new Date(report.completedAt).toLocaleString(es ? 'es' : 'en') : '-');
+    builder.y -= 7;
+    builder.score(copy.index, report.potentialIndex == null ? '-' : `${Number(report.potentialIndex).toFixed(1)} / 100`, MARGIN, builder.y, 160);
+    builder.score(copy.aiRating, rating == null ? '-' : `${rating} / 5`, 217, builder.y, 160);
+    builder.score(copy.quality, quality, 388, builder.y, 161);
+    builder.y -= 72;
+
+    builder.section(copy.profile, es ? 'Cuestionario estructurado' : 'Structured questionnaire');
+    builder.bar(copy.fit, report.subscales?.fit?.score);
+    builder.bar(copy.intent, report.subscales?.intent?.score);
+    builder.bar(copy.reliability, report.subscales?.reliability?.score);
+    builder.bar(copy.context, report.subscales?.context?.score);
+
+    if (alignment) {
+      builder.section(copy.alignment, es ? 'Cuestionario + tres escenarios' : 'Questionnaire + three scenarios');
+      builder.alignment(rating, copy.alignmentLabels);
+      builder.callout(`${es ? alignment.label_es : alignment.label_en}. ${es ? alignment.rationale_es : alignment.rationale_en}`, { fill: '0.996 0.965 0.941', accent: '0.894 0.341 0.106' });
+      builder.paragraph(copy.strengths, { bold: true, color: '0.090 0.247 0.259', after: 4 });
+      builder.bullets(analysis.observed_strengths);
+      builder.paragraph(copy.watch, { bold: true, color: '0.090 0.247 0.259', after: 4 });
+      builder.bullets(analysis.watch_areas);
+      builder.paragraph(`${es ? 'Confianza' : 'Confidence'}: ${alignment.confidence}. ${es ? 'Reactivos citados' : 'Questionnaire items cited'}: ${(alignment.questionnaire_item_ids || []).join(', ')}.`, { size: 8, color: '0.43 0.47 0.47' });
+    }
+
+    builder.section(copy.analysis, `${provider} | ${report.aiAnalysis?.model || '-'}`);
     if (analysis?.paragraphs?.length === 5) {
+      if (analysis.executive_summary) builder.callout(analysis.executive_summary, { bold: true });
       analysis.paragraphs.forEach((paragraph, index) => {
-        builder.paragraph(`${index + 1}. ${paragraph}`, { size: 10, leading: 14, after: 10 });
+        builder.paragraph(`${index + 1}. ${copy.paragraphLabels[index]}`, { size: 10, bold: true, color: '0.090 0.247 0.259', after: 4 });
+        builder.paragraph(paragraph, { size: 9.5, leading: 13.5, after: 10 });
       });
-      if (analysis.interview_focus?.length) {
-        builder.paragraph(es ? 'Enfoque para entrevista humana' : 'Human interview focus', { bold: true, after: 5 });
-        analysis.interview_focus.forEach((item) => builder.paragraph(`- ${item}`, { after: 3 }));
-      }
     } else {
       builder.paragraph(copy.noAi);
     }
 
-    builder.heading(copy.scenarios);
+    builder.ensure(180);
+    builder.section(copy.scenarios, es ? 'Evidencia conductual abierta' : 'Open behavioral evidence');
     (report.scenarioResponses || []).forEach((entry, index) => {
-      builder.paragraph(`${index + 1}. ${es ? entry.question_es : entry.question_en}`, { bold: true, after: 5 });
-      builder.paragraph(`${copy.answer}: ${entry.response_text}`, { color: '0.24 0.27 0.27', after: 12 });
+      const scenarioId = entry.scenario_id || entry.id;
+      const finding = (analysis?.scenario_findings || []).find((item) => item.scenario_id === scenarioId);
+      builder.paragraph(`${index + 1}. ${es ? entry.question_es : entry.question_en}`, { bold: true, color: '0.090 0.247 0.259', after: 5 });
+      builder.paragraph(`${copy.answer}: ${entry.response_text}`, { size: 9, color: '0.24 0.27 0.27', after: 6 });
+      if (finding) builder.callout(`${copy.finding} (${finding.signal}): ${es ? finding.finding_es : finding.finding_en}`, { size: 9, leading: 13 });
     });
 
-    builder.heading(copy.audit);
+    if (analysis) {
+      builder.ensure(150);
+      builder.section(copy.actions, es ? 'Aplicación práctica' : 'Practical application');
+      builder.paragraph(copy.interview, { bold: true, color: '0.090 0.247 0.259', after: 4 });
+      builder.bullets(analysis.interview_focus);
+      builder.paragraph(copy.support, { bold: true, color: '0.090 0.247 0.259', after: 4 });
+      builder.bullets(analysis.support_actions);
+    }
+    if ((report.supportLabels || []).length) {
+      builder.ensure(42 + report.supportLabels.length * 18);
+      builder.paragraph(es ? 'Preferencias de apoyo reportadas' : 'Reported support preferences', { bold: true, color: '0.090 0.247 0.259', after: 4 });
+      builder.bullets(report.supportLabels);
+    }
+
+    builder.ensure(220);
+    builder.section(copy.audit, es ? 'Proveniencia auditable' : 'Auditable provenance');
     builder.labelValue(es ? 'Versión de evaluación' : 'Assessment version', report.assessmentVersion || '-');
     builder.labelValue(es ? 'Modelo de puntuación' : 'Scoring model', report.modelVersion || '-');
+    builder.labelValue(es ? 'Proveedor de IA' : 'AI provider', report.aiAnalysis?.provider || '-');
     builder.labelValue(es ? 'Modelo de IA' : 'AI model', report.aiAnalysis?.model || '-');
     builder.labelValue(es ? 'Versión del prompt' : 'Prompt version', report.aiAnalysis?.prompt_version || '-');
     builder.paragraph(`${es ? 'Huella de resultado' : 'Result fingerprint'}: ${report.auditHash || '-'}`, { size: 8 });
     builder.paragraph(`${es ? 'Huella de evidencia de IA' : 'AI evidence fingerprint'}: ${report.aiAnalysis?.evidence_hash || '-'}`, { size: 8 });
-    builder.paragraph(copy.notice, { bold: true, color: '0.45 0.20 0.08' });
+    builder.paragraph(`${es ? 'Huella de salida de IA' : 'AI output fingerprint'}: ${report.aiAnalysis?.output_hash || '-'}`, { size: 8 });
+    builder.callout(copy.scope, { size: 9, fill: '0.965 0.972 0.970', accent: '0.035 0.498 0.514' });
 
     return buildPdf(builder.pages);
   }

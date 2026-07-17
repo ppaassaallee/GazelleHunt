@@ -18,8 +18,9 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 - Separate experienced and first-job context branches of equal length
 - 27 items per candidate path
 - Three adaptive, bilingual job scenarios with a deterministic fallback
-- Five-paragraph English and Spanish GPT-5.5 recruiter narratives
-- Preview assessments call the same GPT-5.5 analysis contract without persisting a candidate record
+- Five-paragraph English and Spanish AI-assisted recruiter narratives
+- Auditable 1–5 Job Alignment Evidence Rating that uses the questionnaire and all three scenarios
+- Preview assessments call the same AI analysis contract without persisting a candidate record
 - Recruiter-controlled report language and client-generated PDF download
 - Three equally weighted scored constructs:
   - role reality alignment
@@ -82,7 +83,7 @@ Tenure Potential Index = mean(
 
 Support leverage and context have a weight of zero. No automatic rejection or retention probability is produced.
 
-Scenario responses and the GPT-5.5 narrative also have a weight of zero. They are separate, auditable evidence for structured human review and never change the index.
+Scenario responses, the AI narrative, and the 1–5 Job Alignment Evidence Rating do not change the deterministic index. They are separate, auditable evidence outputs that cite questionnaire items and all three scenarios.
 
 See [docs/scoring-and-validation.md](docs/scoring-and-validation.md) for the complete interpretation and validation contract.
 
@@ -111,13 +112,17 @@ Recommended setup order:
 
 Implementation references: [send transactional email](https://developers.brevo.com/docs/send-a-transactional-email), [transactional webhook events](https://developers.brevo.com/docs/transactional-webhooks), and [secure webhooks](https://developers.brevo.com/docs/secured-webhooks).
 
-## OpenAI configuration
+## AI provider configuration
 
-Set `OPENAI_API_KEY` as a hosted secret. `OPENAI_MODEL` is optional and defaults to the pinned `gpt-5.5-2026-04-23` snapshot so report regeneration is reproducible.
+The app supports either OpenAI or Google Gemini. Set `AI_PROVIDER` to `openai` or `gemini`.
 
-The server sends deidentified, job-related assessment evidence to the Responses API. Candidate name, email, and phone are excluded. Both scenario generation and report analysis use strict JSON schemas; API storage is disabled with `store: false`. Scenario and analysis prompts are separately versioned, and the stored report includes the provider response ID plus SHA-256 hashes of its evidence and output.
+For OpenAI, store `OPENAI_API_KEY` as a hosted secret. `OPENAI_MODEL` is optional and defaults to `gpt-5.6-sol`.
 
-The AI narrative is advisory only. It is prohibited from diagnosing the candidate, inferring protected or sensitive characteristics, estimating retention probability, ranking candidates, or recommending hire/reject decisions. A trained person must review it with other job-related evidence.
+For a Google AI Studio project, create an API key and store it as the hosted secret `GEMINI_API_KEY`. `GEMINI_MODEL` is optional and defaults to the stable `gemini-3.5-flash` model. The app calls the Gemini Generate Content API with a JSON response schema. `GOOGLE_API_KEY` is also accepted, but `GEMINI_API_KEY` is preferred so the deployment contract is explicit.
+
+The server sends deidentified, job-related assessment evidence to the selected provider. Candidate name, email, and phone are excluded. Both scenario generation and report analysis use JSON schemas; OpenAI API storage is disabled with `store: false`. Scenario and analysis prompts are separately versioned, and the stored report includes the provider, model, response ID when available, and SHA-256 hashes of its evidence and output.
+
+The AI output is prohibited from diagnosing the candidate, inferring protected or sensitive characteristics, estimating retention probability, ranking candidates, or recommending hire/reject decisions. The 1–5 rating is a structured job-alignment evidence summary, not a cut score.
 
 ## Public access
 

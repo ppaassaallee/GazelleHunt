@@ -15,7 +15,7 @@ const [appSource, indexSource, serverSource, readmeSource] = await Promise.all([
 const appElement = { innerHTML: '' };
 const fetchCalls = [];
 const previewAnalysis = {
-  status: 'completed', model: 'gpt-5.5-2026-04-23', prompt_version: 'analysis-v1.0.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64),
+  status: 'completed', provider: 'OpenAI', model: 'gpt-5.6-sol', prompt_version: 'analysis-v2.0.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64),
   output: {
     en: { title: 'Preview analysis', paragraphs: Array.from({ length: 5 }, (_, index) => `English paragraph ${index + 1}`), interview_focus: ['Focus one', 'Focus two', 'Focus three'] },
     es: { title: 'Análisis de vista previa', paragraphs: Array.from({ length: 5 }, (_, index) => `Párrafo en español ${index + 1}`), interview_focus: ['Enfoque uno', 'Enfoque dos', 'Enfoque tres'] },
@@ -51,7 +51,7 @@ const context = {
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
       if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
-      return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, ai: { configured: true, model: 'gpt-5.5-2026-04-23' } };
+      return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, ai: { configured: true, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.6-sol' } };
     },
   };
   },
@@ -128,7 +128,9 @@ assert.match(appSource, /Candidate lists/);
 assert.match(appSource, /Send selected tests/);
 assert.match(appSource, /Continue to scenarios/);
 assert.match(appSource, /Download PDF/);
-assert.match(appSource, /Human review required/);
+assert.match(appSource, /Evidence-based job alignment/);
+assert.match(appSource, /Alineación laboral basada en evidencia/);
+assert.doesNotMatch(appSource, /Uncalibrated pilot|Piloto sin calibrar|Human review required/);
 assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/);
 assert.doesNotMatch(appSource, /signin-with-chatgpt/);
 
@@ -166,8 +168,17 @@ for (const variable of ['OPENAI_API_KEY', 'OPENAI_MODEL']) {
   assert.match(readmeSource, new RegExp(variable));
 }
 
+for (const variable of ['AI_PROVIDER', 'GEMINI_API_KEY', 'GEMINI_MODEL']) {
+  assert.match(serverSource, new RegExp(variable));
+  assert.match(readmeSource, new RegExp(variable));
+}
+
+assert.match(serverSource, /generativelanguage\.googleapis\.com/);
+assert.match(serverSource, /responseJsonSchema/);
+assert.match(serverSource, /job_alignment/);
+
 assert.match(readmeSource, /first interactive screen always asks/);
 assert.match(readmeSource, /Sites access policy must be public/);
-assert.match(readmeSource, /Scenario responses and the GPT-5\.5 narrative also have a weight of zero/);
+assert.match(readmeSource, /1–5 Job Alignment Evidence Rating/);
 
 console.log('Workflow tests passed.');
