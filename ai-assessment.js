@@ -1,5 +1,5 @@
 (function initializeGazelleAiAssessment(global) {
-  const DEFAULT_MODEL = 'gpt-5.5';
+  const DEFAULT_MODEL = 'gpt-5-mini';
   const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
   const SCENARIO_PROMPT_VERSION = 'scenario-v1.1.0';
   const ANALYSIS_PROMPT_VERSION = 'analysis-v2.1.0';

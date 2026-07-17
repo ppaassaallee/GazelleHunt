@@ -71,8 +71,26 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, state, render };`, context);
 await Promise.resolve();
+
+const csvApi = context.__gazelleWorkflowTest;
+const spanishCsv = csvApi.parseCsv('\uFEFFNombre,Correo,Numero\nAlejandro Pascual,david.alejandro.pa@gmail.com,48048638');
+assert.equal(spanishCsv.delimiter, ',');
+assert.equal(JSON.stringify(spanishCsv.headers), JSON.stringify(['Nombre', 'Correo', 'Numero']));
+spanishCsv.mapping = spanishCsv.headers.map(csvApi.guessedMapping);
+assert.equal(JSON.stringify(spanishCsv.mapping), JSON.stringify(['name', 'email', 'phone']));
+const spanishRows = csvApi.csvMappedCandidates(spanishCsv, 'Bilingual Customer Care', '');
+assert.equal(spanishRows[0].candidate.name, 'Alejandro Pascual');
+assert.equal(spanishRows[0].candidate.email, 'david.alejandro.pa@gmail.com');
+assert.equal(spanishRows[0].candidate.phone, '48048638');
+assert.equal(spanishRows[0].candidate.role, 'Bilingual Customer Care');
+assert.equal(spanishRows[0].errors.length, 0);
+
+const excelCsv = csvApi.parseCsv('sep=;\nNombre;Correo;Puesto\nMaria Lopez;maria@example.com;Sales');
+assert.equal(excelCsv.delimiter, ';');
+excelCsv.mapping = excelCsv.headers.map(csvApi.guessedMapping);
+assert.equal(csvApi.csvMappedCandidates(excelCsv)[0].errors.length, 0);
 
 context.__gazelleWorkflowTest.startPreview();
 assert.match(appElement.innerHTML, /Choose your language/);
@@ -109,11 +127,14 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260717\.11/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260717\.11/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260717\.11/);
-assert.match(indexSource, /pdf-report\.js\?v=20260717\.11/);
-assert.match(serverSource, /\/assessment\?invite=/);
+assert.match(indexSource, /app\.js\?v=20260717\.12/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260717\.12/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260717\.12/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260717\.12/);
+assert.match(indexSource, /pdf-report\.js\?v=20260717\.12/);
+assert.match(serverSource, /\/candidate\?invite=/);
+assert.match(serverSource, /candidatePortalData/);
+assert.match(serverSource, /candidate_attempts_released/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);
 assert.match(serverSource, /ai-analysis/);
@@ -182,7 +203,7 @@ assert.match(serverSource, /generativelanguage\.googleapis\.com/);
 assert.match(serverSource, /responseJsonSchema/);
 assert.match(serverSource, /job_alignment/);
 
-assert.match(readmeSource, /first interactive screen always asks/);
+assert.match(readmeSource, /bilingual candidate portal/);
 assert.match(readmeSource, /Sites access policy must be public/);
 assert.match(readmeSource, /1–5 Job Alignment Evidence Rating/);
 

@@ -1,4 +1,4 @@
-export const schemaVersion = '0004_ai_provider_provenance';
+export const schemaVersion = '0005_candidate_portal_pipeline';
 
 export type CandidateRecord = {
   id: string;
@@ -75,6 +75,25 @@ export type AiAnalysisRecord = {
   prompt_version: string;
   evidence_hash: string | null;
   output_hash: string | null;
+};
+
+export type CandidateAccountRecord = {
+  id: string;
+  email: string;
+  name: string;
+  locale: 'en' | 'es';
+  status: 'active' | 'suspended';
+  google_sub: string | null;
+};
+
+export type RecruitmentStageRecord = {
+  id: string;
+  company_id: string;
+  stage_key: string;
+  name_en: string;
+  name_es: string;
+  stage_order: number;
+  is_terminal: 0 | 1;
 };
 
 export const logicalBindings = {

@@ -116,7 +116,7 @@ Implementation references: [send transactional email](https://developers.brevo.c
 
 The app supports either OpenAI or Google Gemini. Set `AI_PROVIDER` to `openai` or `gemini`.
 
-For OpenAI, store `OPENAI_API_KEY` as a hosted secret. `OPENAI_MODEL` is optional and defaults to `gpt-5.5`.
+For OpenAI, store `OPENAI_API_KEY` as a hosted secret. `OPENAI_MODEL` is optional and defaults to `gpt-5-mini`, which supports the Responses API, reasoning, and strict Structured Outputs at substantially lower cost than the flagship model. Scenario generation uses low reasoning effort; the evidence synthesis report uses medium effort.
 
 For a Google AI Studio project, create an API key and store it as the hosted secret `GEMINI_API_KEY`. `GEMINI_MODEL` is optional and defaults to the stable `gemini-3.5-flash` model. The app calls the Gemini Generate Content API with a JSON response schema. `GOOGLE_API_KEY` is also accepted, but `GEMINI_API_KEY` is preferred so the deployment contract is explicit.
 
@@ -126,7 +126,11 @@ The AI output is prohibited from diagnosing the candidate, inferring protected o
 
 ## Public access
 
-Invitation links use `/assessment?invite=...` and open a candidate-only interface. The first interactive screen always asks `Choose your language · Elige tu idioma`; the suggested email language never bypasses this choice. Consent explicitly describes the three scenario questions and AI-assisted recruiter report before any response is recorded.
+Invitation links use `/candidate?invite=...` and open the bilingual candidate portal. Candidates see the company welcome, preparation guidance, hiring-stage timeline, messages, assessment access, account options, and referral progress before entering a test. The assessment itself still begins with `Choose your language · Elige tu idioma`; the suggested email language never bypasses this choice. Consent explicitly describes the three scenario questions and AI-assisted recruiter report before any response is recorded.
+
+Candidate password accounts are separate from hiring-team accounts and use a dedicated secure session cookie. Google sign-in requires `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`; the authorized redirect URI is `${APP_BASE_URL}/api/candidate/auth/google/callback`. A valid invitation is required to create a new candidate account, and only applications with the same verified email are linked.
+
+Each candidate/test pair starts with three released attempts. Accepted provider sends consume an attempt; failed sends do not. Recruiters can resend while capacity remains, while company administrators and the single super administrator can release three additional attempts at a time. Every release is audited.
 
 The Sites access policy must be public so account registration and candidate invitation routes are reachable. Hiring-team data remains protected by the application's own server-side sessions and role/company checks. Invitation tokens grant access only to a single candidate assessment and are stored only as SHA-256 hashes.
 

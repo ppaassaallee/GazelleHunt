@@ -143,6 +143,9 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS companies (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    candidate_brand_name TEXT,
+    referral_bonus_cents INTEGER NOT NULL DEFAULT 10000,
+    candidate_portal_enabled INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -279,6 +282,139 @@ const schemaStatements = [
     FOREIGN KEY (test_id) REFERENCES assessment_tests(id),
     FOREIGN KEY (invitation_id) REFERENCES invitations(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS candidate_accounts (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL,
+    password_hash TEXT,
+    password_salt TEXT,
+    password_iterations INTEGER,
+    google_sub TEXT UNIQUE,
+    locale TEXT NOT NULL DEFAULT 'en',
+    status TEXT NOT NULL DEFAULT 'active',
+    last_login_at TEXT,
+    password_changed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_account_links (
+    account_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    PRIMARY KEY (account_id, candidate_id),
+    FOREIGN KEY (account_id) REFERENCES candidate_accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_sessions (
+    token_hash TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    ip_hash TEXT,
+    user_agent_hash TEXT,
+    revoked_at TEXT,
+    FOREIGN KEY (account_id) REFERENCES candidate_accounts(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_oauth_states (
+    state_hash TEXT PRIMARY KEY,
+    access_token_hash TEXT,
+    code_verifier TEXT NOT NULL,
+    locale TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_portal_links (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS recruitment_stages (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    stage_key TEXT NOT NULL,
+    name_en TEXT NOT NULL,
+    name_es TEXT NOT NULL,
+    stage_order INTEGER NOT NULL,
+    is_terminal INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (company_id, stage_key),
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_pipeline (
+    candidate_id TEXT PRIMARY KEY,
+    stage_id TEXT NOT NULL,
+    status_message_en TEXT,
+    status_message_es TEXT,
+    updated_by_user_id TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (stage_id) REFERENCES recruitment_stages(id),
+    FOREIGN KEY (updated_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_stage_history (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    stage_id TEXT NOT NULL,
+    status_message_en TEXT,
+    status_message_es TEXT,
+    changed_by_user_id TEXT,
+    changed_at TEXT NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (stage_id) REFERENCES recruitment_stages(id),
+    FOREIGN KEY (changed_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_communications (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL,
+    created_by_user_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    subject_en TEXT,
+    subject_es TEXT,
+    message_en TEXT NOT NULL,
+    message_es TEXT NOT NULL,
+    visible_to_candidate INTEGER NOT NULL DEFAULT 1,
+    provider_message_id TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_test_access (
+    candidate_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    attempt_limit INTEGER NOT NULL DEFAULT 3,
+    updated_by_user_id TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (candidate_id, test_id),
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id),
+    FOREIGN KEY (updated_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS candidate_referrals (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    referrer_account_id TEXT NOT NULL,
+    source_candidate_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL COLLATE NOCASE,
+    phone TEXT,
+    status TEXT NOT NULL DEFAULT 'submitted',
+    bonus_cents INTEGER NOT NULL DEFAULT 10000,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (referrer_account_id, email),
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (referrer_account_id) REFERENCES candidate_accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
+  )`,
   `CREATE INDEX IF NOT EXISTS invitations_candidate_idx ON invitations(candidate_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessments_candidate_idx ON assessments(candidate_id, completed_at DESC)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS assessments_invitation_unique ON assessments(invitation_id) WHERE invitation_id IS NOT NULL`,
@@ -291,9 +427,20 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS candidate_list_members_candidate_idx ON candidate_list_members(candidate_id, list_id)`,
   `CREATE INDEX IF NOT EXISTS send_batches_scope_idx ON send_batches(company_id, created_by_user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS send_batch_items_batch_idx ON send_batch_items(batch_id, status)`,
+  `CREATE INDEX IF NOT EXISTS candidate_account_links_candidate_idx ON candidate_account_links(candidate_id, account_id)`,
+  `CREATE INDEX IF NOT EXISTS candidate_sessions_account_idx ON candidate_sessions(account_id, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS candidate_portal_links_candidate_idx ON candidate_portal_links(candidate_id, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS recruitment_stages_company_idx ON recruitment_stages(company_id, stage_order)`,
+  `CREATE INDEX IF NOT EXISTS candidate_stage_history_candidate_idx ON candidate_stage_history(candidate_id, changed_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS candidate_communications_candidate_idx ON candidate_communications(candidate_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS candidate_referrals_account_idx ON candidate_referrals(referrer_account_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS candidate_referrals_company_idx ON candidate_referrals(company_id, created_at DESC)`,
 ];
 
 const runtimeColumnMigrations = [
+  ['companies', 'candidate_brand_name', `ALTER TABLE companies ADD COLUMN candidate_brand_name TEXT`],
+  ['companies', 'referral_bonus_cents', `ALTER TABLE companies ADD COLUMN referral_bonus_cents INTEGER NOT NULL DEFAULT 10000`],
+  ['companies', 'candidate_portal_enabled', `ALTER TABLE companies ADD COLUMN candidate_portal_enabled INTEGER NOT NULL DEFAULT 1`],
   ['candidates', 'company_id', `ALTER TABLE candidates ADD COLUMN company_id TEXT REFERENCES companies(id)`],
   ['candidates', 'owner_user_id', `ALTER TABLE candidates ADD COLUMN owner_user_id TEXT REFERENCES users(id)`],
   ['invitations', 'company_id', `ALTER TABLE invitations ADD COLUMN company_id TEXT REFERENCES companies(id)`],
@@ -447,7 +594,8 @@ async function ensureSchema(env) {
   }
   const now = new Date().toISOString();
   await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO companies (id, name, status, created_at, updated_at) VALUES ('org_legacy', 'Gazelle Platform', 'active', ?, ?)`).bind(now, now),
+    env.DB.prepare(`INSERT OR IGNORE INTO companies (id, name, candidate_brand_name, referral_bonus_cents, candidate_portal_enabled, status, created_at, updated_at) VALUES ('org_legacy', 'Gazelle Platform', 'Allied Global', 10000, 1, 'active', ?, ?)`).bind(now, now),
+    env.DB.prepare(`UPDATE companies SET candidate_brand_name = COALESCE(candidate_brand_name, CASE WHEN id = 'org_legacy' THEN 'Allied Global' ELSE name END), referral_bonus_cents = COALESCE(referral_bonus_cents, 10000), candidate_portal_enabled = COALESCE(candidate_portal_enabled, 1)`),
     env.DB.prepare(`INSERT OR IGNORE INTO assessment_tests (id, code, slug, name_en, name_es, description_en, description_es, engine_key, version, status, estimated_minutes, item_count, created_at, updated_at) VALUES ('test_tenure_potential', 'TP-001', 'tenure-potential', 'Tenure Potential', 'Potencial de Permanencia', 'Transparent assessment of role alignment, stay intention, and work reliability.', 'Evaluacion transparente de alineacion con el rol, intencion de permanencia y confiabilidad laboral.', 'tenure_potential', '2.0.0-pilot', 'active', 15, 27, ?, ?)`).bind(now, now),
     env.DB.prepare(`UPDATE candidates SET company_id = 'org_legacy' WHERE company_id IS NULL`),
     env.DB.prepare(`UPDATE invitations SET company_id = 'org_legacy' WHERE company_id IS NULL`),
@@ -455,7 +603,41 @@ async function ensureSchema(env) {
     env.DB.prepare(`UPDATE assessments SET test_id = 'test_tenure_potential' WHERE test_id IS NULL`),
   ]);
   await env.DB.batch(postMigrationStatements.map((statement) => env.DB.prepare(statement)));
+  const companies = await env.DB.prepare(`SELECT id FROM companies WHERE status = 'active'`).all();
+  for (const company of companies.results || []) await ensureDefaultStages(env, company.id);
   schemaReady = true;
+}
+
+const DEFAULT_RECRUITMENT_STAGES = [
+  ['applied', 'Application received', 'Solicitud recibida', 10, 0],
+  ['assessment', 'Assessment', 'Evaluación', 20, 0],
+  ['review', 'Team review', 'Revisión del equipo', 30, 0],
+  ['interview', 'Interview', 'Entrevista', 40, 0],
+  ['offer', 'Offer', 'Oferta', 50, 0],
+  ['hired', 'Welcome aboard', 'Bienvenido al equipo', 60, 1],
+];
+
+async function ensureDefaultStages(env, companyId) {
+  const now = new Date().toISOString();
+  await env.DB.batch(DEFAULT_RECRUITMENT_STAGES.map(([key, nameEn, nameEs, order, terminal]) => env.DB.prepare(`
+    INSERT OR IGNORE INTO recruitment_stages (id, company_id, stage_key, name_en, name_es, stage_order, is_terminal, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+  `).bind(crypto.randomUUID(), companyId, key, nameEn, nameEs, order, terminal, now, now)));
+}
+
+async function ensureCandidatePipeline(env, candidateId, companyId) {
+  await ensureDefaultStages(env, companyId);
+  const current = await env.DB.prepare(`SELECT candidate_id FROM candidate_pipeline WHERE candidate_id = ?`).bind(candidateId).first();
+  if (current) return;
+  const stage = await env.DB.prepare(`SELECT id FROM recruitment_stages WHERE company_id = ? AND stage_key = 'applied'`).bind(companyId).first();
+  if (!stage) return;
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT OR IGNORE INTO candidate_pipeline (candidate_id, stage_id, status_message_en, status_message_es, updated_at) VALUES (?, ?, ?, ?, ?)`)
+      .bind(candidateId, stage.id, 'We received your application and will keep this page updated.', 'Recibimos tu solicitud y mantendremos esta página actualizada.', now),
+    env.DB.prepare(`INSERT INTO candidate_stage_history (id, candidate_id, stage_id, status_message_en, status_message_es, changed_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), candidateId, stage.id, 'Application received.', 'Solicitud recibida.', now),
+  ]);
 }
 
 function bytesToHex(buffer) {
@@ -472,8 +654,10 @@ function randomToken() {
 }
 
 const SESSION_COOKIE = '__Host-gz_session';
+const CANDIDATE_SESSION_COOKIE = '__Host-gz_candidate_session';
 const PASSWORD_ITERATIONS = 100000;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const CANDIDATE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const OWNER_EMAIL = 'david.alejandro.pa@gmail.com';
 const commonPasswords = new Set([
   'password', 'password123', '12345678', '123456789', 'qwerty123', 'letmein123',
@@ -551,6 +735,14 @@ function clearSessionCookie() {
   return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`;
 }
 
+function candidateSessionCookie(token, expiresAt) {
+  return `${CANDIDATE_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Expires=${new Date(expiresAt).toUTCString()}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function clearCandidateSessionCookie() {
+  return `${CANDIDATE_SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+}
+
 function requestIp(request) {
   return cleanText(request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown', 100);
 }
@@ -591,6 +783,18 @@ async function createSession(request, env, userId) {
   return { token, expiresAt };
 }
 
+async function createCandidateSession(request, env, accountId) {
+  const token = randomToken();
+  const tokenHash = await sessionTokenHash(token, env);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + CANDIDATE_SESSION_TTL_MS);
+  const ipHash = await sha256(`${requestIp(request)}:${authPepper(env)}`);
+  const agentHash = await sha256(`${cleanText(request.headers.get('user-agent'), 500)}:${authPepper(env)}`);
+  await env.DB.prepare(`INSERT INTO candidate_sessions (token_hash, account_id, created_at, expires_at, last_seen_at, ip_hash, user_agent_hash) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(tokenHash, accountId, now.toISOString(), expiresAt.toISOString(), now.toISOString(), ipHash, agentHash).run();
+  return { token, expiresAt };
+}
+
 function publicUser(row) {
   return {
     id: row.id,
@@ -619,6 +823,61 @@ async function authenticatedUser(request, env) {
   const user = publicUser(row);
   Object.defineProperty(user, 'sessionTokenHash', { value: tokenHash, enumerable: false });
   return user;
+}
+
+function publicCandidateAccount(row) {
+  return { id: row.id, email: row.email, name: row.name, locale: row.locale === 'es' ? 'es' : 'en', googleConnected: Boolean(row.google_sub) };
+}
+
+async function authenticatedCandidate(request, env) {
+  const token = cookieValue(request, CANDIDATE_SESSION_COOKIE);
+  if (!token) return null;
+  const tokenHash = await sessionTokenHash(token, env);
+  const row = await env.DB.prepare(`
+    SELECT a.*, s.token_hash AS session_token_hash, s.expires_at AS session_expires_at
+    FROM candidate_sessions s JOIN candidate_accounts a ON a.id = s.account_id
+    WHERE s.token_hash = ? AND s.revoked_at IS NULL
+  `).bind(tokenHash).first();
+  if (!row || row.status !== 'active' || new Date(row.session_expires_at).getTime() <= Date.now()) return null;
+  await env.DB.prepare(`UPDATE candidate_sessions SET last_seen_at = ? WHERE token_hash = ?`).bind(new Date().toISOString(), tokenHash).run();
+  const account = publicCandidateAccount(row);
+  Object.defineProperty(account, 'sessionTokenHash', { value: tokenHash, enumerable: false });
+  return account;
+}
+
+async function linkCandidateAccountByEmail(env, accountId, email) {
+  const candidates = await env.DB.prepare(`SELECT id FROM candidates WHERE email = ? COLLATE NOCASE`).bind(email).all();
+  if (!(candidates.results || []).length) return 0;
+  const now = new Date().toISOString();
+  await env.DB.batch(candidates.results.map((candidate) => env.DB.prepare(`INSERT OR IGNORE INTO candidate_account_links (account_id, candidate_id, linked_at) VALUES (?, ?, ?)`)
+    .bind(accountId, candidate.id, now)));
+  return candidates.results.length;
+}
+
+async function candidateAccessFromToken(env, rawToken) {
+  const token = cleanText(rawToken, 200);
+  if (!token) return null;
+  const tokenHash = await sha256(token);
+  const invitation = await env.DB.prepare(`
+    SELECT c.*, i.id AS invitation_id, i.status AS invitation_status, i.locale AS invitation_locale, i.expires_at AS access_expires_at,
+      co.name AS company_name, COALESCE(co.candidate_brand_name, co.name) AS candidate_brand_name,
+      co.referral_bonus_cents, co.candidate_portal_enabled
+    FROM invitations i JOIN candidates c ON c.id = i.candidate_id
+    JOIN companies co ON co.id = c.company_id WHERE i.token_hash = ?
+  `).bind(tokenHash).first();
+  if (invitation && Number(invitation.candidate_portal_enabled) === 1 && new Date(invitation.access_expires_at).getTime() > Date.now()) {
+    return { candidate: invitation, invitationId: invitation.invitation_id, tokenHash, source: 'invitation' };
+  }
+  const portal = await env.DB.prepare(`
+    SELECT c.*, p.id AS portal_link_id, p.expires_at AS access_expires_at,
+      co.name AS company_name, COALESCE(co.candidate_brand_name, co.name) AS candidate_brand_name,
+      co.referral_bonus_cents, co.candidate_portal_enabled
+    FROM candidate_portal_links p JOIN candidates c ON c.id = p.candidate_id
+    JOIN companies co ON co.id = c.company_id WHERE p.token_hash = ?
+  `).bind(tokenHash).first();
+  if (!portal || Number(portal.candidate_portal_enabled) !== 1 || new Date(portal.access_expires_at).getTime() <= Date.now()) return null;
+  await env.DB.prepare(`UPDATE candidate_portal_links SET last_used_at = ? WHERE id = ?`).bind(new Date().toISOString(), portal.portal_link_id).run();
+  return { candidate: portal, invitationId: null, tokenHash, source: 'portal_link' };
 }
 
 function isSuperAdmin(user) {
@@ -745,6 +1004,343 @@ async function logOut(request, env) {
   return json({ signedOut: true }, 200, { 'set-cookie': clearSessionCookie() });
 }
 
+async function candidateFromAccessHash(env, tokenHash) {
+  if (!tokenHash) return null;
+  const invitation = await env.DB.prepare(`
+    SELECT c.*, i.id AS invitation_id, i.expires_at AS access_expires_at
+    FROM invitations i JOIN candidates c ON c.id = i.candidate_id WHERE i.token_hash = ?
+  `).bind(tokenHash).first();
+  if (invitation && new Date(invitation.access_expires_at).getTime() > Date.now()) return invitation;
+  const portal = await env.DB.prepare(`
+    SELECT c.*, p.expires_at AS access_expires_at
+    FROM candidate_portal_links p JOIN candidates c ON c.id = p.candidate_id WHERE p.token_hash = ?
+  `).bind(tokenHash).first();
+  return portal && new Date(portal.access_expires_at).getTime() > Date.now() ? portal : null;
+}
+
+async function candidateSignUp(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await candidateAccessFromToken(env, body.token);
+  const password = String(body.password || '');
+  if (!access) return json({ error: 'A valid candidate invitation is required to create an account.', code: 'candidate_invitation_required' }, 403);
+  if (!await rateLimit(env, request, 'candidate_signup', access.candidate.email, 8, 60 * 60)) return json({ error: 'Too many account attempts. Try again later.', code: 'rate_limited' }, 429);
+  const passwordError = validatePassword(password);
+  if (passwordError) return json({ error: passwordError, code: 'weak_password' }, 422);
+  let account = await env.DB.prepare(`SELECT * FROM candidate_accounts WHERE email = ? COLLATE NOCASE`).bind(access.candidate.email).first();
+  if (account?.password_hash) return json({ error: 'An account already exists for this email. Sign in instead.', code: 'account_exists' }, 409);
+  const passwordData = await passwordRecord(password, env);
+  const now = new Date().toISOString();
+  if (account) {
+    await env.DB.prepare(`UPDATE candidate_accounts SET name = ?, password_hash = ?, password_salt = ?, password_iterations = ?, locale = ?, password_changed_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(access.candidate.name, passwordData.hash, passwordData.salt, passwordData.iterations, body.locale === 'es' ? 'es' : 'en', now, now, account.id).run();
+  } else {
+    const accountId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO candidate_accounts (id, email, name, password_hash, password_salt, password_iterations, locale, status, password_changed_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).bind(accountId, access.candidate.email, access.candidate.name, passwordData.hash, passwordData.salt, passwordData.iterations, body.locale === 'es' ? 'es' : 'en', now, now, now).run();
+    account = await env.DB.prepare(`SELECT * FROM candidate_accounts WHERE id = ?`).bind(accountId).first();
+  }
+  await linkCandidateAccountByEmail(env, account.id, account.email);
+  const session = await createCandidateSession(request, env, account.id);
+  await audit(env, account.email, 'candidate_account_created', 'candidate_account', account.id, { candidateId: access.candidate.id, method: 'password' });
+  return json({ account: publicCandidateAccount(account) }, 201, { 'set-cookie': candidateSessionCookie(session.token, session.expiresAt) });
+}
+
+async function candidateLogIn(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const email = cleanEmail(body.email);
+  const password = String(body.password || '');
+  if (!await rateLimit(env, request, 'candidate_login', email || 'invalid', 8, 15 * 60)) return json({ error: 'Too many sign-in attempts. Try again later.', code: 'rate_limited' }, 429);
+  const account = email ? await env.DB.prepare(`SELECT * FROM candidate_accounts WHERE email = ? COLLATE NOCASE`).bind(email).first() : null;
+  const valid = Boolean(account?.password_hash && password && await verifyPassword(password, account, env));
+  if (!valid) {
+    if (!account?.password_hash) await derivePassword(password || 'invalid', new Uint8Array(16), PASSWORD_ITERATIONS, authPepper(env));
+    return json({ error: 'Email or password is incorrect.', code: 'invalid_credentials' }, 401);
+  }
+  if (account.status !== 'active') return json({ error: 'This candidate account is not active.', code: 'account_inactive' }, 403);
+  await linkCandidateAccountByEmail(env, account.id, account.email);
+  const session = await createCandidateSession(request, env, account.id);
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE candidate_accounts SET last_login_at = ?, updated_at = ? WHERE id = ?`).bind(now, now, account.id).run();
+  return json({ account: publicCandidateAccount(account) }, 200, { 'set-cookie': candidateSessionCookie(session.token, session.expiresAt) });
+}
+
+async function candidateLogOut(request, env) {
+  const token = cookieValue(request, CANDIDATE_SESSION_COOKIE);
+  if (token) {
+    const tokenHash = await sessionTokenHash(token, env);
+    await env.DB.prepare(`UPDATE candidate_sessions SET revoked_at = ? WHERE token_hash = ?`).bind(new Date().toISOString(), tokenHash).run();
+  }
+  return json({ signedOut: true }, 200, { 'set-cookie': clearCandidateSessionCookie() });
+}
+
+async function updateCandidateLocale(request, env, account) {
+  const body = await request.json().catch(() => ({}));
+  const locale = body.locale === 'es' ? 'es' : 'en';
+  await env.DB.prepare(`UPDATE candidate_accounts SET locale = ?, updated_at = ? WHERE id = ?`).bind(locale, new Date().toISOString(), account.id).run();
+  return json({ locale });
+}
+
+function googleOAuthConfig(env) {
+  const clientId = cleanText(env.GOOGLE_OAUTH_CLIENT_ID, 300);
+  const clientSecret = String(env.GOOGLE_OAUTH_CLIENT_SECRET || '');
+  const baseUrl = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '');
+  return { clientId, clientSecret, redirectUri: baseUrl ? `${baseUrl}/api/candidate/auth/google/callback` : '', configured: Boolean(clientId && clientSecret && baseUrl) };
+}
+
+let googleJwksCache = { keys: [], expiresAt: 0 };
+
+async function googleSigningKeys() {
+  if (googleJwksCache.keys.length && googleJwksCache.expiresAt > Date.now()) return googleJwksCache.keys;
+  const response = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(body.keys)) throw new Error('google_signing_keys_unavailable');
+  const maxAge = Number(response.headers.get('cache-control')?.match(/max-age=(\d+)/)?.[1] || 1800);
+  googleJwksCache = { keys: body.keys, expiresAt: Date.now() + Math.max(300, maxAge) * 1000 };
+  return googleJwksCache.keys;
+}
+
+async function verifyGoogleIdToken(idToken, clientId, expectedNonce) {
+  const parts = String(idToken || '').split('.');
+  if (parts.length !== 3) return null;
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(new TextDecoder().decode(bytesFromBase64Url(parts[0])));
+    payload = JSON.parse(new TextDecoder().decode(bytesFromBase64Url(parts[1])));
+  } catch {
+    return null;
+  }
+  if (header.alg !== 'RS256' || !header.kid) return null;
+  const jwk = (await googleSigningKeys()).find((key) => key.kid === header.kid && key.kty === 'RSA' && key.use === 'sig');
+  if (!jwk) return null;
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const validSignature = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5',
+    key,
+    bytesFromBase64Url(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+  );
+  const audienceValid = payload.aud === clientId || (Array.isArray(payload.aud) && payload.aud.includes(clientId));
+  if (!validSignature || !audienceValid || !['accounts.google.com', 'https://accounts.google.com'].includes(payload.iss)
+    || Number(payload.exp || 0) <= Math.floor(Date.now() / 1000) || payload.nonce !== expectedNonce) return null;
+  return payload;
+}
+
+async function pkceChallenge(verifier) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return base64Url(new Uint8Array(digest));
+}
+
+async function startCandidateGoogleOAuth(request, env) {
+  const config = googleOAuthConfig(env);
+  if (!config.configured) return json({ error: 'Google sign-in is not configured.', code: 'google_oauth_not_configured' }, 503);
+  const url = new URL(request.url);
+  const rawAccessToken = cleanText(url.searchParams.get('invite'), 200);
+  let accessTokenHash = null;
+  if (rawAccessToken) {
+    const access = await candidateAccessFromToken(env, rawAccessToken);
+    if (!access) return json({ error: 'The candidate access link is invalid or expired.', code: 'candidate_link_invalid' }, 403);
+    accessTokenHash = access.tokenHash;
+  }
+  const state = randomToken();
+  const verifier = randomToken();
+  const now = new Date();
+  await env.DB.prepare(`INSERT INTO candidate_oauth_states (state_hash, access_token_hash, code_verifier, locale, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(await sha256(state), accessTokenHash, verifier, url.searchParams.get('locale') === 'es' ? 'es' : 'en', new Date(now.getTime() + 10 * 60 * 1000).toISOString(), now.toISOString()).run();
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.search = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: config.redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    code_challenge: await pkceChallenge(verifier),
+    code_challenge_method: 'S256',
+    nonce: state,
+    prompt: 'select_account',
+  }).toString();
+  return Response.redirect(authUrl.toString(), 302);
+}
+
+async function finishCandidateGoogleOAuth(request, env) {
+  const config = googleOAuthConfig(env);
+  const url = new URL(request.url);
+  const state = cleanText(url.searchParams.get('state'), 200);
+  const code = cleanText(url.searchParams.get('code'), 1000);
+  const fail = (reason) => Response.redirect(`${cleanText(env.APP_BASE_URL, 500) || url.origin}/candidate?oauth_error=${encodeURIComponent(reason)}`, 302);
+  if (!config.configured || !state || !code) return fail('google_signin_failed');
+  const stateHash = await sha256(state);
+  const stored = await env.DB.prepare(`SELECT * FROM candidate_oauth_states WHERE state_hash = ?`).bind(stateHash).first();
+  if (!stored || new Date(stored.expires_at).getTime() <= Date.now()) return fail('google_signin_expired');
+  await env.DB.prepare(`DELETE FROM candidate_oauth_states WHERE state_hash = ?`).bind(stateHash).run();
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code, client_id: config.clientId, client_secret: config.clientSecret, redirect_uri: config.redirectUri, grant_type: 'authorization_code', code_verifier: stored.code_verifier }),
+  });
+  const tokenBody = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok || !tokenBody.id_token) return fail('google_token_exchange_failed');
+  const identity = await verifyGoogleIdToken(tokenBody.id_token, config.clientId, state).catch(() => null);
+  const email = cleanEmail(identity?.email);
+  if (!identity || identity.email_verified !== true || !email || !identity.sub) return fail('google_identity_invalid');
+  const invitedCandidate = await candidateFromAccessHash(env, stored.access_token_hash);
+  let account = await env.DB.prepare(`SELECT * FROM candidate_accounts WHERE email = ? COLLATE NOCASE`).bind(email).first();
+  if (!account && (!invitedCandidate || invitedCandidate.email.toLowerCase() !== email)) return fail('candidate_invitation_required');
+  if (account?.google_sub && account.google_sub !== identity.sub) return fail('google_account_conflict');
+  const now = new Date().toISOString();
+  if (!account) {
+    const accountId = crypto.randomUUID();
+    await env.DB.prepare(`INSERT INTO candidate_accounts (id, email, name, google_sub, locale, status, last_login_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`)
+      .bind(accountId, email, cleanText(identity.name, 140) || invitedCandidate.name, identity.sub, stored.locale === 'es' ? 'es' : 'en', now, now, now).run();
+    account = await env.DB.prepare(`SELECT * FROM candidate_accounts WHERE id = ?`).bind(accountId).first();
+  } else {
+    await env.DB.prepare(`UPDATE candidate_accounts SET google_sub = ?, name = COALESCE(NULLIF(?, ''), name), last_login_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(identity.sub, cleanText(identity.name, 140), now, now, account.id).run();
+  }
+  await linkCandidateAccountByEmail(env, account.id, email);
+  const session = await createCandidateSession(request, env, account.id);
+  await audit(env, email, 'candidate_signed_in', 'candidate_account', account.id, { method: 'google' });
+  return new Response(null, { status: 302, headers: { location: `${cleanText(env.APP_BASE_URL, 500) || url.origin}/candidate?oauth=success`, 'set-cookie': candidateSessionCookie(session.token, session.expiresAt) } });
+}
+
+async function candidatePortalData(request, env) {
+  const url = new URL(request.url);
+  const access = await candidateAccessFromToken(env, url.searchParams.get('invite'));
+  const account = await authenticatedCandidate(request, env);
+  if (!access && !account) return json({ error: 'A valid candidate link or account is required.', code: 'candidate_access_required' }, 401);
+
+  if (access && account && access.candidate.email.toLowerCase() === account.email.toLowerCase()) {
+    await linkCandidateAccountByEmail(env, account.id, account.email);
+  }
+
+  let candidateRows = [];
+  if (account) {
+    const linked = await env.DB.prepare(`
+      SELECT c.* FROM candidate_account_links l JOIN candidates c ON c.id = l.candidate_id
+      WHERE l.account_id = ? ORDER BY c.updated_at DESC
+    `).bind(account.id).all();
+    candidateRows = linked.results || [];
+  }
+  if (access && (!account || access.candidate.email.toLowerCase() === account.email.toLowerCase()) && !candidateRows.some((row) => row.id === access.candidate.id)) {
+    candidateRows.unshift(access.candidate);
+  }
+  if (!candidateRows.length) return json({ error: 'No candidate applications are linked to this account.', code: 'candidate_application_not_found' }, 404);
+
+  const applications = [];
+  for (const candidate of candidateRows) {
+    await ensureCandidatePipeline(env, candidate.id, candidate.company_id);
+    const summary = await env.DB.prepare(`
+      SELECT c.id, c.name, c.email, c.role, c.site, c.created_at,
+        co.id AS company_id, co.name AS company_name, COALESCE(co.candidate_brand_name, co.name) AS candidate_brand_name,
+        co.referral_bonus_cents, p.updated_at AS pipeline_updated_at, p.status_message_en, p.status_message_es,
+        s.id AS current_stage_id, s.stage_key AS current_stage_key, s.name_en AS current_stage_name_en,
+        s.name_es AS current_stage_name_es, s.stage_order AS current_stage_order
+      FROM candidates c JOIN companies co ON co.id = c.company_id
+      JOIN candidate_pipeline p ON p.candidate_id = c.id JOIN recruitment_stages s ON s.id = p.stage_id
+      WHERE c.id = ?
+    `).bind(candidate.id).first();
+    if (!summary) continue;
+    const [stagesResult, historyResult, messagesResult, invitationsResult] = await Promise.all([
+      env.DB.prepare(`SELECT id, stage_key, name_en, name_es, stage_order, is_terminal FROM recruitment_stages WHERE company_id = ? AND status = 'active' ORDER BY stage_order`).bind(candidate.company_id).all(),
+      env.DB.prepare(`
+        SELECT h.changed_at, h.status_message_en, h.status_message_es, s.stage_key, s.name_en, s.name_es, s.stage_order
+        FROM candidate_stage_history h JOIN recruitment_stages s ON s.id = h.stage_id
+        WHERE h.candidate_id = ? ORDER BY h.changed_at DESC LIMIT 12
+      `).bind(candidate.id).all(),
+      env.DB.prepare(`
+        SELECT channel, subject_en, subject_es, message_en, message_es, created_at
+        FROM candidate_communications WHERE candidate_id = ? AND visible_to_candidate = 1
+        ORDER BY created_at DESC LIMIT 20
+      `).bind(candidate.id).all(),
+      env.DB.prepare(`
+        WITH ranked AS (
+          SELECT i.*, ROW_NUMBER() OVER (PARTITION BY i.test_id ORDER BY i.created_at DESC) AS row_number
+          FROM invitations i WHERE i.candidate_id = ?
+        )
+        SELECT i.id, i.test_id, i.locale, i.status, i.created_at, i.expires_at, i.completed_at,
+          t.name_en, t.name_es, t.estimated_minutes,
+          (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = ? AND used.test_id = i.test_id AND used.status <> 'failed') AS attempts_used,
+          COALESCE(a.attempt_limit, 3) AS attempt_limit
+        FROM ranked i JOIN assessment_tests t ON t.id = i.test_id
+        LEFT JOIN candidate_test_access a ON a.candidate_id = i.candidate_id AND a.test_id = i.test_id
+        WHERE i.row_number = 1 ORDER BY i.created_at DESC
+      `).bind(candidate.id, candidate.id).all(),
+    ]);
+    applications.push({
+      ...summary,
+      referral_bonus_cents: Number(summary.referral_bonus_cents || 10000),
+      stages: stagesResult.results || [],
+      history: historyResult.results || [],
+      communications: messagesResult.results || [],
+      tests: (invitationsResult.results || []).map((test) => ({
+        ...test,
+        attempts_used: Number(test.attempts_used || 0),
+        attempt_limit: Number(test.attempt_limit || 3),
+        attempts_remaining: Math.max(0, Number(test.attempt_limit || 3) - Number(test.attempts_used || 0)),
+        direct_access: Boolean(access?.source === 'invitation' && access.invitationId === test.id),
+      })),
+    });
+  }
+
+  const accountExists = access ? Boolean(await env.DB.prepare(`SELECT id FROM candidate_accounts WHERE email = ? COLLATE NOCASE`).bind(access.candidate.email).first()) : Boolean(account);
+  const referrals = account ? await env.DB.prepare(`
+    SELECT id, source_candidate_id, name, email, phone, status, bonus_cents, created_at, updated_at
+    FROM candidate_referrals WHERE referrer_account_id = ? ORDER BY created_at DESC
+  `).bind(account.id).all() : { results: [] };
+  return json({
+    account,
+    accountExists,
+    googleConfigured: googleOAuthConfig(env).configured,
+    suggestedLocale: account?.locale || access?.candidate?.locale || access?.candidate?.invitation_locale || 'en',
+    access: access ? { source: access.source, candidateId: access.candidate.id, invitationId: access.invitationId } : null,
+    applications,
+    referrals: referrals.results || [],
+  });
+}
+
+async function startCandidateInvitation(request, env, account, invitationId) {
+  const row = await env.DB.prepare(`
+    SELECT i.*, c.email FROM invitations i JOIN candidates c ON c.id = i.candidate_id
+    JOIN candidate_account_links l ON l.candidate_id = c.id
+    WHERE i.id = ? AND l.account_id = ?
+  `).bind(invitationId, account.id).first();
+  if (!row || row.email.toLowerCase() !== account.email.toLowerCase()) return json({ error: 'Assessment invitation not found.', code: 'invitation_not_found' }, 404);
+  if (row.status === 'completed') return json({ error: 'This assessment is already complete.', code: 'assessment_completed' }, 409);
+  const token = randomToken();
+  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(`UPDATE invitations SET token_hash = ?, expires_at = ? WHERE id = ?`).bind(await sha256(token), expiresAt, row.id).run();
+  await audit(env, account.email, 'candidate_assessment_access_rotated', 'invitation', row.id, { candidateId: row.candidate_id, expiresAt });
+  return json({ assessmentPath: `/assessment?invite=${encodeURIComponent(token)}`, expiresAt });
+}
+
+async function createCandidateReferral(request, env, account) {
+  const body = await request.json().catch(() => ({}));
+  const candidateId = cleanText(body.applicationId, 100);
+  const source = await env.DB.prepare(`
+    SELECT c.company_id, co.referral_bonus_cents FROM candidate_account_links l
+    JOIN candidates c ON c.id = l.candidate_id JOIN companies co ON co.id = c.company_id
+    WHERE l.account_id = ? AND c.id = ?
+  `).bind(account.id, candidateId).first();
+  const name = cleanText(body.name, 140);
+  const email = cleanEmail(body.email);
+  const phone = cleanText(body.phone, 40);
+  if (!source || !name || !email) return json({ error: 'Choose an application and provide a valid name and email.', code: 'invalid_referral' }, 422);
+  if (email === account.email) return json({ error: 'You cannot refer your own account email.', code: 'self_referral' }, 422);
+  const now = new Date().toISOString();
+  try {
+    await env.DB.prepare(`
+      INSERT INTO candidate_referrals (id, company_id, referrer_account_id, source_candidate_id, name, email, phone, status, bonus_cents, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?)
+    `).bind(crypto.randomUUID(), source.company_id, account.id, candidateId, name, email, phone || null, Number(source.referral_bonus_cents || 10000), now, now).run();
+  } catch {
+    return json({ error: 'This person has already been referred from your account.', code: 'referral_exists' }, 409);
+  }
+  await audit(env, account.email, 'candidate_referral_submitted', 'candidate', candidateId, { referredEmailHash: await sha256(email) });
+  return candidatePortalData(request, env);
+}
+
 async function changePassword(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const currentPassword = String(body.currentPassword || '');
@@ -810,7 +1406,7 @@ function responseOutputText(body) {
   return '';
 }
 
-async function callOpenAiJson(config, { instructions, input, schema, schemaName, safetyIdentifier, maxOutputTokens }) {
+async function callOpenAiJson(config, { instructions, input, schema, schemaName, safetyIdentifier, maxOutputTokens, reasoningEffort = 'medium' }) {
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
@@ -818,7 +1414,7 @@ async function callOpenAiJson(config, { instructions, input, schema, schemaName,
       model: config.model,
       instructions,
       input: [{ role: 'user', content: [{ type: 'input_text', text: JSON.stringify(input) }] }],
-      reasoning: { effort: 'medium' },
+      reasoning: { effort: reasoningEffort },
       text: { format: { type: 'json_schema', name: schemaName, strict: true, schema } },
       max_output_tokens: maxOutputTokens,
       store: false,
@@ -953,18 +1549,19 @@ async function brevoApiRequest(config, path, options = {}) {
 function invitationCopy(candidate, locale, link) {
   const name = escapeHtml(candidate.name.split(/\s+/)[0] || candidate.name);
   const role = escapeHtml(candidate.role);
+  const brand = escapeHtml(candidate.candidate_brand_name || 'Allied Global');
   const safeLink = escapeHtml(link);
   if (locale === 'es') {
     return {
-      subject: 'Tu evaluación de Potencial de Permanencia',
-      text: `Hola ${candidate.name},\n\nTe invitamos a completar la evaluación de Potencial de Permanencia para el puesto ${candidate.role}. Antes de comenzar podrás elegir inglés o español. Incluye 27 reactivos y tres escenarios laborales. Las respuestas de escenarios pueden utilizarse en un reporte asistido por IA, pero no cambian la puntuación. La evaluación toma aproximadamente 12–16 minutos.\n\n${link}\n\nEl resultado será revisado por una persona junto con otra información del proceso.`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Gazelle Assessment</h1><p>Hola ${name},</p><p>Te invitamos a completar la evaluación de <strong>Potencial de Permanencia</strong> para el puesto <strong>${role}</strong>.</p><p>Antes de comenzar podrás elegir inglés o español. Incluye 27 reactivos y tres escenarios laborales. Las respuestas de escenarios pueden utilizarse en un reporte asistido por IA, pero no cambian la puntuación. La evaluación toma aproximadamente 12–16 minutos.</p><p><a href="${safeLink}" style="display:inline-block;background:#e4571b;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Comenzar evaluación</a></p><p style="font-size:13px;color:#687174">El resultado será revisado por una persona junto con otra información del proceso.</p></div>`,
+      subject: `Tu proceso con ${candidate.candidate_brand_name || 'Allied Global'}`,
+      text: `Hola ${candidate.name},\n\nBienvenido a ${candidate.candidate_brand_name || 'Allied Global'}. Te invitamos a completar la evaluación de Potencial de Permanencia para el puesto ${candidate.role}. Busca un lugar tranquilo y reserva al menos 10 minutos. No te preocupes: simplemente queremos conocerte mejor. En tu portal podrás elegir inglés o español, completar la evaluación y seguir el avance de tu proceso.\n\n${link}\n\nEl resultado será revisado por una persona junto con otra información del proceso.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Bienvenido a ${brand}</h1><p>Hola ${name},</p><p>Te invitamos a completar la evaluación de <strong>Potencial de Permanencia</strong> para el puesto <strong>${role}</strong>.</p><p>Busca un lugar tranquilo y reserva al menos 10 minutos. No te preocupes: simplemente queremos conocerte mejor. En tu portal podrás elegir inglés o español, completar la evaluación y seguir el avance de tu proceso.</p><p><a href="${safeLink}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Abrir mi portal</a></p><p style="font-size:13px;color:#687174">El resultado será revisado por una persona junto con otra información del proceso.</p></div>`,
     };
   }
   return {
-    subject: 'Your Tenure Potential assessment',
-    text: `Hello ${candidate.name},\n\nYou are invited to complete the Tenure Potential assessment for the ${candidate.role} role. Before starting, you can choose English or Spanish. It includes 27 items and three job scenarios. Scenario responses may be used in an AI-assisted report but do not change the score. The assessment takes about 12–16 minutes.\n\n${link}\n\nA person will review the result together with other hiring information.`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Gazelle Assessment</h1><p>Hello ${name},</p><p>You are invited to complete the <strong>Tenure Potential</strong> assessment for the <strong>${role}</strong> role.</p><p>Before starting, you can choose English or Spanish. It includes 27 items and three job scenarios. Scenario responses may be used in an AI-assisted report but do not change the score. The assessment takes about 12–16 minutes.</p><p><a href="${safeLink}" style="display:inline-block;background:#e4571b;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Start assessment</a></p><p style="font-size:13px;color:#687174">A person will review the result together with other hiring information.</p></div>`,
+    subject: `Your application with ${candidate.candidate_brand_name || 'Allied Global'}`,
+    text: `Hello ${candidate.name},\n\nWelcome to ${candidate.candidate_brand_name || 'Allied Global'}. You are invited to complete the Tenure Potential assessment for the ${candidate.role} role. Find a quiet place and reserve at least 10 minutes. Don't worry: we simply want to get to know you better. In your portal you can choose English or Spanish, complete the assessment, and follow your hiring progress.\n\n${link}\n\nA person will review the result together with other hiring information.`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Welcome to ${brand}</h1><p>Hello ${name},</p><p>You are invited to complete the <strong>Tenure Potential</strong> assessment for the <strong>${role}</strong> role.</p><p>Find a quiet place and reserve at least 10 minutes. Don't worry: we simply want to get to know you better. In your portal you can choose English or Spanish, complete the assessment, and follow your hiring progress.</p><p><a href="${safeLink}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Open my portal</a></p><p style="font-size:13px;color:#687174">A person will review the result together with other hiring information.</p></div>`,
   };
 }
 
@@ -974,8 +1571,173 @@ async function audit(env, actor, type, entityType, entityId, payload) {
     .run();
 }
 
+async function testAttemptStatus(env, candidateId, testId, updatedByUserId = null) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT OR IGNORE INTO candidate_test_access (candidate_id, test_id, attempt_limit, updated_by_user_id, updated_at)
+    VALUES (?, ?, 3, ?, ?)
+  `).bind(candidateId, testId, updatedByUserId, now).run();
+  const row = await env.DB.prepare(`
+    SELECT a.attempt_limit,
+      (SELECT COUNT(*) FROM invitations i WHERE i.candidate_id = a.candidate_id AND i.test_id = a.test_id AND i.status <> 'failed') AS attempts_used
+    FROM candidate_test_access a WHERE a.candidate_id = ? AND a.test_id = ?
+  `).bind(candidateId, testId).first();
+  const limit = Number(row?.attempt_limit || 3);
+  const used = Number(row?.attempts_used || 0);
+  return { limit, used, remaining: Math.max(0, limit - used) };
+}
+
+async function staffCandidate(env, user, candidateId) {
+  const scope = candidateScope(user);
+  return env.DB.prepare(`SELECT c.* FROM candidates c WHERE c.id = ? AND ${scope.sql}`).bind(candidateId, ...scope.bindings).first();
+}
+
+async function listRecruitmentStages(env, user) {
+  const companyFilter = isSuperAdmin(user) ? '1 = 1' : 's.company_id = ?';
+  const bindings = isSuperAdmin(user) ? [] : [user.companyId];
+  const result = await env.DB.prepare(`
+    SELECT s.*, c.name AS company_name FROM recruitment_stages s JOIN companies c ON c.id = s.company_id
+    WHERE ${companyFilter} AND s.status = 'active' ORDER BY c.name, s.stage_order
+  `).bind(...bindings).all();
+  return result.results || [];
+}
+
+async function createRecruitmentStage(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const companyId = isSuperAdmin(user) ? cleanText(body.companyId, 100) || user.companyId : user.companyId;
+  const nameEn = cleanText(body.nameEn, 120);
+  const nameEs = cleanText(body.nameEs, 120);
+  if (!companyId || !nameEn || !nameEs) return json({ error: 'Company and both stage names are required.', code: 'invalid_stage' }, 422);
+  const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
+  if (!company) return json({ error: 'Company not found.' }, 404);
+  const last = await env.DB.prepare(`SELECT COALESCE(MAX(stage_order), 0) AS stage_order FROM recruitment_stages WHERE company_id = ?`).bind(companyId).first();
+  const stageKeyBase = nameEn.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 48) || 'custom';
+  const stageKey = `${stageKeyBase}_${crypto.randomUUID().slice(0, 6)}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO recruitment_stages (id, company_id, stage_key, name_en, name_es, stage_order, is_terminal, status, created_by_user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, 'active', ?, ?, ?)
+  `).bind(crypto.randomUUID(), companyId, stageKey, nameEn, nameEs, Number(last?.stage_order || 0) + 10, user.id, now, now).run();
+  await audit(env, user.email, 'recruitment_stage_created', 'company', companyId, { stageKey, nameEn, nameEs });
+  return json({ stages: await listRecruitmentStages(env, user) }, 201);
+}
+
+async function updateCandidateStage(request, env, user, candidateId) {
+  const candidate = await staffCandidate(env, user, candidateId);
+  if (!candidate) return json({ error: 'Candidate not found.' }, 404);
+  const body = await request.json().catch(() => ({}));
+  const stageId = cleanText(body.stageId, 100);
+  const messageEn = cleanText(body.messageEn, 1200);
+  const messageEs = cleanText(body.messageEs, 1200);
+  const stage = await env.DB.prepare(`SELECT * FROM recruitment_stages WHERE id = ? AND company_id = ? AND status = 'active'`).bind(stageId, candidate.company_id).first();
+  if (!stage || !messageEn || !messageEs) return json({ error: 'A valid stage and both candidate-facing messages are required.', code: 'invalid_stage_update' }, 422);
+  const now = new Date().toISOString();
+  await ensureCandidatePipeline(env, candidate.id, candidate.company_id);
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE candidate_pipeline SET stage_id = ?, status_message_en = ?, status_message_es = ?, updated_by_user_id = ?, updated_at = ? WHERE candidate_id = ?`)
+      .bind(stage.id, messageEn, messageEs, user.id, now, candidate.id),
+    env.DB.prepare(`INSERT INTO candidate_stage_history (id, candidate_id, stage_id, status_message_en, status_message_es, changed_by_user_id, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), candidate.id, stage.id, messageEn, messageEs, user.id, now),
+  ]);
+  await audit(env, user.email, 'candidate_stage_updated', 'candidate', candidate.id, { stageId: stage.id, stageKey: stage.stage_key });
+  return json({ candidateId: candidate.id, stageId: stage.id, updatedAt: now });
+}
+
+async function createCandidatePortalLink(env, candidateId, origin) {
+  const token = randomToken();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(`INSERT INTO candidate_portal_links (id, candidate_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), candidateId, await sha256(token), expiresAt, now.toISOString()).run();
+  return { link: `${origin}/candidate?invite=${encodeURIComponent(token)}`, expiresAt };
+}
+
+async function createCandidateCommunication(request, env, user, candidateId) {
+  const candidate = await staffCandidate(env, user, candidateId);
+  if (!candidate) return json({ error: 'Candidate not found.' }, 404);
+  const body = await request.json().catch(() => ({}));
+  const subjectEn = cleanText(body.subjectEn, 180);
+  const subjectEs = cleanText(body.subjectEs, 180);
+  const messageEn = cleanText(body.messageEn, 3000);
+  const messageEs = cleanText(body.messageEs, 3000);
+  const sendEmail = Boolean(body.sendEmail);
+  if (!messageEn || !messageEs || (sendEmail && (!subjectEn || !subjectEs))) return json({ error: 'Both English and Spanish message content is required.', code: 'invalid_communication' }, 422);
+  const origin = cleanText(env.APP_BASE_URL, 500) || new URL(request.url).origin;
+  const access = await createCandidatePortalLink(env, candidate.id, origin);
+  let providerMessageId = null;
+  if (sendEmail) {
+    const latest = await env.DB.prepare(`SELECT locale FROM invitations WHERE candidate_id = ? ORDER BY created_at DESC LIMIT 1`).bind(candidate.id).first();
+    const useSpanish = latest?.locale === 'es';
+    const selectedSubject = useSpanish ? subjectEs : subjectEn;
+    const selectedMessage = useSpanish ? messageEs : messageEn;
+    const button = useSpanish ? 'Ver mi proceso' : 'View my application';
+    const provider = await sendBrevo(env, {
+      to: candidate.email,
+      toName: candidate.name,
+      subject: selectedSubject,
+      text: `${selectedMessage}\n\n${access.link}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:23px">GazelleHunt</h1><p style="line-height:1.65">${escapeHtml(selectedMessage).replace(/\n/g, '<br>')}</p><p><a href="${escapeHtml(access.link)}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">${button}</a></p></div>`,
+      invitationId: null,
+      tag: 'candidate-update',
+    });
+    providerMessageId = provider.id;
+  }
+  const communicationId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO candidate_communications (id, candidate_id, created_by_user_id, channel, subject_en, subject_es, message_en, message_es, visible_to_candidate, provider_message_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `).bind(communicationId, candidate.id, user.id, sendEmail ? 'email_and_portal' : 'portal', subjectEn || null, subjectEs || null, messageEn, messageEs, providerMessageId, now).run();
+  await audit(env, user.email, 'candidate_communication_created', 'candidate', candidate.id, { communicationId, sendEmail, providerMessageId });
+  return json({ communicationId, providerMessageId, portalLinkExpiresAt: access.expiresAt }, 201);
+}
+
+async function releaseCandidateAttempts(request, env, user, candidateId) {
+  if (!isSuperAdmin(user) && user.role !== 'admin') return json({ error: 'Administrator access is required to release more attempts.', code: 'admin_required' }, 403);
+  const candidate = await staffCandidate(env, user, candidateId);
+  if (!candidate) return json({ error: 'Candidate not found.' }, 404);
+  const body = await request.json().catch(() => ({}));
+  const testId = cleanText(body.testId, 100);
+  const test = await env.DB.prepare(`SELECT id FROM assessment_tests WHERE id = ?`).bind(testId).first();
+  if (!test) return json({ error: 'Test not found.' }, 404);
+  await testAttemptStatus(env, candidate.id, test.id, user.id);
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE candidate_test_access SET attempt_limit = attempt_limit + 3, updated_by_user_id = ?, updated_at = ? WHERE candidate_id = ? AND test_id = ?`)
+    .bind(user.id, now, candidate.id, test.id).run();
+  const attempts = await testAttemptStatus(env, candidate.id, test.id, user.id);
+  await audit(env, user.email, 'candidate_attempts_released', 'candidate', candidate.id, { testId: test.id, added: 3, attemptLimit: attempts.limit });
+  return json({ candidateId: candidate.id, testId: test.id, ...attempts });
+}
+
+async function listCandidateReferrals(env, user) {
+  const where = isSuperAdmin(user) ? '1 = 1' : user.role === 'admin' ? 'r.company_id = ?' : 'c.owner_user_id = ?';
+  const binding = isSuperAdmin(user) ? [] : [user.role === 'admin' ? user.companyId : user.id];
+  const result = await env.DB.prepare(`
+    SELECT r.*, a.name AS referrer_name, a.email AS referrer_email, c.name AS source_candidate_name,
+      co.name AS company_name FROM candidate_referrals r
+    JOIN candidate_accounts a ON a.id = r.referrer_account_id
+    JOIN candidates c ON c.id = r.source_candidate_id JOIN companies co ON co.id = r.company_id
+    WHERE ${where} ORDER BY r.created_at DESC
+  `).bind(...binding).all();
+  return result.results || [];
+}
+
+async function updateCandidateReferral(request, env, user, referralId) {
+  const body = await request.json().catch(() => ({}));
+  const status = cleanText(body.status, 30);
+  if (!['submitted', 'reviewing', 'qualified', 'paid'].includes(status)) return json({ error: 'Invalid referral status.' }, 422);
+  const referrals = await listCandidateReferrals(env, user);
+  const referral = referrals.find((entry) => entry.id === referralId);
+  if (!referral) return json({ error: 'Referral not found.' }, 404);
+  await env.DB.prepare(`UPDATE candidate_referrals SET status = ?, updated_at = ? WHERE id = ?`).bind(status, new Date().toISOString(), referral.id).run();
+  await audit(env, user.email, 'candidate_referral_updated', 'candidate_referral', referral.id, { status });
+  return json({ referrals: await listCandidateReferrals(env, user) });
+}
+
 async function listCandidates(env, user) {
   const scope = candidateScope(user);
+  const scopedCandidates = await env.DB.prepare(`SELECT c.id, c.company_id FROM candidates c WHERE ${scope.sql}`).bind(...scope.bindings).all();
+  for (const candidate of scopedCandidates.results || []) await ensureCandidatePipeline(env, candidate.id, candidate.company_id);
   const result = await env.DB.prepare(`
     WITH latest_invitation AS (
       SELECT *, ROW_NUMBER() OVER (PARTITION BY candidate_id ORDER BY created_at DESC) AS row_number
@@ -986,9 +1748,13 @@ async function listCandidates(env, user) {
     )
     SELECT c.id, c.company_id, c.owner_user_id, c.name, c.email, c.phone, c.role, c.site, c.created_at, c.updated_at,
       company.name AS company_name, owner.name AS owner_name,
+      stage.id AS current_stage_id, stage.stage_key AS current_stage_key, stage.name_en AS current_stage_name_en,
+      stage.name_es AS current_stage_name_es, pipeline.status_message_en, pipeline.status_message_es, pipeline.updated_at AS pipeline_updated_at,
       (SELECT COUNT(*) FROM candidate_list_members clm WHERE clm.candidate_id = c.id) AS list_count,
       i.id AS invitation_id, i.locale AS invitation_locale, i.status AS invitation_status, i.provider_message_id,
       i.test_id AS invitation_test_id, invitation_test.name_en AS invitation_test_name,
+      COALESCE(access.attempt_limit, 3) AS attempt_limit,
+      CASE WHEN i.test_id IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = i.test_id AND used.status <> 'failed') END AS attempts_used,
       i.created_at AS invitation_created_at, i.delivered_at, i.completed_at AS invitation_completed_at,
       a.id AS assessment_id, a.assessment_version, a.model_version, a.model_status, a.locale AS assessment_locale,
       a.experience_branch, a.completed_at AS assessment_completed_at, a.duration_ms, a.potential_index,
@@ -1002,8 +1768,11 @@ async function listCandidates(env, user) {
     FROM candidates c
     JOIN companies company ON company.id = c.company_id
     LEFT JOIN users owner ON owner.id = c.owner_user_id
+    LEFT JOIN candidate_pipeline pipeline ON pipeline.candidate_id = c.id
+    LEFT JOIN recruitment_stages stage ON stage.id = pipeline.stage_id
     LEFT JOIN latest_invitation i ON i.candidate_id = c.id AND i.row_number = 1
     LEFT JOIN assessment_tests invitation_test ON invitation_test.id = i.test_id
+    LEFT JOIN candidate_test_access access ON access.candidate_id = c.id AND access.test_id = i.test_id
     LEFT JOIN latest_assessment a ON a.candidate_id = c.id AND a.row_number = 1
     LEFT JOIN ai_analyses ai ON ai.assessment_id = a.id
     WHERE ${scope.sql}
@@ -1011,6 +1780,9 @@ async function listCandidates(env, user) {
   `).bind(...scope.bindings).all();
   const rows = (result.results || []).map((row) => ({
     ...row,
+    attempt_limit: Number(row.attempt_limit || 3),
+    attempts_used: Number(row.attempts_used || 0),
+    attempts_remaining: Math.max(0, Number(row.attempt_limit || 3) - Number(row.attempts_used || 0)),
     support_profile: row.support_profile_json ? JSON.parse(row.support_profile_json) : null,
     response_quality: row.response_quality_json ? JSON.parse(row.response_quality_json) : null,
     scoring_trace: row.scoring_trace_json ? JSON.parse(row.scoring_trace_json) : null,
@@ -1058,50 +1830,84 @@ async function importCandidates(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const candidates = Array.isArray(body.candidates) ? body.candidates.slice(0, 500) : [];
   if (!candidates.length) return json({ error: 'No valid candidate rows supplied.' }, 400);
-  const companyId = isSuperAdmin(user) ? cleanText(body.companyId, 100) || user.companyId : user.companyId;
+  const listId = cleanText(body.listId, 100);
+  const list = listId ? await visibleList(env, user, listId) : null;
+  if (listId && !list) return json({ error: 'The selected candidate list is not available to your account.', code: 'list_not_found' }, 404);
+  const companyId = isSuperAdmin(user) ? list?.company_id || cleanText(body.companyId, 100) || user.companyId : user.companyId;
   if (!companyId) return json({ error: 'A company is required before importing candidates.' }, 422);
+  if (list && list.company_id !== companyId) return json({ error: 'The selected list belongs to a different company.', code: 'list_company_mismatch' }, 422);
   const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
   if (!company) return json({ error: 'Company not found.' }, 404);
+  const defaultRole = cleanText(body.defaultRole, 140);
+  const defaultSite = cleanText(body.defaultSite, 120);
   const now = new Date().toISOString();
   const statements = [];
+  const acceptedEmails = [];
+  const invalidRows = [];
   let accepted = 0;
-  for (const input of candidates) {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const input = candidates[index];
     const email = cleanEmail(input.email);
     const name = cleanText(input.name, 140);
-    const role = cleanText(input.role, 140);
-    if (!email || !name || !role) continue;
+    const role = cleanText(input.role, 140) || defaultRole;
+    const site = cleanText(input.site, 120) || defaultSite;
+    const missing = [!name && 'name', !email && 'valid email', !role && 'role'].filter(Boolean);
+    if (missing.length) { invalidRows.push({ row: index + 2, missing }); continue; }
     accepted += 1;
+    acceptedEmails.push(email);
     statements.push(env.DB.prepare(`
       INSERT INTO candidates (id, company_id, owner_user_id, email, name, phone, role, site, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(company_id, email) DO UPDATE SET name = excluded.name, phone = excluded.phone, role = excluded.role, site = excluded.site,
         owner_user_id = CASE WHEN candidates.owner_user_id IS NULL THEN excluded.owner_user_id ELSE candidates.owner_user_id END,
         updated_at = excluded.updated_at
-    `).bind(crypto.randomUUID(), companyId, user.id, email, name, cleanText(input.phone, 40), role, cleanText(input.site, 120), now, now));
+    `).bind(crypto.randomUUID(), companyId, user.id, email, name, cleanText(input.phone, 40), role, site, now, now));
   }
-  if (!statements.length) return json({ error: 'Each row needs a valid name, email, and role.' }, 422);
+  if (!statements.length) return json({ error: 'No rows are ready to import. Map name and email, then provide either a role column or a default role.', code: 'no_valid_import_rows', invalidRows }, 422);
   await env.DB.batch(statements);
-  await audit(env, user.email, 'candidates_imported', 'candidate_batch', crypto.randomUUID(), { accepted, companyId });
-  return json({ accepted, candidates: await listCandidates(env, user) }, 201);
+  const imported = await env.DB.prepare(`SELECT id, email FROM candidates WHERE company_id = ? AND email IN (${acceptedEmails.map(() => '?').join(',')})`).bind(companyId, ...acceptedEmails).all();
+  let addedToList = 0;
+  if (list && (imported.results || []).length) {
+    const additions = imported.results.map((candidate) => env.DB.prepare(`INSERT OR IGNORE INTO candidate_list_members (list_id, candidate_id, added_by_user_id, added_at) VALUES (?, ?, ?, ?)`)
+      .bind(list.id, candidate.id, user.id, now));
+    const results = await env.DB.batch(additions);
+    addedToList = results.reduce((sum, result) => sum + Number(result.meta?.changes || 0), 0);
+    await env.DB.prepare(`UPDATE candidate_lists SET updated_at = ? WHERE id = ?`).bind(now, list.id).run();
+  }
+  await audit(env, user.email, 'candidates_imported', 'candidate_batch', crypto.randomUUID(), { accepted, skipped: invalidRows.length, companyId, listId: list?.id || null, addedToList });
+  return json({ accepted, skipped: invalidRows.length, invalidRows, addedToList, candidates: await listCandidates(env, user), lists: await listCandidateLists(env, user) }, 201);
 }
 
 async function sendInvitationForCandidate({ env, user, candidate, test, locale, origin, listId = null, batchId = null }) {
+  const attempts = await testAttemptStatus(env, candidate.id, test.id, user.id);
+  await ensureCandidatePipeline(env, candidate.id, candidate.company_id);
+  const company = await env.DB.prepare(`SELECT COALESCE(candidate_brand_name, name) AS candidate_brand_name FROM companies WHERE id = ?`).bind(candidate.company_id).first();
+  candidate.candidate_brand_name = company?.candidate_brand_name || 'Allied Global';
   const now = new Date();
   const token = randomToken();
   const tokenHash = await sha256(token);
   const invitationId = crypto.randomUUID();
   const expiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
-  await env.DB.prepare(`
+  const reserved = await env.DB.prepare(`
     INSERT INTO invitations (id, candidate_id, token_hash, locale, status, created_by, created_at, expires_at, company_id, test_id, list_id, batch_id, created_by_user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(invitationId, candidate.id, tokenHash, locale, 'sending', user.email, now.toISOString(), expiresAt, candidate.company_id, test.id, listId, batchId, user.id).run();
-  const link = `${origin}/assessment?invite=${encodeURIComponent(token)}`;
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    FROM candidate_test_access access
+    WHERE access.candidate_id = ? AND access.test_id = ?
+      AND (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = access.candidate_id AND used.test_id = access.test_id AND used.status <> 'failed') < access.attempt_limit
+  `).bind(invitationId, candidate.id, tokenHash, locale, 'sending', user.email, now.toISOString(), expiresAt, candidate.company_id, test.id, listId, batchId, user.id, candidate.id, test.id).run();
+  if (!Number(reserved.meta?.changes || 0)) {
+    const error = new Error('attempt_limit_reached');
+    error.providerStatus = 409;
+    error.providerMessage = 'This candidate has used all released attempts for this test. An administrator must release three more.';
+    throw error;
+  }
+  const link = `${origin}/candidate?invite=${encodeURIComponent(token)}`;
   const copy = invitationCopy(candidate, locale, link);
   try {
     const provider = await sendBrevo(env, { to: candidate.email, toName: candidate.name, ...copy, invitationId, tag: test.slug });
     await env.DB.prepare(`UPDATE invitations SET status = ?, provider_message_id = ? WHERE id = ?`).bind('accepted', provider.id, invitationId).run();
     await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, testId: test.id, listId, batchId });
-    return { invitationId, status: 'accepted', providerMessageId: provider.id, expiresAt };
+    return { invitationId, status: 'accepted', providerMessageId: provider.id, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
   } catch (error) {
     await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('failed', invitationId).run();
     await audit(env, user.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null, testId: test.id, listId, batchId });
@@ -1248,6 +2054,7 @@ async function createScenarioQuestions(request, env) {
       schemaName: 'tenure_potential_scenarios',
       safetyIdentifier: `invitation_${invitation.id}`,
       maxOutputTokens: 3200,
+      reasoningEffort: 'low',
     });
     const candidateQuestions = ai.data?.questions;
     const itemIds = new Set(result.scoringTrace.map((entry) => entry.itemId));
@@ -1974,6 +2781,26 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/auth/signup' && request.method === 'POST') return signUp(request, env);
   if (url.pathname === '/api/auth/login' && request.method === 'POST') return logIn(request, env);
   if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logOut(request, env);
+  if (url.pathname === '/api/candidate/portal' && request.method === 'GET') return candidatePortalData(request, env);
+  if (url.pathname === '/api/candidate/auth/signup' && request.method === 'POST') return candidateSignUp(request, env);
+  if (url.pathname === '/api/candidate/auth/login' && request.method === 'POST') return candidateLogIn(request, env);
+  if (url.pathname === '/api/candidate/auth/logout' && request.method === 'POST') return candidateLogOut(request, env);
+  if (url.pathname === '/api/candidate/auth/google' && request.method === 'GET') return startCandidateGoogleOAuth(request, env);
+  if (url.pathname === '/api/candidate/auth/google/callback' && request.method === 'GET') return finishCandidateGoogleOAuth(request, env);
+  const candidateAccount = await authenticatedCandidate(request, env);
+  if (url.pathname === '/api/candidate/locale' && request.method === 'POST') {
+    if (!candidateAccount) return json({ error: 'Candidate sign-in is required.', code: 'candidate_authentication_required' }, 401);
+    return updateCandidateLocale(request, env, candidateAccount);
+  }
+  if (url.pathname === '/api/candidate/referrals' && request.method === 'POST') {
+    if (!candidateAccount) return json({ error: 'Create or sign in to your candidate account first.', code: 'candidate_authentication_required' }, 401);
+    return createCandidateReferral(request, env, candidateAccount);
+  }
+  const candidateInvitationMatch = url.pathname.match(/^\/api\/candidate\/invitations\/([^/]+)\/start$/);
+  if (candidateInvitationMatch && request.method === 'POST') {
+    if (!candidateAccount) return json({ error: 'Candidate sign-in is required.', code: 'candidate_authentication_required' }, 401);
+    return startCandidateInvitation(request, env, candidateAccount, cleanText(candidateInvitationMatch[1], 100));
+  }
   if (url.pathname === '/api/assessment' && request.method === 'GET') { await ensureSchema(env); return getInvitation(request, env); }
   if (url.pathname === '/api/assessment/scenarios' && request.method === 'POST') { await ensureSchema(env); return createScenarioQuestions(request, env); }
   if (url.pathname === '/api/assessment/submit' && request.method === 'POST') { await ensureSchema(env); return submitAssessment(request, env, context); }
@@ -1997,12 +2824,24 @@ async function handleApi(request, env, context) {
         senderName: email.senderName,
       },
       ai: { configured: ai.configured, provider: ai.provider, providerKey: ai.providerKey, model: ai.model, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
+      candidatePortal: { enabled: true, googleConfigured: googleOAuthConfig(env).configured },
       assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
       modelVersion: GazelleAssessmentEngine.MODEL_VERSION,
     });
   }
   if (url.pathname === '/api/candidates' && request.method === 'GET') return json({ candidates: await listCandidates(env, user) });
   if (url.pathname === '/api/candidates/import' && request.method === 'POST') return importCandidates(request, env, user);
+  if (url.pathname === '/api/stages' && request.method === 'GET') return json({ stages: await listRecruitmentStages(env, user) });
+  if (url.pathname === '/api/stages' && request.method === 'POST') return createRecruitmentStage(request, env, user);
+  if (url.pathname === '/api/referrals' && request.method === 'GET') return json({ referrals: await listCandidateReferrals(env, user) });
+  const referralMatch = url.pathname.match(/^\/api\/referrals\/([^/]+)$/);
+  if (referralMatch && request.method === 'PATCH') return updateCandidateReferral(request, env, user, cleanText(referralMatch[1], 100));
+  const candidateStageMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/stage$/);
+  if (candidateStageMatch && request.method === 'PATCH') return updateCandidateStage(request, env, user, cleanText(candidateStageMatch[1], 100));
+  const candidateCommunicationMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/communications$/);
+  if (candidateCommunicationMatch && request.method === 'POST') return createCandidateCommunication(request, env, user, cleanText(candidateCommunicationMatch[1], 100));
+  const candidateAttemptsMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/attempts\/release$/);
+  if (candidateAttemptsMatch && request.method === 'POST') return releaseCandidateAttempts(request, env, user, cleanText(candidateAttemptsMatch[1], 100));
   if (url.pathname === '/api/invitations' && request.method === 'POST') return createInvitation(request, env, user);
   if (url.pathname === '/api/tests' && request.method === 'GET') return json({ tests: await listTests(env, user) });
   if (url.pathname === '/api/tests' && request.method === 'POST') return createTest(request, env, user);
@@ -2031,8 +2870,10 @@ export default {
       if (url.pathname === '/assessment-engine.js') return new Response(engineAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
       if (url.pathname === '/ai-assessment.js') return new Response(aiAssessmentAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
       if (url.pathname === '/pdf-report.js') return new Response(pdfReportAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
+      if (url.pathname === '/candidate-portal.js') return new Response(candidatePortalAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
       if (url.pathname === '/app.js') return new Response(appAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
       if (url.pathname === '/og.png' && ogAsset) return new Response(decodeAsset(ogAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
+      if (url.pathname === '/candidate-welcome.png' && candidateWelcomeAsset) return new Response(decodeAsset(candidateWelcomeAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
       if (url.pathname === '/' || !url.pathname.includes('.')) return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
       return new Response('Not found', { status: 404 });
     } catch (error) {

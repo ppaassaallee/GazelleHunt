@@ -3,12 +3,13 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = new URL('.', import.meta.url);
-const [html, css, engine, aiAssessment, pdfReport, app, server, hosting] = await Promise.all([
+const [html, css, engine, aiAssessment, pdfReport, candidatePortal, app, server, hosting] = await Promise.all([
   readFile(new URL('index.html', root), 'utf8'),
   readFile(new URL('styles.css', root), 'utf8'),
   readFile(new URL('assessment-engine.js', root), 'utf8'),
   readFile(new URL('ai-assessment.js', root), 'utf8'),
   readFile(new URL('pdf-report.js', root), 'utf8'),
+  readFile(new URL('candidate-portal.js', root), 'utf8'),
   readFile(new URL('app.js', root), 'utf8'),
   readFile(new URL('server-worker.js', root), 'utf8'),
   readFile(new URL('.openai/hosting.json', root), 'utf8'),
@@ -16,14 +17,18 @@ const [html, css, engine, aiAssessment, pdfReport, app, server, hosting] = await
 
 const ogPath = resolve(new URL('public/og.png', root).pathname);
 const ogBase64 = existsSync(ogPath) ? (await readFile(ogPath)).toString('base64') : '';
+const candidateWelcomePath = resolve(new URL('public/candidate-welcome.png', root).pathname);
+const candidateWelcomeBase64 = existsSync(candidateWelcomePath) ? (await readFile(candidateWelcomePath)).toString('base64') : '';
 const worker = `
 const htmlAsset = ${JSON.stringify(html)};
 const stylesAsset = ${JSON.stringify(css)};
 const engineAsset = ${JSON.stringify(engine)};
 const aiAssessmentAsset = ${JSON.stringify(aiAssessment)};
 const pdfReportAsset = ${JSON.stringify(pdfReport)};
+const candidatePortalAsset = ${JSON.stringify(candidatePortal)};
 const appAsset = ${JSON.stringify(app)};
 const ogAsset = ${JSON.stringify(ogBase64)};
+const candidateWelcomeAsset = ${JSON.stringify(candidateWelcomeBase64)};
 function decodeAsset(base64) {
   const binary = atob(base64);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));

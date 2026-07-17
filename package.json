@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node tests/engine.test.mjs && node tests/ai-report.test.mjs && node tests/workflows.test.mjs && node tests/platform-model.test.mjs && node tests/auth-security.test.mjs && node tests/brevo-integration.test.mjs"
+    "test": "node tests/engine.test.mjs && node tests/ai-report.test.mjs && node tests/workflows.test.mjs && node tests/platform-model.test.mjs && node tests/auth-security.test.mjs && node tests/brevo-integration.test.mjs && node tests/candidate-portal.test.mjs"
   }
 }

@@ -31,12 +31,13 @@ const icons = {
   building: '<path d="M3 21h18M6 21V4h12v17M9 8h2M13 8h2M9 12h2M13 12h2M9 16h2M13 16h2"/>',
   logout: '<path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m11 12 9-9M15 8l3 3M17 6l3 3"/>',
+  gift: '<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M7.5 8C5 8 4 4 6.5 4 9 4 12 8 12 8M16.5 8C19 8 20 4 17.5 4 15 4 12 8 12 8"/>',
 };
 
 const baseNavItems = [
   ['home', 'Overview', 'home'], ['tests', 'Test catalog', 'layers'], ['lists', 'Candidate lists', 'list'],
   ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'], ['send', 'Direct send', 'send'],
-  ['progress', 'Send progress', 'clock'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
+  ['progress', 'Send progress', 'clock'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
 ];
 
 function navItems() {
@@ -48,11 +49,12 @@ const state = {
   health: {
     database: false,
     email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' },
-    ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.5' },
+    ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5-mini' },
   },
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
   tests: [], lists: [], batches: [], users: [], companies: [], selectedListId: null,
+  stages: [], referrals: [], journeyCandidateId: null,
   csv: null, reportCandidateId: null, previewReport: null, runner: null,
 };
 
@@ -87,14 +89,16 @@ async function loadWorkspace() {
     const auth = await fetchJson('/api/auth/me');
     state.user = auth.user;
     state.adminAuthenticated = true;
-    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches')];
+    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/stages'), fetchJson('/api/referrals')];
     if (state.user.role === 'super_admin') requests.push(fetchJson('/api/admin/users'));
-    const [health, candidates, tests, lists, batches, team] = await Promise.all(requests);
+    const [health, candidates, tests, lists, batches, stages, referrals, team] = await Promise.all(requests);
     state.health = health;
     state.candidates = candidates.candidates || [];
     state.tests = tests.tests || [];
     state.lists = lists.lists || [];
     state.batches = batches.batches || [];
+    state.stages = stages.stages || [];
+    state.referrals = referrals.referrals || [];
     state.users = team?.users || [];
     state.companies = team?.companies || [];
     if (!state.selectedListId && state.lists.length) state.selectedListId = state.lists[0].id;
@@ -134,7 +138,7 @@ function shell(content) {
   const items = navItems();
   const current = items.find(([id]) => id === state.view) || items[0];
   const user = state.user || {};
-  return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Assessment</strong><span>Multi-test platform</span></div></div><nav class="nav" aria-label="Main navigation">${items.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">${initials(user.name)}</div><div><strong>${esc(user.name || '')}</strong><span>${esc(user.companyName || 'Platform')} · ${esc((user.role || '').replace('_', ' '))}</span></div></div><button class="button button-quiet sidebar-signout" data-action="logout">${icon('logout')}Sign out</button></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${current[1]}</h1><p>${esc(user.companyName || 'Gazelle Platform')} · Role-based workspace</p></div></div><div class="top-actions"><span class="badge badge-${state.health.database ? 'teal' : 'orange'}">${state.health.database ? 'Audit database active' : 'Database unavailable'}</span><button class="button button-secondary icon-button" data-action="reload" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}`;
+  return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Assessment</strong><span>Multi-test platform</span></div></div><nav class="nav" aria-label="Main navigation">${items.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">${initials(user.name)}</div><div><strong>${esc(user.name || '')}</strong><span>${esc(user.companyName || 'Platform')} · ${esc((user.role || '').replace('_', ' '))}</span></div></div><button class="button button-quiet sidebar-signout" data-action="logout">${icon('logout')}Sign out</button></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${current[1]}</h1><p>${esc(user.companyName || 'Gazelle Platform')} · Role-based workspace</p></div></div><div class="top-actions"><span class="badge badge-${state.health.database ? 'teal' : 'orange'}">${state.health.database ? 'Audit database active' : 'Database unavailable'}</span><button class="button button-secondary icon-button" data-action="reload" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}${state.journeyCandidateId ? renderJourneyModal() : ''}`;
 }
 
 function adminSignInPage() {
@@ -212,37 +216,104 @@ function renderCandidates() {
 
 function candidateTable(candidates) {
   if (!candidates.length) return `<div class="empty-panel"><h3>No candidate records yet</h3><p>Import a CSV or send a real invitation to create the first durable record.</p></div>`;
-  return `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Role / company</th><th>Lists</th><th>Invitation</th><th>Assessment</th><th></th></tr></thead><tbody>${candidates.map((candidate) => `<tr><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.company_name || candidate.site || 'No company')}</span></td><td><span class="badge badge-neutral">${Number(candidate.list_count || 0)} lists</span></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td><div class="row-actions">${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open report</button>` : `<button class="row-button" data-send-candidate="${candidate.id}">Direct send</button>`}</div></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Role / company</th><th>Stage</th><th>Invitation</th><th>Assessment</th><th></th></tr></thead><tbody>${candidates.map((candidate) => `<tr><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.company_name || candidate.site || 'No company')}</span></td><td><span class="badge badge-neutral">${esc(candidate.current_stage_name_en || 'Application received')}</span><br><small class="attempt-note">${Number(candidate.attempts_used || 0)} / ${Number(candidate.attempt_limit || 3)} attempts</small></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td><div class="row-actions"><button class="row-button" data-journey="${candidate.id}">Manage journey</button>${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open report</button>` : ''}</div></td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderJourneyModal() {
+  const candidate = state.candidates.find((entry) => entry.id === state.journeyCandidateId);
+  if (!candidate) return '';
+  const stages = state.stages.filter((stage) => stage.company_id === candidate.company_id);
+  const testId = candidate.invitation_test_id || state.tests.find((test) => test.status === 'active')?.id || '';
+  const canRelease = ['admin', 'super_admin'].includes(state.user?.role);
+  return `<div class="modal-backdrop journey-backdrop"><section class="modal journey-modal" role="dialog" aria-modal="true"><div class="modal-header"><div><p class="eyebrow">Candidate journey</p><h2>${esc(candidate.name)}</h2><p>${esc(candidate.role)} · ${esc(candidate.email)}</p></div><button class="button button-secondary icon-button" data-close-journey aria-label="Close">${icon('x')}</button></div><div class="journey-summary"><div><span>Current stage</span><strong>${esc(candidate.current_stage_name_en || 'Application received')}</strong></div><div><span>Test attempts</span><strong>${Number(candidate.attempts_used || 0)} of ${Number(candidate.attempt_limit || 3)} used</strong></div><div><span>Candidate portal</span><strong>Active</strong></div></div><div class="modal-body journey-body"><section><div class="journey-section-title"><div><h3>Move application</h3><p>The candidate sees the selected stage and localized status message.</p></div>${icon('chart')}</div><form id="candidate-stage-form" class="form-grid"><label class="field form-wide"><span>Stage</span><select class="select" id="journey-stage" required>${stages.map((stage) => `<option value="${stage.id}" ${stage.id === candidate.current_stage_id ? 'selected' : ''}>${esc(stage.name_en)} · ${esc(stage.name_es)}</option>`).join('')}</select></label><label class="field"><span>Candidate message · English</span><textarea class="textarea" id="journey-stage-message-en" required>${esc(candidate.status_message_en || 'Your application is moving forward. We will share the next update here.')}</textarea></label><label class="field"><span>Mensaje al candidato · Español</span><textarea class="textarea" id="journey-stage-message-es" required>${esc(candidate.status_message_es || 'Tu solicitud sigue avanzando. Compartiremos la proxima actualizacion aqui.')}</textarea></label><div class="form-span"><button class="button button-primary" ${state.busy ? 'disabled' : ''}>${icon('check')}Update stage</button></div></form></section><section><div class="journey-section-title"><div><h3>Add a custom stage</h3><p>Stages are available to the recruitment team for this company.</p></div>${icon('plus')}</div><form id="candidate-stage-create-form" class="form-grid"><input type="hidden" id="journey-stage-company" value="${esc(candidate.company_id)}"><label class="field"><span>English name</span><input class="input" id="journey-stage-name-en" required maxlength="120"></label><label class="field"><span>Spanish name</span><input class="input" id="journey-stage-name-es" required maxlength="120"></label><div class="form-span"><button class="button button-secondary" ${state.busy ? 'disabled' : ''}>${icon('plus')}Add stage</button></div></form></section><section><div class="journey-section-title"><div><h3>Candidate communication</h3><p>Store a portal update and optionally send it through Brevo.</p></div>${icon('send')}</div><form id="candidate-communication-form" class="form-grid"><label class="field"><span>Subject · English</span><input class="input" id="journey-subject-en" maxlength="180" value="Update on your application"></label><label class="field"><span>Asunto · Español</span><input class="input" id="journey-subject-es" maxlength="180" value="Actualizacion sobre tu solicitud"></label><label class="field"><span>Message · English</span><textarea class="textarea" id="journey-message-en" required></textarea></label><label class="field"><span>Mensaje · Español</span><textarea class="textarea" id="journey-message-es" required></textarea></label><label class="consent form-wide"><input type="checkbox" id="journey-send-email" checked><span>Send the localized message by Brevo and store it in the candidate portal.</span></label><div class="form-span"><button class="button button-primary" ${state.busy ? 'disabled' : ''}>${icon('send')}Publish update</button></div></form></section><section><div class="journey-section-title"><div><h3>Assessment access</h3><p>Recruiters can resend within the released limit. Administrators release three more at a time.</p></div>${icon('refresh')}</div><input type="hidden" id="journey-test-id" value="${esc(testId)}"><div class="attempt-control"><div><strong>${Math.max(0, Number(candidate.attempt_limit || 3) - Number(candidate.attempts_used || 0))} attempts remaining</strong><span>Failed provider sends do not consume an attempt.</span></div><button class="button button-secondary" data-resend-test="${candidate.id}" ${!testId || state.busy || Number(candidate.attempts_remaining || 0) <= 0 ? 'disabled' : ''}>${icon('send')}Resend test</button>${canRelease ? `<button class="button button-primary" data-release-attempts="${candidate.id}" ${!testId || state.busy ? 'disabled' : ''}>${icon('plus')}Release 3 more</button>` : ''}</div></section></div></section></div>`;
+}
+
+function renderReferrals() {
+  const totalValue = state.referrals.reduce((sum, referral) => sum + (referral.status === 'paid' ? Number(referral.bonus_cents || 0) : 0), 0);
+  return `<div class="stack">${pageIntro('Candidate network', 'Referrals', 'Track candidate-submitted referrals and update the status visible in their portal.', `<span class="badge badge-teal">${state.referrals.length} referrals</span>`)}<section class="grid grid-3">${metric('Submitted', state.referrals.filter((item) => item.status === 'submitted').length, 'Awaiting review', 'gift')}${metric('Qualified', state.referrals.filter((item) => item.status === 'qualified').length, 'Eligible under program rules', 'check')}${metric('Paid rewards', new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalValue / 100), 'Recorded as paid', 'shield')}</section><section class="card"><div class="table-scroll"><table><thead><tr><th>Referral</th><th>Referred by</th><th>Company</th><th>Reward</th><th>Status</th><th>Submitted</th></tr></thead><tbody>${state.referrals.map((referral) => `<tr><td><strong>${esc(referral.name)}</strong><br><span class="empty-value">${esc(referral.email)}</span></td><td>${esc(referral.referrer_name)}<br><span class="empty-value">via ${esc(referral.source_candidate_name)}</span></td><td>${esc(referral.company_name)}</td><td>${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(referral.bonus_cents || 0) / 100)}</td><td><select class="select referral-status-select" data-referral-status="${referral.id}">${['submitted', 'reviewing', 'qualified', 'paid'].map((status) => `<option value="${status}" ${status === referral.status ? 'selected' : ''}>${status.replace('_', ' ')}</option>`).join('')}</select></td><td>${formatDate(referral.created_at)}</td></tr>`).join('') || '<tr><td colspan="6"><div class="empty-panel"><h3>No referrals yet</h3><p>Candidate referrals will appear here after submission.</p></div></td></tr>'}</tbody></table></div></section></div>`;
 }
 
 function parseCsv(text) {
+  let source = String(text || '').replace(/^\uFEFF/, '');
+  const separatorDeclaration = source.match(/^sep=(.)\s*(?:\r?\n|\r)/i);
+  const declaredDelimiter = separatorDeclaration?.[1];
+  if (separatorDeclaration) source = source.slice(separatorDeclaration[0].length);
+  const firstLine = source.split(/\r?\n|\r/, 1)[0] || '';
+  const delimiterCounts = [',', ';', '\t'].map((delimiter) => ({ delimiter, count: firstLine.split(delimiter).length - 1 }));
+  const delimiter = declaredDelimiter || delimiterCounts.sort((left, right) => right.count - left.count)[0]?.delimiter || ',';
   const rows = []; let row = []; let field = ''; let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (character === '"' && quoted && text[index + 1] === '"') { field += '"'; index += 1; }
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === '"' && quoted && source[index + 1] === '"') { field += '"'; index += 1; }
     else if (character === '"') quoted = !quoted;
-    else if (character === ',' && !quoted) { row.push(field.trim()); field = ''; }
-    else if ((character === '\n' || character === '\r') && !quoted) { if (character === '\r' && text[index + 1] === '\n') index += 1; row.push(field.trim()); field = ''; if (row.some(Boolean)) rows.push(row); row = []; }
+    else if (character === delimiter && !quoted) { row.push(field.trim()); field = ''; }
+    else if ((character === '\n' || character === '\r') && !quoted) { if (character === '\r' && source[index + 1] === '\n') index += 1; row.push(field.trim()); field = ''; if (row.some(Boolean)) rows.push(row); row = []; }
     else field += character;
   }
   row.push(field.trim()); if (row.some(Boolean)) rows.push(row);
-  return { headers: rows[0] || [], rows: rows.slice(1).filter((entry) => entry.some(Boolean)) };
+  return { headers: (rows[0] || []).map((header) => header.replace(/^\uFEFF/, '').trim()), rows: rows.slice(1).filter((entry) => entry.some(Boolean)), delimiter };
 }
 
 function guessedMapping(header) {
   const value = header.toLowerCase();
   if (value.includes('name') || value.includes('nombre')) return 'name';
   if (value.includes('mail') || value.includes('correo')) return 'email';
-  if (value.includes('phone') || value.includes('mobile') || value.includes('tel')) return 'phone';
+  if (value.includes('phone') || value.includes('mobile') || value.includes('tel') || value.includes('numero') || value.includes('número') || value.includes('celular')) return 'phone';
   if (value.includes('role') || value.includes('position') || value.includes('puesto') || value.includes('opening')) return 'role';
   if (value.includes('site') || value.includes('location') || value.includes('sede')) return 'site';
   return 'ignore';
 }
 
+function csvMappedCandidates(csv, defaultRole = '', defaultSite = '') {
+  return csv.rows.map((row, rowIndex) => {
+    const candidate = {};
+    csv.mapping.forEach((target, index) => { if (target !== 'ignore') candidate[target] = String(row[index] || '').trim(); });
+    candidate.role = candidate.role || defaultRole.trim();
+    candidate.site = candidate.site || defaultSite.trim();
+    const errors = [];
+    if (!candidate.name) errors.push('name');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate.email || '')) errors.push('valid email');
+    if (!candidate.role) errors.push('role');
+    return { candidate, rowNumber: rowIndex + 2, errors };
+  });
+}
+
 function renderImport() {
   const csv = state.csv;
-  const companySelect = state.user?.role === 'super_admin' ? `<label class="compact-select"><span>Import into company</span><select class="select" id="import-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></label>` : '';
-  return `${pageIntro('Persistent CSV import', 'Import candidates', 'Parse locally, verify the mapping, then write valid candidate rows inside the selected company scope.', '')}<div class="grid grid-2"><section class="card card-body"><div class="dropzone">${icon('upload')}<div><h3>${csv ? esc(csv.name) : 'Choose a candidate CSV'}</h3><p>${csv ? `${csv.rows.length} rows detected` : 'Required: name, email, and role'}</p><label class="button button-secondary" for="csv-file">${csv ? 'Choose another file' : 'Browse files'}</label><input class="file-input" id="csv-file" type="file" accept=".csv,text/csv"></div></div></section><section class="card"><div class="card-header"><div><h3>Data boundaries</h3><p>Import only data needed for the workflow.</p></div>${icon('shield')}</div><div class="card-body guardrail-list">${guardrail('Do not score protected data', 'Birth date, sex, race, ethnicity, disability, and family status stay outside the assessment model.', 'Blocked')}${guardrail('Duplicate control', 'Email is unique inside each company; existing records are updated.', 'Active')}${guardrail('Audit event', 'Each import records the signed-in actor, company, and accepted row count.', 'Active')}</div></section></div>${csv ? `<section class="card"><div class="card-header"><div><h3>Column mapping</h3><p>Confirm fields before writing records.</p></div><div class="toolbar">${companySelect}<button class="button button-primary" data-action="confirm-import" ${state.busy ? 'disabled' : ''}>${icon('check')}Import ${csv.rows.length}</button></div></div><div class="card-body mapping-list">${csv.headers.map((header, index) => `<div class="mapping-row"><div class="source-column"><strong>${esc(header)}</strong><small>Sample: ${esc(csv.rows[0]?.[index] || '')}</small></div><span>→</span><select class="select mapping-select" data-column="${index}">${['name','email','phone','role','site','ignore'].map((target) => `<option value="${target}" ${guessedMapping(header) === target ? 'selected' : ''}>${target}</option>`).join('')}</select></div>`).join('')}</div></section>` : ''}`;
+  const mappings = { name: 'Full name', email: 'Email', phone: 'Phone', role: 'Role', site: 'Site', ignore: 'Ignore column' };
+  const mapped = csv ? csvMappedCandidates(csv, csv.defaultRole || '', csv.defaultSite || '') : [];
+  const invalid = mapped.filter((entry) => entry.errors.length);
+  const delimiterName = csv?.delimiter === ';' ? 'semicolon' : csv?.delimiter === '\t' ? 'tab' : 'comma';
+  const sourceSummary = csv ? `${csv.rows.length} rows, ${delimiterName} separated` : 'Name and email columns are required. Role can be a column or a shared default.';
+  const sourcePanel = `<section class="card card-body"><div class="dropzone">${icon('upload')}<div><h3>${csv ? esc(csv.name) : 'Choose a candidate CSV'}</h3><p>${sourceSummary}</p><label class="button button-secondary" for="csv-file">${csv ? 'Choose another file' : 'Browse files'}</label><input class="file-input" id="csv-file" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"></div></div></section>`;
+  const behaviorPanel = `<section class="card"><div class="card-header"><div><h3>Import behavior</h3><p>Records are validated before they are written.</p></div>${icon('shield')}</div><div class="card-body guardrail-list">${guardrail('Flexible files', 'Excel CSV files with comma, semicolon, tab, BOM, quoted fields, and bilingual headers are supported.', 'Active')}${guardrail('Duplicate control', 'Email is unique inside each company; existing records are updated.', 'Active')}${guardrail('List assignment', 'Valid imported candidates can be added to one existing list in the same operation.', 'Optional')}</div></section>`;
+  const intro = pageIntro('Persistent CSV import', 'Import candidates', 'Upload comma, semicolon, or tab-separated files. Map the columns once, apply shared defaults, and optionally add every valid candidate to a list.', '');
+  if (!csv) return `${intro}<div class="grid grid-2">${sourcePanel}${behaviorPanel}</div>`;
+
+  const mappingOptions = (selected) => Object.entries(mappings)
+    .map(([target, label]) => `<option value="${target}" ${selected === target ? 'selected' : ''}>${label}</option>`)
+    .join('');
+  const mappingRows = csv.headers.map((header, index) => {
+    const label = header || `Column ${index + 1}`;
+    const sample = csv.rows[0]?.[index] || 'Empty';
+    return `<div class="mapping-row"><div class="source-column"><strong>${esc(label)}</strong><small>Sample: ${esc(sample)}</small></div><span aria-hidden="true">to</span><select class="select mapping-select" data-column="${index}" aria-label="Map ${esc(label)}">${mappingOptions(csv.mapping[index])}</select></div>`;
+  }).join('');
+  const listOptions = state.lists.map((list) => {
+    const company = state.user?.role === 'super_admin' ? `, ${list.company_name}` : '';
+    return `<option value="${list.id}" ${csv.listId === list.id ? 'selected' : ''}>${esc(`${list.name}${company}`)}</option>`;
+  }).join('');
+  const companyOptions = state.companies.map((company) => `<option value="${company.id}" ${csv.companyId === company.id ? 'selected' : ''}>${esc(company.name)}</option>`).join('');
+  const companySelect = state.user?.role === 'super_admin'
+    ? `<label class="compact-select"><span>Import into company</span><select class="select" id="import-company">${companyOptions}</select></label>`
+    : '';
+  const reviewMessage = invalid.length
+    ? `${invalid.length} row${invalid.length === 1 ? '' : 's'} still need attention. Only valid rows will be imported.`
+    : `All ${mapped.length} rows have the required fields.`;
+  const errorRows = invalid.slice(0, 8).map((entry) => `<span>Row ${entry.rowNumber}: missing ${esc(entry.errors.join(', '))}</span>`).join('');
+  const errorOverflow = invalid.length > 8 ? `<span>+ ${invalid.length - 8} more rows</span>` : '';
+  const errors = invalid.length ? `<div class="import-errors">${errorRows}${errorOverflow}</div>` : '';
+  const workspace = `<section class="card import-workspace"><div class="card-header"><div><h3>1. Map columns</h3><p>Each destination can be mapped once. Changes are saved immediately.</p></div><span class="badge badge-neutral">${csv.headers.length} columns</span></div><div class="card-body mapping-list">${mappingRows}</div><div class="import-defaults"><div><h3>2. Complete shared fields</h3><p>Use these when the CSV does not contain a role or site column.</p></div><label class="field"><span>Default role <b>Required if not mapped</b></span><input class="input" id="import-default-role" value="${esc(csv.defaultRole || '')}" placeholder="Bilingual Customer Care"></label><label class="field"><span>Default site</span><input class="input" id="import-default-site" value="${esc(csv.defaultSite || '')}" placeholder="Guatemala City"></label><label class="field"><span>Add valid candidates to list</span><select class="select" id="import-list"><option value="">Do not add to a list</option>${listOptions}</select></label></div><div class="import-review"><div><h3>3. Review and import</h3><p>${reviewMessage}</p></div><div class="import-review-actions">${companySelect}<span class="badge badge-${invalid.length ? 'orange' : 'teal'}">${mapped.length - invalid.length} valid, ${invalid.length} skipped</span><button class="button button-primary" data-action="confirm-import" ${state.busy || mapped.length === invalid.length ? 'disabled' : ''}>${icon('check')}Import ${mapped.length - invalid.length} valid candidates</button></div></div>${errors}</section>`;
+  return `${intro}<div class="grid grid-2">${sourcePanel}${behaviorPanel}</div>${workspace}`;
 }
 
 function renderSend(prefill = {}) {
@@ -592,6 +663,74 @@ async function sendInvitation(event) {
   finally { state.busy = false; render(); }
 }
 
+async function updateJourneyStage(event) {
+  event.preventDefault();
+  const candidateId = state.journeyCandidateId;
+  state.busy = true;
+  try {
+    await fetchJson(`/api/candidates/${encodeURIComponent(candidateId)}/stage`, { method: 'PATCH', body: JSON.stringify({ stageId: document.getElementById('journey-stage').value, messageEn: document.getElementById('journey-stage-message-en').value, messageEs: document.getElementById('journey-stage-message-es').value }) });
+    toast('Candidate stage updated.');
+    await loadWorkspace();
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function createJourneyStage(event) {
+  event.preventDefault();
+  state.busy = true;
+  try {
+    const response = await fetchJson('/api/stages', { method: 'POST', body: JSON.stringify({ companyId: document.getElementById('journey-stage-company').value, nameEn: document.getElementById('journey-stage-name-en').value, nameEs: document.getElementById('journey-stage-name-es').value }) });
+    state.stages = response.stages || [];
+    toast('Custom recruitment stage added.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function publishCandidateCommunication(event) {
+  event.preventDefault();
+  const candidateId = state.journeyCandidateId;
+  state.busy = true;
+  try {
+    const response = await fetchJson(`/api/candidates/${encodeURIComponent(candidateId)}/communications`, { method: 'POST', body: JSON.stringify({ subjectEn: document.getElementById('journey-subject-en').value, subjectEs: document.getElementById('journey-subject-es').value, messageEn: document.getElementById('journey-message-en').value, messageEs: document.getElementById('journey-message-es').value, sendEmail: document.getElementById('journey-send-email').checked }) });
+    toast(response.providerMessageId ? 'Update published and accepted by Brevo.' : 'Portal update published.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function resendCandidateTest(candidateId) {
+  const candidate = state.candidates.find((entry) => entry.id === candidateId);
+  const testId = document.getElementById('journey-test-id')?.value;
+  if (!candidate || !testId) return;
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/invitations', { method: 'POST', body: JSON.stringify({ candidateId, testId, locale: candidate.invitation_locale || 'en' }) });
+    toast(`Test resent. ${response.attempts.remaining} attempts remain.`);
+    await loadWorkspace();
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function releaseCandidateAttempts(candidateId) {
+  const testId = document.getElementById('journey-test-id')?.value;
+  if (!testId) return;
+  state.busy = true; render();
+  try {
+    const response = await fetchJson(`/api/candidates/${encodeURIComponent(candidateId)}/attempts/release`, { method: 'POST', body: JSON.stringify({ testId }) });
+    toast(`Three attempts released. New limit: ${response.limit}.`);
+    await loadWorkspace();
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function updateReferralStatus(referralId, status) {
+  try {
+    const response = await fetchJson(`/api/referrals/${encodeURIComponent(referralId)}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    state.referrals = response.referrals || [];
+    toast('Referral status updated.');
+  } catch (error) { toast(error.message); }
+  render();
+}
+
 async function submitAuth(event) {
   event.preventDefault();
   const mode = event.currentTarget.dataset.mode;
@@ -712,14 +851,29 @@ async function changePassword(event) {
 
 async function confirmImport() {
   if (!state.csv) return;
-  const mapping = [...document.querySelectorAll('.mapping-select')].map((select) => select.value);
-  const candidates = state.csv.rows.map((row) => {
-    const record = {}; mapping.forEach((target, index) => { if (target !== 'ignore') record[target] = row[index] || ''; }); return record;
-  });
+  const defaultRole = document.getElementById('import-default-role')?.value.trim() || '';
+  const defaultSite = document.getElementById('import-default-site')?.value.trim() || '';
+  const listId = document.getElementById('import-list')?.value || '';
+  const companyId = document.getElementById('import-company')?.value;
+  state.csv.defaultRole = defaultRole;
+  state.csv.defaultSite = defaultSite;
+  state.csv.listId = listId;
+  const mapped = csvMappedCandidates(state.csv, defaultRole, defaultSite);
+  const candidates = mapped.filter((entry) => !entry.errors.length).map((entry) => entry.candidate);
+  if (!candidates.length) {
+    const missing = [...new Set(mapped.flatMap((entry) => entry.errors))].join(', ');
+    toast(`No valid rows yet. Check the mapping and provide: ${missing || 'name, email, and role'}.`);
+    return;
+  }
   state.busy = true; render();
   try {
-    const response = await fetchJson('/api/candidates/import', { method: 'POST', body: JSON.stringify({ candidates, companyId: document.getElementById('import-company')?.value }) });
-    state.candidates = response.candidates || []; state.csv = null; state.view = 'candidates'; toast(`${response.accepted} candidates written to the audit database.`);
+    const response = await fetchJson('/api/candidates/import', { method: 'POST', body: JSON.stringify({ candidates, companyId, listId: listId || undefined, defaultRole, defaultSite }) });
+    state.candidates = response.candidates || [];
+    if (response.lists) state.lists = response.lists;
+    state.csv = null;
+    state.view = listId ? 'lists' : 'candidates';
+    if (listId) state.selectedListId = listId;
+    toast(`${response.accepted} candidates imported${response.addedToList ? ` and ${response.addedToList} added to the list` : ''}.`);
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
 }
@@ -757,7 +911,7 @@ function render() {
     bindEvents();
     return;
   }
-  const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, reports: renderReports, team: renderTeam, settings: renderSettings };
+  const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, referrals: renderReferrals, reports: renderReports, team: renderTeam, settings: renderSettings };
   document.getElementById('app').innerHTML = shell(state.loading ? '<div class="loading-panel"><div class="spinner"></div><p>Loading secure workspace…</p></div>' : (views[state.view] || renderHome)());
   bindEvents();
   scheduleAiReportRefresh();
@@ -781,6 +935,9 @@ function bindEvents() {
     if (action === 'logout') signOut();
   }));
   document.getElementById('invite-form')?.addEventListener('submit', sendInvitation);
+  document.getElementById('candidate-stage-form')?.addEventListener('submit', updateJourneyStage);
+  document.getElementById('candidate-stage-create-form')?.addEventListener('submit', createJourneyStage);
+  document.getElementById('candidate-communication-form')?.addEventListener('submit', publishCandidateCommunication);
   document.getElementById('list-form')?.addEventListener('submit', createList);
   document.getElementById('list-editor-form')?.addEventListener('submit', updateList);
   document.getElementById('test-form')?.addEventListener('submit', createTest);
@@ -791,9 +948,30 @@ function bindEvents() {
   document.querySelectorAll('[data-reject-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.rejectUser, 'rejected')));
   document.getElementById('candidate-search')?.addEventListener('input', (event) => { state.search = event.target.value; render(); });
   document.getElementById('candidate-status')?.addEventListener('change', (event) => { state.filteredStatus = event.target.value; render(); });
-  document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { state.csv = { name: file.name, ...parseCsv(reader.result) }; render(); }; reader.readAsText(file); });
+  document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const parsed = parseCsv(reader.result); state.csv = { name: file.name, ...parsed, mapping: parsed.headers.map(guessedMapping), defaultRole: 'Bilingual Customer Care', defaultSite: '', listId: '', companyId: state.user?.companyId || state.companies[0]?.id || '' }; render(); }; reader.readAsText(file); });
+  document.querySelectorAll('.mapping-select').forEach((select) => select.addEventListener('change', () => {
+    const column = Number(select.dataset.column);
+    const target = select.value;
+    if (target !== 'ignore') state.csv.mapping = state.csv.mapping.map((value, index) => index !== column && value === target ? 'ignore' : value);
+    state.csv.mapping[column] = target;
+    render();
+  }));
+  document.getElementById('import-default-role')?.addEventListener('change', (event) => { state.csv.defaultRole = event.target.value; render(); });
+  document.getElementById('import-default-site')?.addEventListener('change', (event) => { state.csv.defaultSite = event.target.value; render(); });
+  document.getElementById('import-company')?.addEventListener('change', (event) => { state.csv.companyId = event.target.value; });
+  document.getElementById('import-list')?.addEventListener('change', (event) => {
+    state.csv.listId = event.target.value;
+    const list = state.lists.find((entry) => entry.id === event.target.value);
+    if (list?.company_id) state.csv.companyId = list.company_id;
+    render();
+  });
   document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => { state.previewReport = null; state.reportCandidateId = button.dataset.report; state.view = 'reports'; state.reportTab = 'report'; render(); }));
   document.querySelectorAll('[data-send-candidate]').forEach((button) => button.addEventListener('click', () => { const candidate = state.candidates.find((item) => item.id === button.dataset.sendCandidate); state.view = 'send'; document.getElementById('app').innerHTML = shell(renderSend(candidate)); bindEvents(); }));
+  document.querySelectorAll('[data-journey]').forEach((button) => button.addEventListener('click', () => { state.journeyCandidateId = button.dataset.journey; render(); }));
+  document.querySelector?.('[data-close-journey]')?.addEventListener('click', () => { state.journeyCandidateId = null; render(); });
+  document.querySelectorAll('[data-resend-test]').forEach((button) => button.addEventListener('click', () => resendCandidateTest(button.dataset.resendTest)));
+  document.querySelectorAll('[data-release-attempts]').forEach((button) => button.addEventListener('click', () => releaseCandidateAttempts(button.dataset.releaseAttempts)));
+  document.querySelectorAll('[data-referral-status]').forEach((select) => select.addEventListener('change', () => updateReferralStatus(select.dataset.referralStatus, select.value)));
   document.querySelectorAll('[data-report-tab]').forEach((button) => button.addEventListener('click', () => { state.reportTab = button.dataset.reportTab; render(); }));
   document.getElementById('report-select')?.addEventListener('change', (event) => { state.previewReport = null; state.reportCandidateId = event.target.value; render(); });
   document.getElementById('report-locale')?.addEventListener('change', (event) => { state.reportLocale = event.target.value; render(); });
@@ -825,9 +1003,11 @@ function bindRunner() {
     if (action === 'next') { const items = engine.applicableItems(runner.experienceBranch); if (!runner.answers[items[runner.index].id]) return; if (runner.index === items.length - 1) prepareScenarios(); else { runner.index += 1; runner.itemStartedAt = Date.now(); render(); } }
     if (action === 'scenario-back') { if (runner.scenarioIndex > 0) runner.scenarioIndex -= 1; else runner.stage = 'questions'; runner.scenarioStartedAt = Date.now(); render(); }
     if (action === 'scenario-next') { const scenario = runner.scenarios[runner.scenarioIndex]; if ((runner.scenarioResponses[scenario.scenarioId] || '').trim().length < 40) return; runner.scenarioResponseTimes[scenario.scenarioId] = Math.max(runner.scenarioResponseTimes[scenario.scenarioId] || 0, Date.now() - runner.scenarioStartedAt); if (runner.scenarioIndex === 2) completeAssessment(); else { runner.scenarioIndex += 1; runner.scenarioStartedAt = Date.now(); render(); } }
-    if (action === 'finish') { if (runner.mode === 'invite') { runner.stage = 'done'; render(); } else { state.runner = null; state.view = 'reports'; state.reportTab = 'report'; render(); } }
+    if (action === 'finish') { if (runner.mode === 'invite') { location.assign(sessionStorage.getItem('gazelle_candidate_return') || '/candidate'); } else { state.runner = null; state.view = 'reports'; state.reportTab = 'report'; render(); } }
   }));
 }
 
 const inviteToken = new URLSearchParams(location.search).get('invite');
-if (inviteToken) startInvite(inviteToken); else { render(); loadWorkspace(); }
+if (location.pathname.startsWith('/candidate')) globalThis.GazelleCandidatePortal.start();
+else if (inviteToken) startInvite(inviteToken);
+else { render(); loadWorkspace(); }
