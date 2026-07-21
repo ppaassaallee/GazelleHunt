@@ -71,7 +71,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, bulkResendEligible, state, render };`, context);
 await Promise.resolve();
 
 const csvApi = context.__gazelleWorkflowTest;
@@ -91,6 +91,24 @@ const excelCsv = csvApi.parseCsv('sep=;\nNombre;Correo;Puesto\nMaria Lopez;maria
 assert.equal(excelCsv.delimiter, ';');
 excelCsv.mapping = excelCsv.headers.map(csvApi.guessedMapping);
 assert.equal(csvApi.csvMappedCandidates(excelCsv)[0].errors.length, 0);
+
+csvApi.state.user = { role: 'admin', companyName: 'Allied Global' };
+csvApi.state.health.email.configured = true;
+csvApi.state.tests = [{ id: 'test_tenure_potential', name_en: 'Tenure Potential', status: 'active', engine_key: 'tenure_potential' }];
+csvApi.state.bulkResendTestId = 'test_tenure_potential';
+csvApi.state.candidates = [
+  { id: 'candidate-ready', name: 'Ready Candidate', email: 'ready@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_status: 'delivered', attempts_used: 1, attempt_limit: 3, attempts_remaining: 2 },
+  { id: 'candidate-blocked', name: 'Blocked Candidate', email: 'blocked@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_status: 'completed', attempts_used: 3, attempt_limit: 3, attempts_remaining: 0 },
+];
+csvApi.state.selectedCandidateIds = ['candidate-ready'];
+const candidateBulkHtml = csvApi.renderCandidates();
+assert.match(candidateBulkHtml, /1 selected/);
+assert.match(candidateBulkHtml, /Resend to 1/);
+assert.match(candidateBulkHtml, /Previous language/);
+assert.match(candidateBulkHtml, /candidate-ready[^>]*aria-label="Select Ready Candidate"[^>]*checked/);
+assert.match(candidateBulkHtml, /candidate-blocked[^>]*aria-label="Select Blocked Candidate"[^>]*disabled/);
+assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[0], 'test_tenure_potential'), true);
+assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[1], 'test_tenure_potential'), false);
 
 context.__gazelleWorkflowTest.startPreview();
 assert.match(appElement.innerHTML, /Choose your language/);
@@ -127,14 +145,17 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260717\.12/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260717\.12/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260717\.12/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260717\.12/);
-assert.match(indexSource, /pdf-report\.js\?v=20260717\.12/);
+assert.match(indexSource, /app\.js\?v=20260721\.13/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260721\.13/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260721\.13/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260721\.13/);
+assert.match(indexSource, /pdf-report\.js\?v=20260721\.13/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
+assert.match(serverSource, /bulk_resend_queued/);
+assert.match(serverSource, /\/api\/invitations\/resend-bulk/);
+assert.match(serverSource, /A bulk resend can contain at most 500 candidates/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);
 assert.match(serverSource, /ai-analysis/);

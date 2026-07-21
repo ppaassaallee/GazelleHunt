@@ -5,6 +5,7 @@ import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../candidate-portal.js', import.meta.url), 'utf8');
 const serverSource = fs.readFileSync(new URL('../server-worker.js', import.meta.url), 'utf8');
 const appElement = { innerHTML: '' };
+let storedLocale = null;
 const portalPayload = {
   account: null,
   accountExists: false,
@@ -39,7 +40,7 @@ const context = {
   },
   location: { search: '?invite=portal-token', href: 'https://example.com/candidate?invite=portal-token', assign() {} },
   history: { replaceState() {} },
-  localStorage: { getItem() { return null; }, setItem() {} },
+  localStorage: { getItem() { return storedLocale; }, setItem(_key, value) { storedLocale = value; } },
   sessionStorage: { setItem() {}, getItem() { return null; } },
   fetch: async () => ({ ok: true, status: 200, json: async () => portalPayload }),
 };
@@ -54,6 +55,22 @@ assert.match(appElement.innerHTML, /hiring progress/);
 assert.match(appElement.innerHTML, /Refer someone and earn \$100/);
 assert.match(source, /Nos alegra que estés aquí/);
 assert.doesNotMatch(appElement.innerHTML, /potential_index|fit_score|AI analysis/i);
+
+storedLocale = 'es';
+await context.GazelleCandidatePortal.start();
+assert.match(appElement.innerHTML, /Bienvenido a Allied Global/);
+assert.match(appElement.innerHTML, /Lugar tranquilo/);
+assert.match(appElement.innerHTML, /Al menos 10 minutos/);
+assert.match(appElement.innerHTML, /Tu avance de contratación/);
+assert.match(appElement.innerHTML, /Refiere a alguien y gana \$100/);
+assert.doesNotMatch(appElement.innerHTML, /potential_index|fit_score|AI analysis/i);
+
+for (const route of [
+  '/api/candidate/portal', '/api/candidate/referrals', '/api/candidate/invitations/', '/assessment?invite=',
+]) assert.match(source, new RegExp(route.replaceAll('/', '\\/').replace('?', '\\?')));
+assert.match(source, /\/api\/candidate\/auth\/\$\{signup \? 'signup' : 'login'\}/);
+assert.match(serverSource, /\/api\/candidate\/auth\/signup/);
+assert.match(serverSource, /\/api\/candidate\/auth\/login/);
 assert.match(serverSource, /candidateScope\(user\)/);
 assert.match(serverSource, /user\.role !== 'admin'/);
 assert.match(serverSource, /status <> 'failed'/);

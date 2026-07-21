@@ -1956,6 +1956,71 @@ async function createInvitation(request, env, user) {
   }
 }
 
+async function createBulkResend(request, env, user, context) {
+  if (!emailConfig(env).configured) return json({ error: 'Brevo transactional email is not fully configured.', code: 'email_not_configured' }, 503);
+  const body = await request.json().catch(() => ({}));
+  const rawCandidateIds = Array.isArray(body.candidateIds) ? body.candidateIds.map((id) => cleanText(id, 100)).filter(Boolean) : [];
+  const candidateIds = [...new Set(rawCandidateIds)];
+  if (!candidateIds.length) return json({ error: 'Select at least one candidate to resend the test.' }, 422);
+  if (candidateIds.length > 500) return json({ error: 'A bulk resend can contain at most 500 candidates.' }, 422);
+  const test = await executableTest(env, cleanText(body.testId, 100));
+  if (!test) return json({ error: 'This test is not active or does not have an executable engine.', code: 'test_not_executable' }, 422);
+  const scope = candidateScope(user);
+  const candidates = await env.DB.prepare(`
+    SELECT c.id, c.company_id, c.name,
+      (SELECT i.locale FROM invitations i WHERE i.candidate_id = c.id AND i.test_id = ? AND i.status <> 'failed' ORDER BY i.created_at DESC LIMIT 1) AS previous_locale,
+      (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = ? AND used.status <> 'failed') AS attempts_used,
+      COALESCE((SELECT access.attempt_limit FROM candidate_test_access access WHERE access.candidate_id = c.id AND access.test_id = ?), 3) AS attempt_limit
+    FROM candidates c WHERE c.id IN (${candidateIds.map(() => '?').join(',')}) AND ${scope.sql}
+    ORDER BY c.company_id, c.name
+  `).bind(test.id, test.id, test.id, ...candidateIds, ...scope.bindings).all();
+  const rows = candidates.results || [];
+  if (rows.length !== candidateIds.length) return json({ error: 'One or more selected candidates are outside your access scope.', code: 'candidate_scope_mismatch' }, 403);
+  const withoutPrevious = rows.filter((candidate) => !candidate.previous_locale);
+  if (withoutPrevious.length) return json({ error: `${withoutPrevious.length} selected candidate${withoutPrevious.length === 1 ? ' has' : 's have'} not received this test before. Use Direct send for a first invitation.`, code: 'previous_invitation_required' }, 422);
+  const withoutAttempts = rows.filter((candidate) => Number(candidate.attempts_used || 0) >= Number(candidate.attempt_limit || 3));
+  if (withoutAttempts.length) return json({ error: `${withoutAttempts.length} selected candidate${withoutAttempts.length === 1 ? ' has' : 's have'} no attempts remaining. An administrator must release three more before resending.`, code: 'attempt_limit_reached' }, 409);
+
+  const requestedLocale = ['en', 'es'].includes(body.locale) ? body.locale : 'previous';
+  const groups = new Map();
+  rows.forEach((candidate) => {
+    const locale = requestedLocale === 'previous' ? (candidate.previous_locale === 'es' ? 'es' : 'en') : requestedLocale;
+    const key = `${candidate.company_id}:${locale}`;
+    if (!groups.has(key)) groups.set(key, { companyId: candidate.company_id, locale, candidates: [] });
+    groups.get(key).candidates.push(candidate);
+  });
+
+  const now = new Date().toISOString();
+  const requestId = crypto.randomUUID();
+  const batches = [];
+  const statements = [];
+  for (const group of groups.values()) {
+    const listId = crypto.randomUUID();
+    const batchId = crypto.randomUUID();
+    const listName = `Bulk resend - ${test.name_en} - ${now.slice(0, 16).replace('T', ' ')}`;
+    statements.push(env.DB.prepare(`INSERT INTO candidate_lists (id, company_id, owner_user_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'archived', ?, ?)`)
+      .bind(listId, group.companyId, user.id, listName, 'System tracking list for a bulk resend from the Candidates area.', now, now));
+    statements.push(env.DB.prepare(`INSERT INTO candidate_list_tests (list_id, test_id, added_by_user_id, added_at) VALUES (?, ?, ?, ?)`)
+      .bind(listId, test.id, user.id, now));
+    statements.push(env.DB.prepare(`INSERT INTO send_batches (id, company_id, list_id, created_by_user_id, locale, status, total_count, queued_count, accepted_count, failed_count, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, 0, 0, ?)`)
+      .bind(batchId, group.companyId, listId, user.id, group.locale, group.candidates.length, group.candidates.length, now));
+    group.candidates.forEach((candidate) => {
+      statements.push(env.DB.prepare(`INSERT INTO candidate_list_members (list_id, candidate_id, added_by_user_id, added_at) VALUES (?, ?, ?, ?)`)
+        .bind(listId, candidate.id, user.id, now));
+      statements.push(env.DB.prepare(`INSERT INTO send_batch_items (id, batch_id, candidate_id, test_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'queued', ?, ?)`)
+        .bind(crypto.randomUUID(), batchId, candidate.id, test.id, now, now));
+    });
+    batches.push({ batchId, listId, total: group.candidates.length });
+  }
+  await env.DB.batch(statements);
+  await audit(env, user.email, 'bulk_resend_queued', 'bulk_resend', requestId, { testId: test.id, candidateCount: rows.length, batchIds: batches.map((batch) => batch.batchId), locale: requestedLocale });
+  const origin = cleanText(env.APP_BASE_URL, 500) || new URL(request.url).origin;
+  const work = Promise.allSettled(batches.map((batch) => processSendBatch(env, user, batch.batchId, origin)));
+  if (context?.waitUntil) context.waitUntil(work);
+  else work.catch(() => {});
+  return json({ requestId, batchIds: batches.map((batch) => batch.batchId), batchCount: batches.length, total: rows.length, status: 'queued' }, 202);
+}
+
 async function getInvitation(request, env) {
   const token = cleanText(new URL(request.url).searchParams.get('token'), 200);
   if (!token) return json({ error: 'Invitation token is required.' }, 400);
@@ -2843,6 +2908,7 @@ async function handleApi(request, env, context) {
   const candidateAttemptsMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/attempts\/release$/);
   if (candidateAttemptsMatch && request.method === 'POST') return releaseCandidateAttempts(request, env, user, cleanText(candidateAttemptsMatch[1], 100));
   if (url.pathname === '/api/invitations' && request.method === 'POST') return createInvitation(request, env, user);
+  if (url.pathname === '/api/invitations/resend-bulk' && request.method === 'POST') return createBulkResend(request, env, user, context);
   if (url.pathname === '/api/tests' && request.method === 'GET') return json({ tests: await listTests(env, user) });
   if (url.pathname === '/api/tests' && request.method === 'POST') return createTest(request, env, user);
   if (url.pathname === '/api/lists' && request.method === 'GET') return json({ lists: await listCandidateLists(env, user) });

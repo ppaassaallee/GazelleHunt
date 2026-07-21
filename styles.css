@@ -177,6 +177,17 @@ tbody tr:hover td { background: #fcfdfd; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .row-button { min-height: 32px; border: 1px solid var(--line); border-radius: 6px; background: white; padding: 0 9px; color: var(--ink); font-size: 12px; font-weight: 700; }
 .row-button:hover { border-color: var(--teal); color: var(--teal); }
+.candidate-bulk-bar { min-height: 74px; padding: 12px 14px; display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--line); background: #f5f9f8; }
+.candidate-bulk-bar .compact-select { margin-left: 0; min-width: 180px; }
+.candidate-bulk-bar .field-help { width: 100%; margin: -2px 0 0; }
+.bulk-selection { min-width: 150px; margin-right: auto; align-self: center; }
+.bulk-selection strong, .bulk-selection span { display: block; }
+.bulk-selection strong { color: var(--teal); font-size: 13px; }
+.bulk-selection span { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.table-check { width: 44px; padding-left: 16px; padding-right: 4px; }
+.table-check input { width: 16px; height: 16px; accent-color: var(--teal); }
+.candidate-row-selected td { background: #f1f8f6; }
+.candidate-row-selected:hover td { background: #edf6f4; }
 .progress { min-width: 110px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 7px; }
 .progress-track { height: 6px; background: #e9eded; border-radius: 999px; overflow: hidden; }
 .progress-track span { display: block; height: 100%; background: var(--teal); border-radius: inherit; }
@@ -507,6 +518,9 @@ tbody tr:hover td { background: #fcfdfd; }
   .toolbar, .search { width: 100%; }
   .search { min-width: 0; }
   .toolbar .select, .toolbar .button { flex: 1; }
+  .candidate-bulk-bar { align-items: stretch; flex-direction: column; }
+  .candidate-bulk-bar .compact-select, .candidate-bulk-bar .button { width: 100%; }
+  .bulk-selection { margin: 0 0 4px; }
   .mapping-row { grid-template-columns: 1fr; }
   .mapping-row > span { transform: rotate(90deg); }
   .import-defaults { grid-template-columns: 1fr; }

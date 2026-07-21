@@ -23,6 +23,9 @@ assert.match(server, /user\.role === 'super_admin'/);
 assert.match(server, /owner_user_id = \?/);
 assert.match(server, /company_id = \?/);
 assert.match(server, /A batch can contain at most 500/);
+assert.match(server, /createBulkResend/);
+assert.match(server, /previous_invitation_required/);
+assert.match(server, /attempt_limit_reached/);
 assert.match(server, /engine_key = 'tenure_potential'/);
 assert.match(server, /status: 'pending'/);
 assert.match(server, /runtimeColumnMigrations/);
@@ -34,5 +37,7 @@ assert.match(server, /candidates_company_email_unique/);
 assert.match(app, /Lists and multi-test batches/);
 assert.match(app, /A candidate can belong to multiple lists/);
 assert.match(app, /Only Alejandro Pascual can approve accounts/);
+assert.match(app, /Resend to/);
+assert.match(app, /Select all eligible visible candidates/);
 
 console.log('Platform model tests passed.');

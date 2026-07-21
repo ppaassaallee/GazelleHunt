@@ -55,6 +55,7 @@ const state = {
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
   tests: [], lists: [], batches: [], users: [], companies: [], selectedListId: null,
   stages: [], referrals: [], journeyCandidateId: null,
+  selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
   csv: null, reportCandidateId: null, previewReport: null, runner: null,
 };
 
@@ -99,6 +100,9 @@ async function loadWorkspace() {
     state.batches = batches.batches || [];
     state.stages = stages.stages || [];
     state.referrals = referrals.referrals || [];
+    const visibleCandidateIds = new Set(state.candidates.map((candidate) => candidate.id));
+    state.selectedCandidateIds = state.selectedCandidateIds.filter((id) => visibleCandidateIds.has(id));
+    if (!state.bulkResendTestId) state.bulkResendTestId = state.tests.find((test) => test.status === 'active' && test.engine_key === 'tenure_potential')?.id || null;
     state.users = team?.users || [];
     state.companies = team?.companies || [];
     if (!state.selectedListId && state.lists.length) state.selectedListId = state.lists[0].id;
@@ -211,12 +215,33 @@ function filteredCandidates() {
 function renderCandidates() {
   const candidates = filteredCandidates();
   const scope = state.user?.role === 'recruiter' ? 'Candidates you own' : state.user?.role === 'admin' ? `All candidates at ${state.user.companyName}` : 'Candidates across every company';
-  return `${pageIntro('Role-scoped records', 'Candidates', `${scope}. Invitation and assessment states come from the audit database.`, `<button class="button button-primary" data-nav="import">${icon('plus')}Import candidates</button>`)}<section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search candidates"></div><select class="select" id="candidate-status"><option>All</option><option>Not invited</option><option>accepted</option><option>delivered</option><option>Completed</option><option>failed</option></select></div><span class="badge badge-neutral">${candidates.length} records</span></div>${candidateTable(candidates)}</section>`;
+  const activeTests = state.tests.filter((test) => test.status === 'active' && test.engine_key === 'tenure_potential');
+  const selectedTestId = activeTests.some((test) => test.id === state.bulkResendTestId) ? state.bulkResendTestId : activeTests[0]?.id || '';
+  const eligibleIds = new Set(candidates.filter((candidate) => bulkResendEligible(candidate, selectedTestId)).map((candidate) => candidate.id));
+  const selectedIds = state.selectedCandidateIds.filter((id) => eligibleIds.has(id));
+  const testOptions = activeTests.map((test) => `<option value="${test.id}" ${selectedTestId === test.id ? 'selected' : ''}>${esc(test.name_en)}</option>`).join('');
+  const resendDisabled = !state.health.email?.configured || !selectedIds.length || !selectedTestId || state.busy;
+  const resendHelp = !state.health.email?.configured ? '<p class="field-help">Connect Brevo in Settings before resending tests.</p>' : '<p class="field-help">Only candidates with a previous send and an available attempt can be selected.</p>';
+  const bulkBar = `<div class="candidate-bulk-bar"><div class="bulk-selection"><strong>${selectedIds.length} selected</strong><span>${eligibleIds.size} eligible in this view</span></div><label class="compact-select"><span>Test</span><select class="select" id="bulk-resend-test">${testOptions}</select></label><label class="compact-select"><span>Email language</span><select class="select" id="bulk-resend-locale"><option value="previous" ${state.bulkResendLocale === 'previous' ? 'selected' : ''}>Previous language</option><option value="en" ${state.bulkResendLocale === 'en' ? 'selected' : ''}>English</option><option value="es" ${state.bulkResendLocale === 'es' ? 'selected' : ''}>Español</option></select></label><button class="button button-primary" data-action="bulk-resend" ${resendDisabled ? 'disabled' : ''}>${icon('send')}Resend to ${selectedIds.length}</button>${resendHelp}</div>`;
+  return `${pageIntro('Role-scoped records', 'Candidates', `${scope}. Invitation and assessment states come from the audit database.`, `<button class="button button-primary" data-nav="import">${icon('plus')}Import candidates</button>`)}<section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search candidates"></div><select class="select" id="candidate-status">${['All', 'Not invited', 'accepted', 'delivered', 'Completed', 'failed'].map((status) => `<option ${state.filteredStatus === status ? 'selected' : ''}>${status}</option>`).join('')}</select></div><span class="badge badge-neutral">${candidates.length} records</span></div>${bulkBar}${candidateTable(candidates, selectedTestId, selectedIds)}</section>`;
 }
 
-function candidateTable(candidates) {
+function bulkResendEligible(candidate, testId) {
+  return Boolean(testId && candidate.invitation_test_id === testId && Number(candidate.attempts_remaining || 0) > 0);
+}
+
+function candidateTable(candidates, selectedTestId, selectedIds = []) {
   if (!candidates.length) return `<div class="empty-panel"><h3>No candidate records yet</h3><p>Import a CSV or send a real invitation to create the first durable record.</p></div>`;
-  return `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Role / company</th><th>Stage</th><th>Invitation</th><th>Assessment</th><th></th></tr></thead><tbody>${candidates.map((candidate) => `<tr><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.company_name || candidate.site || 'No company')}</span></td><td><span class="badge badge-neutral">${esc(candidate.current_stage_name_en || 'Application received')}</span><br><small class="attempt-note">${Number(candidate.attempts_used || 0)} / ${Number(candidate.attempt_limit || 3)} attempts</small></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td><div class="row-actions"><button class="row-button" data-journey="${candidate.id}">Manage journey</button>${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open report</button>` : ''}</div></td></tr>`).join('')}</tbody></table></div>`;
+  const eligibleCandidates = candidates.filter((candidate) => bulkResendEligible(candidate, selectedTestId));
+  const selected = new Set(selectedIds);
+  const allEligibleSelected = eligibleCandidates.length > 0 && eligibleCandidates.every((candidate) => selected.has(candidate.id));
+  const rows = candidates.map((candidate) => {
+    const eligible = bulkResendEligible(candidate, selectedTestId);
+    const checked = selected.has(candidate.id);
+    const reason = candidate.invitation_test_id !== selectedTestId ? 'No previous invitation for this test' : Number(candidate.attempts_remaining || 0) <= 0 ? 'No attempts remaining' : 'Select candidate';
+    return `<tr class="${checked ? 'candidate-row-selected' : ''}"><td class="table-check"><input type="checkbox" class="candidate-resend-checkbox" value="${candidate.id}" aria-label="Select ${esc(candidate.name)}" title="${esc(reason)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'}></td><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.company_name || candidate.site || 'No company')}</span></td><td><span class="badge badge-neutral">${esc(candidate.current_stage_name_en || 'Application received')}</span><br><small class="attempt-note">${Number(candidate.attempts_used || 0)} / ${Number(candidate.attempt_limit || 3)} attempts</small></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td><div class="row-actions"><button class="row-button" data-journey="${candidate.id}">Manage journey</button>${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open report</button>` : ''}</div></td></tr>`;
+  }).join('');
+  return `<div class="table-scroll"><table><thead><tr><th class="table-check"><input type="checkbox" id="candidate-select-visible" aria-label="Select all eligible visible candidates" ${allEligibleSelected ? 'checked' : ''} ${eligibleCandidates.length ? '' : 'disabled'}></th><th>Candidate</th><th>Role / company</th><th>Stage</th><th>Invitation</th><th>Assessment</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderJourneyModal() {
@@ -710,6 +735,26 @@ async function resendCandidateTest(candidateId) {
   finally { state.busy = false; render(); }
 }
 
+async function bulkResendCandidateTests() {
+  const testId = state.bulkResendTestId;
+  const candidateIds = state.selectedCandidateIds.filter((candidateId) => {
+    const candidate = state.candidates.find((entry) => entry.id === candidateId);
+    return candidate && bulkResendEligible(candidate, testId);
+  });
+  if (!candidateIds.length || !testId) return;
+  const approved = typeof globalThis.confirm !== 'function' || globalThis.confirm(`Resend this test to ${candidateIds.length} selected candidate${candidateIds.length === 1 ? '' : 's'}? Each accepted email uses one released attempt.`);
+  if (!approved) return;
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/invitations/resend-bulk', { method: 'POST', body: JSON.stringify({ candidateIds, testId, locale: state.bulkResendLocale }) });
+    state.selectedCandidateIds = [];
+    state.view = 'progress';
+    toast(`${response.total} test resends queued in ${response.batchCount} tracked batch${response.batchCount === 1 ? '' : 'es'}.`);
+    await loadWorkspace();
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
 async function releaseCandidateAttempts(candidateId) {
   const testId = document.getElementById('journey-test-id')?.value;
   if (!testId) return;
@@ -928,6 +973,7 @@ function bindEvents() {
     if (action === 'preview') startPreview();
     if (action === 'method') { state.view = 'reports'; state.reportTab = 'method'; render(); }
     if (action === 'confirm-import') confirmImport();
+    if (action === 'bulk-resend') bulkResendCandidateTests();
     if (action === 'test-email') testEmail();
     if (action === 'configure-brevo-webhook') configureBrevoWebhook();
     if (action === 'generate-ai') generateAiAnalysis();
@@ -948,6 +994,21 @@ function bindEvents() {
   document.querySelectorAll('[data-reject-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.rejectUser, 'rejected')));
   document.getElementById('candidate-search')?.addEventListener('input', (event) => { state.search = event.target.value; render(); });
   document.getElementById('candidate-status')?.addEventListener('change', (event) => { state.filteredStatus = event.target.value; render(); });
+  document.getElementById('bulk-resend-test')?.addEventListener('change', (event) => { state.bulkResendTestId = event.target.value; state.selectedCandidateIds = []; render(); });
+  document.getElementById('bulk-resend-locale')?.addEventListener('change', (event) => { state.bulkResendLocale = event.target.value; });
+  document.getElementById('candidate-select-visible')?.addEventListener('change', (event) => {
+    const visibleEligibleIds = filteredCandidates().filter((candidate) => bulkResendEligible(candidate, state.bulkResendTestId)).map((candidate) => candidate.id);
+    const selected = new Set(state.selectedCandidateIds);
+    visibleEligibleIds.forEach((id) => event.target.checked ? selected.add(id) : selected.delete(id));
+    state.selectedCandidateIds = [...selected];
+    render();
+  });
+  document.querySelectorAll('.candidate-resend-checkbox').forEach((checkbox) => checkbox.addEventListener('change', () => {
+    const selected = new Set(state.selectedCandidateIds);
+    checkbox.checked ? selected.add(checkbox.value) : selected.delete(checkbox.value);
+    state.selectedCandidateIds = [...selected];
+    render();
+  }));
   document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const parsed = parseCsv(reader.result); state.csv = { name: file.name, ...parsed, mapping: parsed.headers.map(guessedMapping), defaultRole: 'Bilingual Customer Care', defaultSite: '', listId: '', companyId: state.user?.companyId || state.companies[0]?.id || '' }; render(); }; reader.readAsText(file); });
   document.querySelectorAll('.mapping-select').forEach((select) => select.addEventListener('change', () => {
     const column = Number(select.dataset.column);
