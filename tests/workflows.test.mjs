@@ -48,6 +48,7 @@ const context = {
         };
       }
       if (url === '/api/candidates') return { candidates: [] };
+      if (url === '/api/results') return { results: [] };
       if (url === '/api/tests') return { tests: [{ id: 'test_tenure_potential', code: 'TP-001', name_en: 'Tenure Potential', name_es: 'Potencial de Permanencia', description_en: 'Transparent assessment.', description_es: 'Evaluacion transparente.', engine_key: 'tenure_potential', status: 'active', version: '2.0.0-pilot', estimated_minutes: 15, item_count: 27 }] };
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
@@ -71,7 +72,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, bulkResendEligible, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderAudit, renderMethod, state, render };`, context);
 await Promise.resolve();
 
 const csvApi = context.__gazelleWorkflowTest;
@@ -110,6 +111,31 @@ assert.match(candidateBulkHtml, /candidate-blocked[^>]*aria-label="Select Blocke
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[0], 'test_tenure_potential'), true);
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[1], 'test_tenure_potential'), false);
 
+csvApi.state.user = { id: 'owner-1', role: 'super_admin', companyName: 'Gazelle Platform' };
+csvApi.state.lists = [{ id: 'list-care', name: 'Customer Care' }, { id: 'list-sales', name: 'Sales Pipeline' }];
+csvApi.state.results = [
+  { assessment_id: 'assessment-care', id: 'candidate-care', name: 'Ana Care', email: 'ana@example.com', role: 'Customer Care', company_id: 'company-a', company_name: 'Allied Global', owner_user_id: 'owner-1', assessment_test_id: 'test_tenure_potential', assessment_test_name_en: 'Tenure Potential', assessment_test_name_es: 'Potencial de Permanencia', candidate_list_ids: ['list-care'], potential_index: 82 },
+  { assessment_id: 'assessment-sales', id: 'candidate-sales', name: 'Luis Sales', email: 'luis@example.com', role: 'Sales', company_id: 'company-b', company_name: 'Gazelle Sales', owner_user_id: 'owner-2', assessment_test_id: 'test_sales', assessment_test_name_en: 'Sales Judgment', assessment_test_name_es: 'Criterio Comercial', candidate_list_ids: ['list-sales'], potential_index: 74 },
+];
+csvApi.state.reportSearch = 'sales';
+assert.equal(csvApi.filteredReportResults().length, 1);
+assert.equal(csvApi.filteredReportResults()[0].assessment_id, 'assessment-sales');
+csvApi.state.reportSearch = '';
+csvApi.state.reportTestId = 'test_tenure_potential';
+assert.equal(csvApi.filteredReportResults()[0].assessment_id, 'assessment-care');
+csvApi.state.reportTestId = 'all';
+csvApi.state.reportListId = 'list-sales';
+assert.equal(csvApi.filteredReportResults()[0].assessment_id, 'assessment-sales');
+csvApi.state.reportListId = 'all';
+csvApi.state.reportLocale = 'es';
+const spanishDirectory = csvApi.renderResultDirectory(csvApi.state.results, csvApi.reportUiCopy());
+assert.match(spanishDirectory, /Buscar resultados/);
+assert.match(spanishDirectory, /Todas las listas/);
+assert.match(csvApi.reportUiCopy().auditTab, /Auditoría de puntuación/);
+assert.match(csvApi.renderMethod(), /Plan de validación antes de realizar afirmaciones predictivas/);
+assert.match(csvApi.renderAudit({ auditHash: 'a'.repeat(64), assessmentVersion: '2.0', modelVersion: '2.0', locale: 'es', experienceBranch: 'experienced', durationMs: 600000, completedAt: new Date().toISOString(), scoringTrace: [], quality: { status: 'pilot_usable', flags: [] }, aiAnalysis: null, scenarioResponses: [] }), /Huella criptográfica del resultado/);
+csvApi.state.reportLocale = 'en';
+
 context.__gazelleWorkflowTest.startPreview();
 assert.match(appElement.innerHTML, /Choose your language/);
 assert.match(appElement.innerHTML, /Elige tu idioma/);
@@ -145,11 +171,11 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260721\.13/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260721\.13/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260721\.13/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260721\.13/);
-assert.match(indexSource, /pdf-report\.js\?v=20260721\.13/);
+assert.match(indexSource, /app\.js\?v=20260722\.15/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260722\.15/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260722\.15/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260722\.15/);
+assert.match(indexSource, /pdf-report\.js\?v=20260722\.15/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
@@ -183,7 +209,7 @@ assert.doesNotMatch(appSource, /signin-with-chatgpt/);
 
 for (const route of [
   '/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me',
-  '/api/tests', '/api/lists', '/api/batches', '/api/admin/users',
+  '/api/tests', '/api/lists', '/api/batches', '/api/results', '/api/admin/users',
   '/api/brevo/configure-webhook',
 ]) assert.match(serverSource, new RegExp(route.replaceAll('/', '\\/')));
 

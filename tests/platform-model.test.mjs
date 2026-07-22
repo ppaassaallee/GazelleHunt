@@ -33,11 +33,19 @@ assert.match(server, /PRAGMA table_info/);
 assert.match(server, /INSERT OR IGNORE INTO companies/);
 assert.match(server, /INSERT OR IGNORE INTO assessment_tests/);
 assert.match(server, /candidates_company_email_unique/);
+assert.match(server, /listAssessmentResults/);
+assert.match(server, /assessment_test_name_en/);
+assert.match(server, /candidate_list_ids_csv/);
 
 assert.match(app, /Lists and multi-test batches/);
 assert.match(app, /A candidate can belong to multiple lists/);
 assert.match(app, /Only Alejandro Pascual can approve accounts/);
 assert.match(app, /Resend to/);
 assert.match(app, /Select all eligible visible candidates/);
+assert.match(app, /filteredReportResults/);
+assert.match(app, /report-test-filter/);
+assert.match(app, /report-scope-filter/);
+assert.match(app, /report-list-filter/);
+assert.match(app, /Auditoría de puntuación/);
 
 console.log('Platform model tests passed.');

@@ -1826,6 +1826,84 @@ async function listCandidates(env, user) {
   return rows;
 }
 
+async function listAssessmentResults(env, user) {
+  const scope = candidateScope(user);
+  const result = await env.DB.prepare(`
+    SELECT c.id, c.company_id, c.owner_user_id, c.name, c.email, c.role, c.site,
+      company.name AS company_name, owner.name AS owner_name,
+      a.id AS assessment_id, a.assessment_version, a.model_version, a.model_status, a.locale AS assessment_locale,
+      a.experience_branch, a.completed_at AS assessment_completed_at, a.duration_ms, a.potential_index,
+      a.potential_band, a.fit_score, a.intent_score, a.reliability_score, a.context_score,
+      a.support_profile_json, a.response_quality_json, a.scoring_trace_json, a.weights_json, a.audit_hash,
+      COALESCE(a.test_id, invitation.test_id) AS assessment_test_id,
+      test.code AS assessment_test_code, test.name_en AS assessment_test_name_en, test.name_es AS assessment_test_name_es,
+      invitation.id AS invitation_id, invitation.list_id AS source_list_id, source_list.name AS source_list_name,
+      (SELECT GROUP_CONCAT(m.list_id) FROM candidate_list_members m
+        JOIN candidate_lists member_list ON member_list.id = m.list_id
+        WHERE m.candidate_id = c.id AND member_list.status = 'active') AS candidate_list_ids_csv,
+      ai.status AS ai_analysis_status, ai.provider AS ai_analysis_provider, ai.model AS ai_analysis_model,
+      ai.prompt_version AS ai_prompt_version, ai.provider_response_id AS ai_provider_response_id,
+      ai.evidence_hash AS ai_evidence_hash, ai.output_hash AS ai_output_hash,
+      ai.output_en_json AS ai_output_en_json, ai.output_es_json AS ai_output_es_json,
+      ai.evidence_claims_json AS ai_evidence_claims_json, ai.limitations_json AS ai_limitations_json,
+      ai.error_code AS ai_error_code, ai.updated_at AS ai_analysis_updated_at
+    FROM assessments a
+    JOIN candidates c ON c.id = a.candidate_id
+    JOIN companies company ON company.id = c.company_id
+    LEFT JOIN users owner ON owner.id = c.owner_user_id
+    LEFT JOIN invitations invitation ON invitation.id = a.invitation_id
+    LEFT JOIN assessment_tests test ON test.id = COALESCE(a.test_id, invitation.test_id)
+    LEFT JOIN candidate_lists source_list ON source_list.id = invitation.list_id AND source_list.status = 'active'
+    LEFT JOIN ai_analyses ai ON ai.assessment_id = a.id
+    WHERE ${scope.sql}
+    ORDER BY a.completed_at DESC
+  `).bind(...scope.bindings).all();
+  const rows = (result.results || []).map((row) => ({
+    ...row,
+    candidate_list_ids: row.candidate_list_ids_csv ? row.candidate_list_ids_csv.split(',') : [],
+    support_profile: row.support_profile_json ? JSON.parse(row.support_profile_json) : null,
+    response_quality: row.response_quality_json ? JSON.parse(row.response_quality_json) : null,
+    scoring_trace: row.scoring_trace_json ? JSON.parse(row.scoring_trace_json) : null,
+    weights: row.weights_json ? JSON.parse(row.weights_json) : null,
+    ai_analysis: row.ai_analysis_status ? {
+      status: row.ai_analysis_status,
+      provider: row.ai_analysis_provider,
+      model: row.ai_analysis_model,
+      prompt_version: row.ai_prompt_version,
+      provider_response_id: row.ai_provider_response_id,
+      evidence_hash: row.ai_evidence_hash,
+      output_hash: row.ai_output_hash,
+      output: row.ai_output_en_json && row.ai_output_es_json ? { en: JSON.parse(row.ai_output_en_json), es: JSON.parse(row.ai_output_es_json) } : null,
+      evidence_claims: row.ai_evidence_claims_json ? JSON.parse(row.ai_evidence_claims_json) : [],
+      limitations: row.ai_limitations_json ? JSON.parse(row.ai_limitations_json) : [],
+      error_code: row.ai_error_code,
+      updated_at: row.ai_analysis_updated_at,
+    } : null,
+  }));
+  if (!rows.length) return rows;
+  const scenarioResult = await env.DB.prepare(`
+    SELECT sr.assessment_id, sr.response_text, sr.response_locale, sr.response_ms,
+      s.id AS scenario_id, s.question_order, s.construct, s.question_en, s.question_es,
+      s.evidence_item_ids_json, s.reviewer_note, s.source, s.model, s.prompt_version
+    FROM assessment_scenario_responses sr
+    JOIN invitation_scenarios s ON s.id = sr.scenario_id
+    JOIN assessments scenario_assessment ON scenario_assessment.id = sr.assessment_id
+    JOIN candidates c ON c.id = scenario_assessment.candidate_id
+    WHERE ${scope.sql}
+    ORDER BY sr.assessment_id, s.question_order
+  `).bind(...scope.bindings).all();
+  const scenarioRows = scenarioResult.results || [];
+  rows.forEach((row) => {
+    row.scenario_responses = scenarioRows.filter((scenario) => scenario.assessment_id === row.assessment_id).map((scenario) => ({
+      ...scenario,
+      database_scenario_id: scenario.scenario_id,
+      scenario_id: GazelleAiAssessment.stableScenarioId(scenario.question_order),
+      evidence_item_ids: JSON.parse(scenario.evidence_item_ids_json || '[]'),
+    }));
+  });
+  return rows;
+}
+
 async function importCandidates(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const candidates = Array.isArray(body.candidates) ? body.candidates.slice(0, 500) : [];
@@ -2895,6 +2973,7 @@ async function handleApi(request, env, context) {
     });
   }
   if (url.pathname === '/api/candidates' && request.method === 'GET') return json({ candidates: await listCandidates(env, user) });
+  if (url.pathname === '/api/results' && request.method === 'GET') return json({ results: await listAssessmentResults(env, user) });
   if (url.pathname === '/api/candidates/import' && request.method === 'POST') return importCandidates(request, env, user);
   if (url.pathname === '/api/stages' && request.method === 'GET') return json({ stages: await listRecruitmentStages(env, user) });
   if (url.pathname === '/api/stages' && request.method === 'POST') return createRecruitmentStage(request, env, user);

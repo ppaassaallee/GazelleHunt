@@ -45,7 +45,7 @@ function navItems() {
 }
 
 const state = {
-  view: 'home', reportTab: 'report', reportLocale: 'en', candidates: [], filteredStatus: 'All', search: '',
+  view: 'home', reportTab: 'report', reportLocale: 'en', candidates: [], results: [], filteredStatus: 'All', search: '',
   health: {
     database: false,
     email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' },
@@ -56,7 +56,7 @@ const state = {
   tests: [], lists: [], batches: [], users: [], companies: [], selectedListId: null,
   stages: [], referrals: [], journeyCandidateId: null,
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
-  csv: null, reportCandidateId: null, previewReport: null, runner: null,
+  csv: null, reportResultId: null, reportSearch: '', reportTestId: 'all', reportScope: 'all', reportRole: 'all', reportListId: 'all', previewReport: null, runner: null,
 };
 
 function icon(name) {
@@ -68,7 +68,7 @@ function esc(value = '') {
 }
 
 function initials(name = '') { return name.split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join('').toUpperCase() || 'TP'; }
-function formatDate(value) { return value ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'; }
+function formatDate(value, locale = 'en') { return value ? new Intl.DateTimeFormat(locale === 'es' ? 'es-ES' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'; }
 function formatDuration(ms) { const seconds = Math.round(Number(ms || 0) / 1000); return seconds ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : '—'; }
 
 async function fetchJson(url, options) {
@@ -90,11 +90,12 @@ async function loadWorkspace() {
     const auth = await fetchJson('/api/auth/me');
     state.user = auth.user;
     state.adminAuthenticated = true;
-    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/stages'), fetchJson('/api/referrals')];
+    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/stages'), fetchJson('/api/referrals')];
     if (state.user.role === 'super_admin') requests.push(fetchJson('/api/admin/users'));
-    const [health, candidates, tests, lists, batches, stages, referrals, team] = await Promise.all(requests);
+    const [health, candidates, results, tests, lists, batches, stages, referrals, team] = await Promise.all(requests);
     state.health = health;
     state.candidates = candidates.candidates || [];
+    state.results = results.results || [];
     state.tests = tests.tests || [];
     state.lists = lists.lists || [];
     state.batches = batches.batches || [];
@@ -106,7 +107,7 @@ async function loadWorkspace() {
     state.users = team?.users || [];
     state.companies = team?.companies || [];
     if (!state.selectedListId && state.lists.length) state.selectedListId = state.lists[0].id;
-    if (!state.reportCandidateId && state.candidates.some((candidate) => candidate.assessment_id)) state.reportCandidateId = state.candidates.find((candidate) => candidate.assessment_id).id;
+    if (!state.results.some((result) => result.assessment_id === state.reportResultId)) state.reportResultId = state.results[0]?.assessment_id || null;
     state.error = '';
   } catch (error) {
     if (error.status === 401) {
@@ -355,9 +356,9 @@ function renderProgress() {
   return `${pageIntro('Batch and candidate events', 'Send progress', 'Each batch tracks one row per candidate and test. Refresh to see provider acceptance and completed assessments.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}<section class="grid grid-3">${metric('Batch sends', total, 'Candidate-test combinations', 'send')}${metric('Accepted', accepted, 'Brevo accepted', 'check')}${metric('Assessments completed', completed, 'Audited results', 'shield')}</section><section class="card"><div class="table-scroll"><table><thead><tr><th>List</th><th>Company</th><th>Status</th><th>Progress</th><th>Assessments</th><th>Created</th></tr></thead><tbody>${state.batches.map((batch) => { const processed = Number(batch.accepted_count || 0) + Number(batch.failed_count || 0); const pct = Number(batch.total_count) ? Math.round(processed / Number(batch.total_count) * 100) : 0; return `<tr><td><strong>${esc(batch.list_name)}</strong><br><span class="empty-value">by ${esc(batch.created_by_name)}</span></td><td>${esc(batch.company_name)}</td><td>${statusBadge(batch.status)}</td><td><div class="batch-progress"><div class="progress-track"><span style="width:${pct}%"></span></div><small>${processed} / ${Number(batch.total_count)} · ${Number(batch.failed_count)} failed</small></div></td><td>${Number(batch.completed_assessments)} completed</td><td>${formatDate(batch.created_at)}</td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty-panel"><h3>No batches yet</h3><p>Create a list, assign tests, and send the first batch.</p></div></td></tr>'}</tbody></table></div></section>`;
 }
 
-function reportRecord() {
+function reportRecord(records = state.results) {
   if (state.previewReport) return state.previewReport;
-  return state.candidates.find((candidate) => candidate.id === state.reportCandidateId && candidate.assessment_id) || state.candidates.find((candidate) => candidate.assessment_id) || null;
+  return records.find((result) => result.assessment_id === state.reportResultId) || records[0] || null;
 }
 
 function normalizedReport(record) {
@@ -365,6 +366,8 @@ function normalizedReport(record) {
   if (record.isPreview) return record;
   return {
     id: record.assessment_id, candidateId: record.id, name: record.name, email: record.email, role: record.role, site: record.site,
+    companyName: record.company_name, ownerName: record.owner_name, testId: record.assessment_test_id,
+    testNameEn: record.assessment_test_name_en, testNameEs: record.assessment_test_name_es,
     locale: record.assessment_locale, experienceBranch: record.experience_branch, completedAt: record.assessment_completed_at,
     durationMs: record.duration_ms, potentialIndex: Number(record.potential_index), potentialBand: record.potential_band,
     subscales: { fit: { score: Number(record.fit_score) }, intent: { score: Number(record.intent_score) }, reliability: { score: Number(record.reliability_score) }, context: { score: record.context_score == null ? null : Number(record.context_score) } },
@@ -388,14 +391,106 @@ function scheduleAiReportRefresh() {
   aiRefreshTimer = setTimeout(() => loadWorkspace(), 8000);
 }
 
+function reportUiCopy() {
+  const es = state.reportLocale === 'es';
+  return {
+    es,
+    eyebrow: es ? 'Evidencia con trazabilidad' : 'Evidence with provenance',
+    title: es ? 'Resultados y reportes' : 'Results & Reports',
+    description: es ? 'Resultados del cuestionario, escenarios, interpretación asistida y trazabilidad técnica.' : 'Questionnaire results, scenario evidence, assisted interpretation, and technical provenance.',
+    reportTab: es ? 'Reporte de Potencial de Permanencia' : 'Tenure Potential report',
+    auditTab: es ? 'Auditoría de puntuación' : 'Scoring audit',
+    methodTab: es ? 'Método y validación' : 'Method & validation',
+    library: es ? 'Biblioteca de resultados' : 'Result library',
+    search: es ? 'Buscar resultados' : 'Search results',
+    allTests: es ? 'Todos los tests' : 'All tests',
+    allRoles: es ? 'Todos los roles' : 'All roles',
+    allLists: es ? 'Todas las listas' : 'All lists',
+    allAccessible: es ? 'Todo mi alcance' : 'All accessible',
+    myCandidates: es ? 'Mis candidatos' : 'My candidates',
+    allCompanies: es ? 'Todas las empresas' : 'All companies',
+    entireCompany: es ? 'Toda la empresa' : 'Entire company',
+    noList: es ? 'Sin lista' : 'No list',
+    noMatches: es ? 'No hay resultados que coincidan con estos filtros.' : 'No results match these filters.',
+    emptyTitle: es ? 'Aún no hay resultados auditados' : 'No audited results yet',
+    emptyText: es ? 'Complete una invitación real o ejecute la evaluación de vista previa.' : 'Complete a real invitation or run the preview assessment.',
+    preview: es ? 'Vista previa de evaluación' : 'Preview assessment',
+    clear: es ? 'Limpiar filtros' : 'Clear filters',
+    result: es ? 'resultado' : 'result',
+    results: es ? 'resultados' : 'results',
+    download: es ? 'Descargar PDF' : 'Download PDF',
+  };
+}
+
+function resultListIds(record) {
+  return [...new Set([record.source_list_id, ...(record.candidate_list_ids || [])].filter(Boolean))];
+}
+
+function resultListNames(record) {
+  const names = resultListIds(record).map((id) => state.lists.find((list) => list.id === id)?.name).filter(Boolean);
+  if (record.source_list_name) names.unshift(record.source_list_name);
+  return [...new Set(names)];
+}
+
+function filteredReportResults() {
+  const search = state.reportSearch.trim().toLocaleLowerCase();
+  return state.results.filter((result) => {
+    const listNames = resultListNames(result);
+    const searchable = [result.name, result.email, result.role, result.site, result.company_name, result.owner_name, result.assessment_test_name_en, result.assessment_test_name_es, ...listNames].filter(Boolean).join(' ').toLocaleLowerCase();
+    if (search && !searchable.includes(search)) return false;
+    if (state.reportTestId !== 'all' && result.assessment_test_id !== state.reportTestId) return false;
+    if (state.reportRole !== 'all' && result.role !== state.reportRole) return false;
+    if (state.reportListId !== 'all' && !resultListIds(result).includes(state.reportListId)) return false;
+    if (state.reportScope === 'mine' && result.owner_user_id !== state.user?.id) return false;
+    if (state.reportScope.startsWith('company:') && result.company_id !== state.reportScope.slice(8)) return false;
+    return true;
+  });
+}
+
+function reportScopeOptions(copy) {
+  const options = [];
+  const role = state.user?.role;
+  options.push({ value: 'all', label: role === 'super_admin' ? copy.allCompanies : role === 'admin' ? copy.entireCompany : copy.allAccessible });
+  if (role !== 'recruiter') options.push({ value: 'mine', label: copy.myCandidates });
+  if (role === 'super_admin') {
+    const companies = [...new Map(state.results.map((result) => [result.company_id, result.company_name]).filter((entry) => entry[0])).entries()]
+      .sort((left, right) => String(left[1]).localeCompare(String(right[1])));
+    companies.forEach(([id, name]) => options.push({ value: `company:${id}`, label: name }));
+  }
+  return options;
+}
+
+function renderResultDirectory(records, copy) {
+  const tests = [...new Map(state.results.map((result) => [result.assessment_test_id, copy.es ? result.assessment_test_name_es : result.assessment_test_name_en]).filter((entry) => entry[0])).entries()]
+    .sort((left, right) => String(left[1]).localeCompare(String(right[1])));
+  const roles = [...new Set(state.results.map((result) => result.role).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  const scopes = reportScopeOptions(copy);
+  const hasFilters = Boolean(state.reportSearch || state.reportTestId !== 'all' || state.reportScope !== 'all' || state.reportRole !== 'all' || state.reportListId !== 'all');
+  const resultRows = records.map((result) => {
+    const selected = result.assessment_id === state.reportResultId;
+    const listLabel = resultListNames(result).join(', ') || copy.noList;
+    const testName = copy.es ? result.assessment_test_name_es : result.assessment_test_name_en;
+    return `<button class="result-row ${selected ? 'selected' : ''}" data-report-result="${esc(result.assessment_id)}" type="button" aria-pressed="${selected}"><span class="person-avatar">${initials(result.name)}</span><span class="result-row-main"><strong>${esc(result.name)}</strong><small>${esc(testName || result.assessment_test_code || 'Assessment')} · ${esc(result.role)}</small><small>${esc(result.company_name)} · ${esc(listLabel)}</small></span><span class="result-row-score"><strong>${Number(result.potential_index).toFixed(1)}</strong><small>/ 100</small></span></button>`;
+  }).join('');
+  return `<aside class="results-directory"><div class="results-directory-header"><div><h3>${copy.library}</h3><span>${records.length} ${records.length === 1 ? copy.result : copy.results}</span></div>${hasFilters ? `<button class="icon-button" type="button" data-action="clear-report-filters" title="${copy.clear}" aria-label="${copy.clear}">${icon('x')}</button>` : ''}</div><div class="report-filters"><label class="report-filter-search"><span class="sr-only">${copy.search}</span><span class="search">${icon('search')}<input class="input" id="report-search" value="${esc(state.reportSearch)}" placeholder="${copy.search}"></span></label><label><span>Test</span><select class="select" id="report-test-filter"><option value="all">${copy.allTests}</option>${tests.map(([id, name]) => `<option value="${esc(id)}" ${state.reportTestId === id ? 'selected' : ''}>${esc(name || id)}</option>`).join('')}</select></label><label><span>${copy.es ? 'Alcance' : 'Scope'}</span><select class="select" id="report-scope-filter">${scopes.map((scope) => `<option value="${esc(scope.value)}" ${state.reportScope === scope.value ? 'selected' : ''}>${esc(scope.label)}</option>`).join('')}</select></label><label><span>${copy.es ? 'Rol' : 'Role'}</span><select class="select" id="report-role-filter"><option value="all">${copy.allRoles}</option>${roles.map((role) => `<option value="${esc(role)}" ${state.reportRole === role ? 'selected' : ''}>${esc(role)}</option>`).join('')}</select></label><label><span>${copy.es ? 'Lista' : 'List'}</span><select class="select" id="report-list-filter"><option value="all">${copy.allLists}</option>${state.lists.map((list) => `<option value="${esc(list.id)}" ${state.reportListId === list.id ? 'selected' : ''}>${esc(list.name)}</option>`).join('')}</select></label></div><div class="result-list" role="list">${resultRows || `<div class="result-list-empty">${icon('search')}<p>${copy.noMatches}</p></div>`}</div></aside>`;
+}
+
 function renderReports() {
-  const records = state.candidates.filter((candidate) => candidate.assessment_id);
-  const report = normalizedReport(reportRecord());
+  const copy = reportUiCopy();
+  const records = filteredReportResults();
+  const selectedRecord = reportRecord(records);
+  if (!state.previewReport && selectedRecord && selectedRecord.assessment_id !== state.reportResultId) state.reportResultId = selectedRecord.assessment_id;
+  const report = normalizedReport(selectedRecord);
   const aiReady = report?.aiAnalysis?.status === 'completed';
   const aiActive = AI_ACTIVE_STATUSES.has(report?.aiAnalysis?.status) && !aiAnalysisIsStale(report.aiAnalysis);
   const canGenerateAi = report && !aiReady && !aiActive && (!report.isPreview || Boolean(report.previewInput));
   const generateLabel = state.busy ? (state.reportLocale === 'es' ? 'Generando…' : 'Generating…') : (state.reportLocale === 'es' ? 'Generar análisis' : 'Generate analysis');
-  return `${pageIntro('Evidence with provenance', 'Results & Reports', 'Questionnaire results, scenario evidence, AI interpretation, and technical provenance remain separately auditable.', '')}<section class="report-workspace"><div class="tabs"><button class="tab ${state.reportTab === 'report' ? 'active' : ''}" data-report-tab="report">Tenure Potential report</button><button class="tab ${state.reportTab === 'audit' ? 'active' : ''}" data-report-tab="audit">Scoring audit</button><button class="tab ${state.reportTab === 'method' ? 'active' : ''}" data-report-tab="method">Method & validation</button></div><div class="report-content">${state.reportTab === 'method' ? renderMethod() : !report ? `<div class="empty-panel"><h3>No audited result yet</h3><p>Complete a real invitation or run the clearly labeled preview assessment.</p><button class="button button-primary" data-action="preview">Preview assessment</button></div>` : `${records.length || state.previewReport ? `<div class="toolbar report-toolbar">${records.length ? `<select class="select" id="report-select">${records.map((candidate) => `<option value="${candidate.id}" ${candidate.id === report.candidateId ? 'selected' : ''}>${esc(candidate.name)} · ${Number(candidate.potential_index).toFixed(1)}</option>`).join('')}</select>` : ''}<select class="select" id="report-locale"><option value="en" ${state.reportLocale === 'en' ? 'selected' : ''}>Report in English</option><option value="es" ${state.reportLocale === 'es' ? 'selected' : ''}>Reporte en español</option></select>${canGenerateAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${generateLabel}</button>` : ''}<button class="button button-primary" data-action="download-pdf">${icon('file')}${state.reportLocale === 'es' ? 'Descargar PDF' : 'Download PDF'}</button></div>` : ''}${state.reportTab === 'audit' ? renderAudit(report) : renderReport(report)}`}</div></section>`;
+  const languageSwitch = `<div class="report-language" role="group" aria-label="Report language"><button type="button" data-report-locale="en" class="${state.reportLocale === 'en' ? 'active' : ''}" aria-pressed="${state.reportLocale === 'en'}">EN</button><button type="button" data-report-locale="es" class="${state.reportLocale === 'es' ? 'active' : ''}" aria-pressed="${state.reportLocale === 'es'}">ES</button></div>`;
+  const navigation = `<div class="report-navigation"><div class="tabs"><button class="tab ${state.reportTab === 'report' ? 'active' : ''}" data-report-tab="report">${copy.reportTab}</button><button class="tab ${state.reportTab === 'audit' ? 'active' : ''}" data-report-tab="audit">${copy.auditTab}</button><button class="tab ${state.reportTab === 'method' ? 'active' : ''}" data-report-tab="method">${copy.methodTab}</button></div>${languageSwitch}</div>`;
+  const empty = `<div class="empty-panel"><h3>${copy.emptyTitle}</h3><p>${state.results.length ? copy.noMatches : copy.emptyText}</p>${state.results.length ? '' : `<button class="button button-primary" data-action="preview">${copy.preview}</button>`}</div>`;
+  const actions = report ? `<div class="toolbar report-toolbar">${canGenerateAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${generateLabel}</button>` : ''}<button class="button button-primary" data-action="download-pdf">${icon('file')}${copy.download}</button></div>` : '';
+  const resultWorkspace = `<div class="results-shell">${renderResultDirectory(records, copy)}<div class="selected-report">${actions}${report ? (state.reportTab === 'audit' ? renderAudit(report) : renderReport(report)) : empty}</div></div>`;
+  return `${pageIntro(copy.eyebrow, copy.title, copy.description, '')}<section class="report-workspace">${navigation}<div class="report-content">${state.reportTab === 'method' ? renderMethod() : resultWorkspace}</div></section>`;
 }
 
 function reportCopy(report) {
@@ -441,7 +536,7 @@ function renderReport(report) {
   const scenarioSection = `<section class="report-section"><div class="section-title compact"><div><h3>${copy.es ? 'Evidencia de los tres escenarios' : 'Evidence from all three scenarios'}</h3><p>${copy.es ? 'Respuesta original y lectura conductual vinculada.' : 'Original response with its linked behavioral interpretation.'}</p></div><span class="badge badge-neutral">${scenarios.length} / 3</span></div><div class="scenario-evidence">${scenarios.length ? scenarios.map((entry, index) => { const finding = findings.find((item) => item.scenario_id === (entry.scenario_id || entry.id)); return `<article><span>${index + 1}</span><div><strong>${esc(copy.es ? entry.question_es : entry.question_en)}</strong><p>${esc(entry.response_text)}</p>${finding ? `<div class="scenario-finding"><b>${copy.es ? 'Lectura' : 'Finding'} · ${esc(finding.signal)}</b><span>${esc(copy.es ? finding.finding_es : finding.finding_en)}</span></div>` : ''}<small>${esc(entry.construct || '')} · ${formatDuration(entry.response_ms)}</small></div></article>`; }).join('') : `<p>${copy.es ? 'Sin respuestas de escenarios en este resultado.' : 'No scenario responses are available for this result.'}</p>`}</div></section>`;
   const retryLabel = state.busy ? (copy.es ? 'Generando…' : 'Generating…') : (copy.es ? 'Generar o reintentar' : 'Generate or retry');
   const aiSection = `<section class="report-section ai-report"><div class="section-title compact"><div><p class="eyebrow">${copy.es ? 'Interpretación profesional asistida' : 'Assisted professional interpretation'}</p><h3>${analysis?.title ? esc(analysis.title) : (copy.es ? 'Análisis integrado del candidato' : 'Integrated candidate analysis')}</h3><p>${copy.es ? `Generado con ${esc(aiProvider)} y vinculado a evidencia auditable.` : `Generated with ${esc(aiProvider)} and tied to auditable evidence.`}</p></div><span class="badge badge-${analysis ? 'teal' : 'orange'}">${esc(analysis ? (copy.es ? 'Completo' : 'Complete') : visibleStatus.replaceAll('_', ' '))}</span></div>${analysis?.paragraphs?.length === 5 ? `<p class="executive-summary">${esc(analysis.executive_summary || '')}</p><div class="analysis-paragraphs">${analysis.paragraphs.map((paragraph, index) => `<article><span>${index + 1}</span><p>${esc(paragraph)}</p></article>`).join('')}</div><div class="action-columns"><div><h4>${copy.es ? 'Preguntas de entrevista' : 'Structured interview probes'}</h4><ul>${(analysis.interview_focus || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div><div><h4>${copy.es ? 'Acciones de incorporación' : 'Onboarding actions'}</h4><ul>${(analysis.support_actions || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div></div><div class="ai-provenance"><code>${esc(aiProvider)}</code><code>${esc(report.aiAnalysis.model || '')}</code><code>${esc(report.aiAnalysis.prompt_version || '')}</code></div>` : `<div class="empty-analysis"><p>${esc(statusCopy[visibleStatus] || visibleStatus)}</p>${canRetryAi ? `<button class="button button-secondary" data-action="generate-ai" ${state.busy ? 'disabled' : ''}>${icon('refresh')}${retryLabel}</button>` : `<button class="button button-secondary" data-action="reload">${icon('refresh')}${copy.es ? 'Actualizar' : 'Refresh'}</button>`}</div>`}</section>`;
-  return `<article class="report-document"><header class="report-cover"><div><p class="eyebrow">Gazelle Assessment</p><h2>${copy.es ? 'Reporte de Potencial de Permanencia' : 'Tenure Potential Report'}</h2><p>${esc(report.name)} · ${esc(report.role)}${report.site ? ` · ${esc(report.site)}` : ''}</p></div><div class="report-date"><span>${copy.es ? 'Completado' : 'Completed'}</span><strong>${formatDate(report.completedAt)}</strong></div></header><div class="report-shell"><aside class="report-profile"><div class="score-ring" style="--score-angle:${report.potentialIndex / 100 * 360}deg"><div><strong>${report.potentialIndex.toFixed(1)}</strong><span>/ 100</span></div></div><span class="score-caption">${copy.es ? 'Índice de Potencial de Permanencia' : 'Tenure Potential Index'}</span><strong class="report-band">${copy.band}</strong><div class="profile-meta"><div><span>${copy.es ? 'Alineación IA' : 'AI alignment'}</span><strong>${alignment ? `${alignment.rating} / 5` : '—'}</strong></div><div><span>${copy.es ? 'Calidad' : 'Quality'}</span><strong>${esc(qualityLabel(report.quality.status, copy.es))}</strong></div></div><p class="interpretive-note">${copy.es ? 'El índice resume el cuestionario. La calificación 1–5 integra el cuestionario con los tres escenarios y se reporta por separado.' : 'The index summarizes questionnaire responses. The 1–5 rating integrates questionnaire and all three scenarios and is reported separately.'}</p></aside><div class="report-main"><section class="report-section score-profile"><div class="section-title compact"><div><h3>${copy.es ? 'Perfil de evidencia estructurada' : 'Structured evidence profile'}</h3><p>${copy.es ? 'Tres dimensiones con ponderación igual; el contexto se muestra por separado.' : 'Three equally weighted dimensions; context is displayed separately.'}</p></div><span class="badge badge-${qualityTone}">${esc(qualityLabel(report.quality.status, copy.es))}</span></div>${dimensionBar(copy.fit, report.subscales.fit.score)}${dimensionBar(copy.intent, report.subscales.intent.score)}${dimensionBar(copy.reliability, report.subscales.reliability.score)}${dimensionBar(copy.context, report.subscales.context.score, true)}</section>${alignmentSection}${aiSection}${scenarioSection}<section class="report-section report-guidance"><div><h4>${copy.es ? 'Palancas de permanencia' : 'Retention support levers'}</h4><ul>${supports.length ? supports.map((label) => `<li>${esc(label)}</li>`).join('') : `<li>${copy.es ? 'No disponibles' : 'Not available'}</li>`}</ul></div><div><h4>${copy.es ? 'Alcance de interpretación' : 'Interpretation scope'}</h4><p>${copy.es ? 'Utilice este perfil con una entrevista estructurada y otra evidencia relacionada con el puesto. La validación contra resultados locales de permanencia sigue en desarrollo.' : 'Use this profile with a structured interview and other job-related evidence. Validation against local tenure outcomes remains in progress.'}</p></div></section></div></div></article>`;
+  return `<article class="report-document"><header class="report-cover"><div><p class="eyebrow">Gazelle Assessment</p><h2>${copy.es ? 'Reporte de Potencial de Permanencia' : 'Tenure Potential Report'}</h2><p>${esc(report.name)} · ${esc(report.role)}${report.site ? ` · ${esc(report.site)}` : ''}</p></div><div class="report-date"><span>${copy.es ? 'Completado' : 'Completed'}</span><strong>${formatDate(report.completedAt, copy.es ? 'es' : 'en')}</strong></div></header><div class="report-shell"><aside class="report-profile"><div class="score-ring" style="--score-angle:${report.potentialIndex / 100 * 360}deg"><div><strong>${report.potentialIndex.toFixed(1)}</strong><span>/ 100</span></div></div><span class="score-caption">${copy.es ? 'Índice de Potencial de Permanencia' : 'Tenure Potential Index'}</span><strong class="report-band">${copy.band}</strong><div class="profile-meta"><div><span>${copy.es ? 'Alineación IA' : 'AI alignment'}</span><strong>${alignment ? `${alignment.rating} / 5` : '—'}</strong></div><div><span>${copy.es ? 'Calidad' : 'Quality'}</span><strong>${esc(qualityLabel(report.quality.status, copy.es))}</strong></div></div><p class="interpretive-note">${copy.es ? 'El índice resume el cuestionario. La calificación 1–5 integra el cuestionario con los tres escenarios y se reporta por separado.' : 'The index summarizes questionnaire responses. The 1–5 rating integrates questionnaire and all three scenarios and is reported separately.'}</p></aside><div class="report-main"><section class="report-section score-profile"><div class="section-title compact"><div><h3>${copy.es ? 'Perfil de evidencia estructurada' : 'Structured evidence profile'}</h3><p>${copy.es ? 'Tres dimensiones con ponderación igual; el contexto se muestra por separado.' : 'Three equally weighted dimensions; context is displayed separately.'}</p></div><span class="badge badge-${qualityTone}">${esc(qualityLabel(report.quality.status, copy.es))}</span></div>${dimensionBar(copy.fit, report.subscales.fit.score)}${dimensionBar(copy.intent, report.subscales.intent.score)}${dimensionBar(copy.reliability, report.subscales.reliability.score)}${dimensionBar(copy.context, report.subscales.context.score, true)}</section>${alignmentSection}${aiSection}${scenarioSection}<section class="report-section report-guidance"><div><h4>${copy.es ? 'Palancas de permanencia' : 'Retention support levers'}</h4><ul>${supports.length ? supports.map((label) => `<li>${esc(label)}</li>`).join('') : `<li>${copy.es ? 'No disponibles' : 'Not available'}</li>`}</ul></div><div><h4>${copy.es ? 'Alcance de interpretación' : 'Interpretation scope'}</h4><p>${copy.es ? 'Utilice este perfil con una entrevista estructurada y otra evidencia relacionada con el puesto. La validación contra resultados locales de permanencia sigue en desarrollo.' : 'Use this profile with a structured interview and other job-related evidence. Validation against local tenure outcomes remains in progress.'}</p></div></section></div></div></article>`;
 }
 
 function dimensionBar(label, value, contextual = false) {
@@ -450,15 +545,23 @@ function dimensionBar(label, value, contextual = false) {
 }
 
 function renderAudit(report) {
+  const es = state.reportLocale === 'es';
   const flags = report.quality.flags || [];
   const ai = report.aiAnalysis || {};
   const scenarioRows = report.scenarioResponses || [];
-  return `<div class="stack"><section class="audit-banner"><div>${icon('shield')}<div><strong>Cryptographic result fingerprint</strong><code>${esc(report.auditHash || 'Preview result - no server hash')}</code></div></div><span class="badge badge-${report.auditHash ? 'teal' : 'orange'}">${report.auditHash ? 'Server recorded' : 'Preview only'}</span></section><div class="grid grid-3">${auditFact('Assessment version', report.assessmentVersion)}${auditFact('Scoring model', report.modelVersion)}${auditFact('Assessment framework', 'Development evidence model')}${auditFact('Locale', report.locale)}${auditFact('Experience branch', report.experienceBranch)}${auditFact('Duration', formatDuration(report.durationMs))}${auditFact('Completed', formatDate(report.completedAt))}${auditFact('Items scored', report.scoringTrace.length)}${auditFact('Quality status', qualityLabel(report.quality.status, false))}</div><section class="card"><div class="card-header"><div><h3>AI analysis provenance</h3><p>The narrative is versioned and hashed separately from the transparent score.</p></div><span class="badge badge-${ai.status === 'completed' ? 'teal' : 'orange'}">${esc(ai.status || 'not available')}</span></div><div class="card-body grid grid-3">${auditFact('AI provider', ai.provider)}${auditFact('AI model', ai.model)}${auditFact('Prompt version', ai.prompt_version)}${auditFact('Provider response', ai.provider_response_id)}${auditFact('Evidence hash', ai.evidence_hash)}${auditFact('Output hash', ai.output_hash)}${auditFact('Updated', formatDate(ai.updated_at))}</div></section><section class="card"><div class="card-header"><div><h3>Scenario provenance</h3><p>Question source, model, prompt version, response language, and timing.</p></div><span class="badge badge-neutral">${scenarioRows.length} responses</span></div><div class="table-scroll"><table><thead><tr><th>ID</th><th>Construct</th><th>Source</th><th>Model</th><th>Prompt</th><th>Locale</th><th>Time</th></tr></thead><tbody>${scenarioRows.map((entry) => `<tr><td><code>${esc(entry.scenario_id)}</code></td><td>${esc(entry.construct)}</td><td>${esc(entry.source)}</td><td>${esc(entry.model)}</td><td>${esc(entry.prompt_version)}</td><td>${esc(entry.response_locale)}</td><td>${formatDuration(entry.response_ms)}</td></tr>`).join('')}</tbody></table></div></section><section class="card"><div class="card-header"><div><h3>Response-quality checks</h3><p>Flags are recorded for reviewer attention and never silently change a score.</p></div></div><div class="card-body">${flags.length ? `<div class="guardrail-list">${flags.map((flag) => guardrail(flag.code.replaceAll('_', ' '), JSON.stringify(flag), flag.severity)).join('')}</div>` : '<span class="badge badge-teal">No response-quality flags</span>'}</div></section><section class="card"><div class="card-header"><div><h3>Item-level scoring trace</h3><p>Raw response, reverse-scoring rule, transformed value, timing, and index inclusion.</p></div></div><div class="table-scroll"><table><thead><tr><th>Item ID</th><th>Dimension</th><th>Raw</th><th>Reverse</th><th>Transformed</th><th>0-100 contribution</th><th>Time</th><th>Index</th></tr></thead><tbody>${report.scoringTrace.map((entry) => `<tr><td><code>${esc(entry.itemId)}</code></td><td>${esc(entry.dimension)}</td><td>${entry.rawResponse}</td><td>${entry.reverseScored ? 'Yes' : 'No'}</td><td>${entry.transformedResponse}</td><td>${entry.scaledContribution}</td><td>${Math.round(entry.responseMs / 1000)}s</td><td>${entry.includedInPotentialIndex ? 'Yes' : 'No'}</td></tr>`).join('')}</tbody></table></div></section><div class="notice"><strong>Reproducibility:</strong> potential index = mean(role reality alignment, stay intention, work reliability). The AI alignment rating and narrative are separate outputs with their own evidence and output hashes.</div></div>`;
+  const statusLabels = { completed: es ? 'completado' : 'completed', queued: es ? 'en cola' : 'queued', processing: es ? 'procesando' : 'processing', failed: es ? 'fallido' : 'failed', not_generated: es ? 'no generado' : 'not generated' };
+  const dimensionLabels = es ? { fit: 'Alineación con el puesto', intent: 'Intención de permanencia', reliability: 'Confiabilidad laboral', context: 'Contexto de compromiso' } : {};
+  const flagLabels = es ? { missing_items: 'Reactivos faltantes', low_response_variation: 'Baja variación de respuestas', paired_item_inconsistency: 'Inconsistencia entre reactivos relacionados', unusually_fast_completion: 'Finalización inusualmente rápida' } : {};
+  const yes = es ? 'Sí' : 'Yes';
+  const no = es ? 'No' : 'No';
+  return `<div class="stack"><section class="audit-banner"><div>${icon('shield')}<div><strong>${es ? 'Huella criptográfica del resultado' : 'Cryptographic result fingerprint'}</strong><code>${esc(report.auditHash || (es ? 'Resultado de vista previa: sin huella del servidor' : 'Preview result - no server hash'))}</code></div></div><span class="badge badge-${report.auditHash ? 'teal' : 'orange'}">${report.auditHash ? (es ? 'Registrado en servidor' : 'Server recorded') : (es ? 'Solo vista previa' : 'Preview only')}</span></section><div class="grid grid-3">${auditFact(es ? 'Versión de evaluación' : 'Assessment version', report.assessmentVersion)}${auditFact(es ? 'Modelo de puntuación' : 'Scoring model', report.modelVersion)}${auditFact(es ? 'Marco de evaluación' : 'Assessment framework', es ? 'Modelo de evidencia en desarrollo' : 'Development evidence model')}${auditFact(es ? 'Idioma de respuesta' : 'Response locale', report.locale === 'es' ? 'Español' : 'English')}${auditFact(es ? 'Rama de experiencia' : 'Experience branch', es ? (report.experienceBranch === 'experienced' ? 'Con experiencia' : 'Sin experiencia') : report.experienceBranch)}${auditFact(es ? 'Duración' : 'Duration', formatDuration(report.durationMs))}${auditFact(es ? 'Completado' : 'Completed', formatDate(report.completedAt, state.reportLocale))}${auditFact(es ? 'Reactivos puntuados' : 'Items scored', report.scoringTrace.length)}${auditFact(es ? 'Calidad de respuesta' : 'Quality status', qualityLabel(report.quality.status, es))}</div><section class="card"><div class="card-header"><div><h3>${es ? 'Trazabilidad del análisis de IA' : 'AI analysis provenance'}</h3><p>${es ? 'La narrativa se versiona y se firma por separado de la puntuación transparente.' : 'The narrative is versioned and hashed separately from the transparent score.'}</p></div><span class="badge badge-${ai.status === 'completed' ? 'teal' : 'orange'}">${esc(statusLabels[ai.status] || ai.status || (es ? 'no disponible' : 'not available'))}</span></div><div class="card-body grid grid-3">${auditFact(es ? 'Proveedor de IA' : 'AI provider', ai.provider)}${auditFact(es ? 'Modelo de IA' : 'AI model', ai.model)}${auditFact(es ? 'Versión del prompt' : 'Prompt version', ai.prompt_version)}${auditFact(es ? 'Respuesta del proveedor' : 'Provider response', ai.provider_response_id)}${auditFact(es ? 'Huella de evidencia' : 'Evidence hash', ai.evidence_hash)}${auditFact(es ? 'Huella de salida' : 'Output hash', ai.output_hash)}${auditFact(es ? 'Actualizado' : 'Updated', formatDate(ai.updated_at, state.reportLocale))}</div></section><section class="card"><div class="card-header"><div><h3>${es ? 'Trazabilidad de escenarios' : 'Scenario provenance'}</h3><p>${es ? 'Fuente de la pregunta, modelo, versión del prompt, idioma de respuesta y tiempo.' : 'Question source, model, prompt version, response language, and timing.'}</p></div><span class="badge badge-neutral">${scenarioRows.length} ${es ? 'respuestas' : 'responses'}</span></div><div class="table-scroll"><table><thead><tr><th>ID</th><th>${es ? 'Constructo' : 'Construct'}</th><th>${es ? 'Fuente' : 'Source'}</th><th>${es ? 'Modelo' : 'Model'}</th><th>Prompt</th><th>${es ? 'Idioma' : 'Locale'}</th><th>${es ? 'Tiempo' : 'Time'}</th></tr></thead><tbody>${scenarioRows.map((entry) => `<tr><td><code>${esc(entry.scenario_id)}</code></td><td>${esc(entry.construct)}</td><td>${esc(entry.source)}</td><td>${esc(entry.model)}</td><td>${esc(entry.prompt_version)}</td><td>${esc(entry.response_locale)}</td><td>${formatDuration(entry.response_ms)}</td></tr>`).join('')}</tbody></table></div></section><section class="card"><div class="card-header"><div><h3>${es ? 'Controles de calidad de respuesta' : 'Response-quality checks'}</h3><p>${es ? 'Las alertas quedan registradas para revisión y nunca modifican una puntuación silenciosamente.' : 'Flags are recorded for reviewer attention and never silently change a score.'}</p></div></div><div class="card-body">${flags.length ? `<div class="guardrail-list">${flags.map((flag) => guardrail(flagLabels[flag.code] || flag.code.replaceAll('_', ' '), JSON.stringify(flag), flag.severity)).join('')}</div>` : `<span class="badge badge-teal">${es ? 'Sin alertas de calidad de respuesta' : 'No response-quality flags'}</span>`}</div></section><section class="card"><div class="card-header"><div><h3>${es ? 'Traza de puntuación por reactivo' : 'Item-level scoring trace'}</h3><p>${es ? 'Respuesta original, regla de inversión, valor transformado, tiempo e inclusión en el índice.' : 'Raw response, reverse-scoring rule, transformed value, timing, and index inclusion.'}</p></div></div><div class="table-scroll"><table><thead><tr><th>${es ? 'Reactivo' : 'Item ID'}</th><th>${es ? 'Dimensión' : 'Dimension'}</th><th>${es ? 'Original' : 'Raw'}</th><th>${es ? 'Invertido' : 'Reverse'}</th><th>${es ? 'Transformado' : 'Transformed'}</th><th>${es ? 'Contribución 0-100' : '0-100 contribution'}</th><th>${es ? 'Tiempo' : 'Time'}</th><th>${es ? 'Índice' : 'Index'}</th></tr></thead><tbody>${report.scoringTrace.map((entry) => `<tr><td><code>${esc(entry.itemId)}</code></td><td>${esc(dimensionLabels[entry.dimension] || entry.dimension)}</td><td>${entry.rawResponse}</td><td>${entry.reverseScored ? yes : no}</td><td>${entry.transformedResponse}</td><td>${entry.scaledContribution}</td><td>${Math.round(entry.responseMs / 1000)}s</td><td>${entry.includedInPotentialIndex ? yes : no}</td></tr>`).join('')}</tbody></table></div></section><div class="notice"><strong>${es ? 'Reproducibilidad' : 'Reproducibility'}:</strong> ${es ? 'índice de potencial = media de alineación con la realidad del puesto, intención de permanencia y confiabilidad laboral. La calificación de alineación de IA y la narrativa son resultados separados con sus propias huellas de evidencia y salida.' : 'potential index = mean(role reality alignment, stay intention, work reliability). The AI alignment rating and narrative are separate outputs with their own evidence and output hashes.'}</div></div>`;
 }
 
 function auditFact(label, value) { return `<article class="card audit-fact"><span>${label}</span><strong>${esc(value ?? '—')}</strong></article>`; }
 
 function renderMethod() {
+  const es = state.reportLocale === 'es';
+  if (es) return `<div class="stack"><section class="card"><div class="card-header"><div><h3>Ingeniería inversa de reportes anteriores</h3><p>Cuatro reportes suministrados, anonimizados para el análisis.</p></div></div><div class="table-scroll"><table><thead><tr><th>Caso</th><th>Experiencia</th><th>Resultado reportado</th><th>Media de medidas disponibles</th><th>Diferencia</th></tr></thead><tbody><tr><td>A</td><td>No</td><td>49</td><td>48.67</td><td>0.33</td></tr><tr><td>B</td><td>No</td><td>79</td><td>79.33</td><td>0.33</td></tr><tr><td>C</td><td>Sí</td><td>80</td><td>79.50</td><td>0.50</td></tr><tr><td>D</td><td>Sí</td><td>42</td><td>42.50</td><td>0.50</td></tr></tbody></table></div></section><div class="grid grid-2"><section class="card card-body"><h3>Qué puede inferirse</h3><ul class="method-list"><li>La puntuación general es consistente con una media no ponderada de las subescalas disponibles seguida de redondeo.</li><li>La rama sin experiencia parece excluir la medida de conducta previa no puntuada, en lugar de tratar el cero mostrado como evidencia.</li><li>Los reportes utilizan puntuaciones normativas de 0 a 100 y bandas narrativas, pero los ejemplos no permiten recuperar puntos de corte exactos.</li><li>La comparación local se declara no disponible por debajo de 200 candidatos evaluados.</li></ul></section><section class="card card-body"><h3>Qué no puede inferirse</h3><ul class="method-list"><li>Reactivos originales, claves de corrección, transformaciones, precisión interna, muestra normativa ni coeficientes reales del modelo.</li><li>Confiabilidad, estructura del constructo, equivalencia entre idiomas, desempeño por subgrupos y validez de criterio para el rol o la sede.</li><li>Si la banda reportada está calibrada como probabilidad de salida voluntaria.</li></ul></section></div><section class="card"><div class="card-header"><div><h3>Plan de validación antes de realizar afirmaciones predictivas</h3><p>La puntuación permanece descriptiva hasta superar estas etapas.</p></div></div><div class="card-body validation-grid">${validationStep('1', 'Evidencia de contenido', 'Revisión por psicología I/O, análisis del rol, entrevistas cognitivas con candidatos y justificación documentada de cada reactivo.')}${validationStep('2', 'Adaptación bilingüe', 'Revisión independiente de traducción, entrevistas cognitivas, invariancia de medición y análisis DIF por idioma y país.')}${validationStep('3', 'Confiabilidad inicial', 'Distribución de reactivos, confiabilidad omega, test-retest cuando corresponda, tasas de calidad de respuesta y análisis de ramas.')}${validationStep('4', 'Modelo de criterio', 'Prerregistrar permanencia voluntaria a 90 y 180 días; ajustar un modelo interpretable de supervivencia o tiempo discreto con datos locales.')}${validationStep('5', 'Evaluación de reserva', 'Curva, intercepto y pendiente de calibración; puntuación de Brier, índice C o AUC, intervalos de confianza y transporte entre sedes y roles.')}${validationStep('6', 'Equidad y uso', 'Análisis de tasas de selección y puntuaciones, procedimientos alternativos, reglas de revisión humana y control de cambios documentado.')}</div></section></div>`;
   return `<div class="stack"><section class="card"><div class="card-header"><div><h3>Legacy report reverse engineering</h3><p>Four supplied reports, anonymized for analysis.</p></div></div><div class="table-scroll"><table><thead><tr><th>Case</th><th>Experience</th><th>Reported overall</th><th>Mean of available measures</th><th>Difference</th></tr></thead><tbody><tr><td>A</td><td>No</td><td>49</td><td>48.67</td><td>0.33</td></tr><tr><td>B</td><td>No</td><td>79</td><td>79.33</td><td>0.33</td></tr><tr><td>C</td><td>Yes</td><td>80</td><td>79.50</td><td>0.50</td></tr><tr><td>D</td><td>Yes</td><td>42</td><td>42.50</td><td>0.50</td></tr></tbody></table></div></section><div class="grid grid-2"><section class="card card-body"><h3>What can be inferred</h3><ul class="method-list"><li>The overall score is consistent with an unweighted mean of available subscales followed by rounding.</li><li>The no-experience branch appears to exclude the unscored prior-behavior measure rather than treating the displayed zero as evidence.</li><li>The reports use norm-referenced 0–100 scores and narrative bands, but the supplied examples are insufficient to recover exact cut scores.</li><li>The local comparison is explicitly unavailable below 200 examined candidates.</li></ul></section><section class="card card-body"><h3>What cannot be inferred</h3><ul class="method-list"><li>Original items, item keys, transformations, internal precision, norm sample, and actual model coefficients.</li><li>Reliability, construct structure, language equivalence, subgroup performance, and criterion validity for the role/site.</li><li>Whether the reported band is calibrated to a probability of voluntary exit.</li></ul></section></div><section class="card"><div class="card-header"><div><h3>Validation plan before predictive claims</h3><p>The score stays descriptive until these gates are passed.</p></div></div><div class="card-body validation-grid">${validationStep('1', 'Content evidence', 'I/O psychologist review, role analysis, candidate cognitive interviews, and documented item rationale.')}${validationStep('2', 'Bilingual adaptation', 'Independent translation review, cognitive debriefs, measurement invariance, and DIF checks by language/country.')}${validationStep('3', 'Pilot reliability', 'Item distributions, omega reliability, test–retest where appropriate, response-quality rates, and branch analysis.')}${validationStep('4', 'Criterion model', 'Pre-register voluntary 90/180-day outcomes; fit an interpretable survival or discrete-time model on local data.')}${validationStep('5', 'Holdout evaluation', 'Calibration curve/intercept/slope, Brier score, C-index or AUC, confidence intervals, and site/role transport checks.')}${validationStep('6', 'Fairness and use', 'Selection-rate and score analyses, alternative procedures, human review rules, and documented change control.')}</div></section></div>`;
 }
 
@@ -978,6 +1081,9 @@ function bindEvents() {
     if (action === 'configure-brevo-webhook') configureBrevoWebhook();
     if (action === 'generate-ai') generateAiAnalysis();
     if (action === 'download-pdf') downloadPdf();
+    if (action === 'clear-report-filters') {
+      state.reportSearch = ''; state.reportTestId = 'all'; state.reportScope = 'all'; state.reportRole = 'all'; state.reportListId = 'all'; render();
+    }
     if (action === 'logout') signOut();
   }));
   document.getElementById('invite-form')?.addEventListener('submit', sendInvitation);
@@ -1026,7 +1132,11 @@ function bindEvents() {
     if (list?.company_id) state.csv.companyId = list.company_id;
     render();
   });
-  document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => { state.previewReport = null; state.reportCandidateId = button.dataset.report; state.view = 'reports'; state.reportTab = 'report'; render(); }));
+  document.querySelectorAll('[data-report]').forEach((button) => button.addEventListener('click', () => {
+    state.previewReport = null;
+    state.reportResultId = state.results.find((result) => result.id === button.dataset.report)?.assessment_id || null;
+    state.view = 'reports'; state.reportTab = 'report'; render();
+  }));
   document.querySelectorAll('[data-send-candidate]').forEach((button) => button.addEventListener('click', () => { const candidate = state.candidates.find((item) => item.id === button.dataset.sendCandidate); state.view = 'send'; document.getElementById('app').innerHTML = shell(renderSend(candidate)); bindEvents(); }));
   document.querySelectorAll('[data-journey]').forEach((button) => button.addEventListener('click', () => { state.journeyCandidateId = button.dataset.journey; render(); }));
   document.querySelector?.('[data-close-journey]')?.addEventListener('click', () => { state.journeyCandidateId = null; render(); });
@@ -1034,8 +1144,20 @@ function bindEvents() {
   document.querySelectorAll('[data-release-attempts]').forEach((button) => button.addEventListener('click', () => releaseCandidateAttempts(button.dataset.releaseAttempts)));
   document.querySelectorAll('[data-referral-status]').forEach((select) => select.addEventListener('change', () => updateReferralStatus(select.dataset.referralStatus, select.value)));
   document.querySelectorAll('[data-report-tab]').forEach((button) => button.addEventListener('click', () => { state.reportTab = button.dataset.reportTab; render(); }));
-  document.getElementById('report-select')?.addEventListener('change', (event) => { state.previewReport = null; state.reportCandidateId = event.target.value; render(); });
-  document.getElementById('report-locale')?.addEventListener('change', (event) => { state.reportLocale = event.target.value; render(); });
+  document.querySelectorAll('[data-report-result]').forEach((button) => button.addEventListener('click', () => { state.previewReport = null; state.reportResultId = button.dataset.reportResult; render(); }));
+  document.querySelectorAll('[data-report-locale]').forEach((button) => button.addEventListener('click', () => { state.reportLocale = button.dataset.reportLocale; render(); }));
+  document.getElementById('report-search')?.addEventListener('input', (event) => {
+    const cursor = event.target.selectionStart;
+    state.reportSearch = event.target.value;
+    render();
+    const input = document.getElementById('report-search');
+    input?.focus();
+    if (Number.isInteger(cursor)) input?.setSelectionRange(cursor, cursor);
+  });
+  document.getElementById('report-test-filter')?.addEventListener('change', (event) => { state.reportTestId = event.target.value; render(); });
+  document.getElementById('report-scope-filter')?.addEventListener('change', (event) => { state.reportScope = event.target.value; render(); });
+  document.getElementById('report-role-filter')?.addEventListener('change', (event) => { state.reportRole = event.target.value; render(); });
+  document.getElementById('report-list-filter')?.addEventListener('change', (event) => { state.reportListId = event.target.value; render(); });
   if (state.runner) bindRunner();
 }
 
