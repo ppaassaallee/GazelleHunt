@@ -32,7 +32,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -70,6 +70,7 @@ assert.deepEqual(requestBody.sender, { email: 'assessments@example.com', name: '
 assert.deepEqual(requestBody.to, [{ email: 'candidate@example.com', name: 'Candidate Name' }]);
 assert.equal(requestBody.headers.idempotencyKey, 'invitation-123');
 assert.equal(requestBody.headers['X-Mailin-custom'], 'invitation_id:invitation-123');
+assert.equal(requestBody.headers['X-Sib-Sandbox'], undefined);
 assert.deepEqual(requestBody.tags, ['tenure-potential']);
 
 const webhook = brevo.brevoWebhookPayload(configured, 'https://assessment.example.com/api/brevo/webhook');
@@ -88,5 +89,12 @@ assert.equal(brevo.brevoInvitationStatus('soft_bounce'), 'deferred');
 assert.equal(brevo.brevoInvitationStatus('hard_bounce'), 'hard_bounce');
 assert.equal(brevo.brevoInvitationStatus('spam'), 'complained');
 assert.equal(brevo.brevoInvitationStatus('opened'), null);
+assert.equal(brevo.normalizedProviderMessageId('<brevo-message-123@example.com>'), 'brevo-message-123@example.com');
+assert.equal(brevo.batchDeliveryStatus({ status: 'completed', accepted_count: 25, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0 }), 'provider_unconfirmed');
+assert.equal(brevo.batchDeliveryStatus({ status: 'api_accepted', accepted_count: 25, failed_count: 0, provider_confirmed_count: 25, delivered_count: 3 }), 'provider_confirmed');
+assert.equal(brevo.batchDeliveryStatus({ status: 'api_accepted', accepted_count: 25, failed_count: 0, provider_confirmed_count: 25, delivered_count: 25 }), 'delivered');
+assert.equal(brevo.batchDeliveryStatus({ status: 'processing', accepted_count: 0, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0 }), 'processing');
+assert.match(source, /\/api\/admin\/email-diagnostics/);
+assert.match(source, /\/smtp\/statistics\/events\?days=2/);
 
 console.log('Brevo integration tests passed.');

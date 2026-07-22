@@ -72,7 +72,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderAudit, renderMethod, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, renderProgress, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderAudit, renderMethod, state, render };`, context);
 await Promise.resolve();
 
 const csvApi = context.__gazelleWorkflowTest;
@@ -110,6 +110,13 @@ assert.match(candidateBulkHtml, /candidate-ready[^>]*aria-label="Select Ready Ca
 assert.match(candidateBulkHtml, /candidate-blocked[^>]*aria-label="Select Blocked Candidate"[^>]*disabled/);
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[0], 'test_tenure_potential'), true);
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[1], 'test_tenure_potential'), false);
+
+csvApi.state.batches = [{ id: 'batch-unconfirmed', list_name: 'July candidates', company_name: 'Allied Global', created_by_name: 'Alejandro Pascual', status: 'provider_unconfirmed', total_count: 25, accepted_count: 25, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0, completed_assessments: 0, created_at: '2026-07-22T14:49:40.427Z' }];
+const progressHtml = csvApi.renderProgress();
+assert.match(progressHtml, /API acceptance is not delivery/);
+assert.match(progressHtml, /Brevo unconfirmed/);
+assert.match(progressHtml, /0 \/ 25 confirmed/);
+assert.match(progressHtml, /0 delivered/);
 
 csvApi.state.user = { id: 'owner-1', role: 'super_admin', companyName: 'Gazelle Platform' };
 csvApi.state.lists = [{ id: 'list-care', name: 'Customer Care' }, { id: 'list-sales', name: 'Sales Pipeline' }];

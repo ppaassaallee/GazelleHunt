@@ -10,6 +10,7 @@ const icons = {
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
   upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
   send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-10 7L2 7"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h6"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06-2.83 2.83-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21h-4v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06-2.83-2.83.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3v-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06 2.83-2.83.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3h4v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06 2.83 2.83-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.63 1 1.24 1H21v4h-.36c-.61 0-1.12.4-1.24 1Z"/>',
@@ -135,8 +136,14 @@ function toast(message) {
 
 function statusBadge(status) {
   const value = status || 'Not invited';
-  const tone = ['completed', 'delivered', 'active'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'sending', 'deferred', 'pending', 'processing'].includes(value) ? 'orange' : 'neutral';
-  return `<span class="badge badge-${tone}">${esc(value.replaceAll('_', ' '))}</span>`;
+  const labels = {
+    api_accepted: 'API accepted', api_accepted_with_errors: 'API accepted with errors',
+    provider_unconfirmed: 'Brevo unconfirmed', provider_confirmed: 'Brevo confirmed',
+    provider_confirmed_with_errors: 'Brevo confirmed with errors', partially_confirmed: 'Partially confirmed',
+    delivered_with_errors: 'Delivered with errors',
+  };
+  const tone = ['completed', 'delivered', 'active'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'sending', 'deferred', 'pending', 'processing', 'api_accepted', 'api_accepted_with_errors', 'provider_unconfirmed', 'provider_confirmed', 'provider_confirmed_with_errors', 'partially_confirmed', 'delivered_with_errors'].includes(value) ? 'orange' : 'neutral';
+  return `<span class="badge badge-${tone}">${esc(labels[value] || value.replaceAll('_', ' '))}</span>`;
 }
 
 function shell(content) {
@@ -352,8 +359,9 @@ function renderSend(prefill = {}) {
 function renderProgress() {
   const total = state.batches.reduce((sum, batch) => sum + Number(batch.total_count || 0), 0);
   const accepted = state.batches.reduce((sum, batch) => sum + Number(batch.accepted_count || 0), 0);
-  const completed = state.batches.reduce((sum, batch) => sum + Number(batch.completed_assessments || 0), 0);
-  return `${pageIntro('Batch and candidate events', 'Send progress', 'Each batch tracks one row per candidate and test. Refresh to see provider acceptance and completed assessments.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}<section class="grid grid-3">${metric('Batch sends', total, 'Candidate-test combinations', 'send')}${metric('Accepted', accepted, 'Brevo accepted', 'check')}${metric('Assessments completed', completed, 'Audited results', 'shield')}</section><section class="card"><div class="table-scroll"><table><thead><tr><th>List</th><th>Company</th><th>Status</th><th>Progress</th><th>Assessments</th><th>Created</th></tr></thead><tbody>${state.batches.map((batch) => { const processed = Number(batch.accepted_count || 0) + Number(batch.failed_count || 0); const pct = Number(batch.total_count) ? Math.round(processed / Number(batch.total_count) * 100) : 0; return `<tr><td><strong>${esc(batch.list_name)}</strong><br><span class="empty-value">by ${esc(batch.created_by_name)}</span></td><td>${esc(batch.company_name)}</td><td>${statusBadge(batch.status)}</td><td><div class="batch-progress"><div class="progress-track"><span style="width:${pct}%"></span></div><small>${processed} / ${Number(batch.total_count)} · ${Number(batch.failed_count)} failed</small></div></td><td>${Number(batch.completed_assessments)} completed</td><td>${formatDate(batch.created_at)}</td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty-panel"><h3>No batches yet</h3><p>Create a list, assign tests, and send the first batch.</p></div></td></tr>'}</tbody></table></div></section>`;
+  const confirmed = state.batches.reduce((sum, batch) => sum + Number(batch.provider_confirmed_count || 0), 0);
+  const delivered = state.batches.reduce((sum, batch) => sum + Number(batch.delivered_count || 0), 0);
+  return `${pageIntro('Batch and candidate events', 'Send progress', 'API acceptance is not delivery. Gazelle reports Brevo evidence, inbox delivery, and assessment completion separately.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}<section class="grid grid-4">${metric('Batch items', total, 'Candidate-test combinations', 'send')}${metric('API accepted', accepted, 'Brevo returned a message ID', 'check')}${metric('Brevo confirmed', confirmed, 'Provider event recorded', 'shield')}${metric('Delivered', delivered, 'Inbox delivery recorded', 'mail')}</section><section class="card"><div class="table-scroll"><table><thead><tr><th>List</th><th>Company</th><th>Status</th><th>API outcome</th><th>Brevo evidence</th><th>Assessments</th><th>Created</th></tr></thead><tbody>${state.batches.map((batch) => { const processed = Number(batch.accepted_count || 0) + Number(batch.failed_count || 0); const pct = Number(batch.total_count) ? Math.round(processed / Number(batch.total_count) * 100) : 0; const acceptedCount = Number(batch.accepted_count || 0); const confirmedCount = Number(batch.provider_confirmed_count || 0); const deliveredCount = Number(batch.delivered_count || 0); return `<tr><td><strong>${esc(batch.list_name)}</strong><br><span class="empty-value">by ${esc(batch.created_by_name)}</span></td><td>${esc(batch.company_name)}</td><td>${statusBadge(batch.status)}</td><td><div class="batch-progress"><div class="progress-track"><span style="width:${pct}%"></span></div><small>${acceptedCount} accepted · ${Number(batch.failed_count)} failed</small></div></td><td><strong>${confirmedCount} / ${acceptedCount} confirmed</strong><br><span class="empty-value">${deliveredCount} delivered</span></td><td>${Number(batch.completed_assessments)} completed</td><td>${formatDate(batch.created_at)}</td></tr>`; }).join('') || '<tr><td colspan="7"><div class="empty-panel"><h3>No batches yet</h3><p>Create a list, assign tests, and send the first batch.</p></div></td></tr>'}</tbody></table></div></section>`;
 }
 
 function reportRecord(records = state.results) {
