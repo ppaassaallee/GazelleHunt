@@ -132,7 +132,19 @@ Candidate password accounts are separate from hiring-team accounts and use a ded
 
 Each candidate/test pair starts with three released attempts. Accepted provider sends consume an attempt; failed sends do not. Recruiters can resend while capacity remains, while company administrators and the single super administrator can release three additional attempts at a time. Every release is audited.
 
-The Sites access policy must be public so account registration and candidate invitation routes are reachable. Hiring-team data remains protected by the application's own server-side sessions and role/company checks. Invitation tokens grant access only to a single candidate assessment and are stored only as SHA-256 hashes.
+The production candidate host is a Cloudflare Worker backed by D1. It is public at `https://gazelle-assessment.gazellehunt.workers.dev` while `assessment.gazellehunt.com` is being activated. Candidates do not need ChatGPT, OpenAI, or a hiring-team account to open a valid invitation. Hiring-team data remains protected by the application's own server-side sessions and role/company checks. Invitation tokens grant access only to a single candidate assessment and are stored only as SHA-256 hashes.
+
+## Cloudflare deployment
+
+`wrangler.jsonc` defines the Worker entry point, the production D1 binding, public non-secret variables, and the `workers.dev` fallback URL. Install and verify the project before deployment:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm test
+pnpm deploy:cloudflare
+```
+
+Configure `AUTH_PEPPER`, `SUPER_ADMIN_BOOTSTRAP_TOKEN`, `BREVO_API_KEY`, `BREVO_WEBHOOK_TOKEN`, and the selected AI provider key with `wrangler secret put`; never add their values to `wrangler.jsonc` or source control. After changing the public domain, update `APP_BASE_URL`, redeploy, and recreate the Brevo webhook so invitations and candidate portal links use the new origin.
 
 ## Production boundary
 

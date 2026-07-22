@@ -225,7 +225,8 @@ assert.match(serverSource, /responseJsonSchema/);
 assert.match(serverSource, /job_alignment/);
 
 assert.match(readmeSource, /bilingual candidate portal/);
-assert.match(readmeSource, /Sites access policy must be public/);
+assert.match(readmeSource, /Cloudflare Worker backed by D1/);
+assert.match(readmeSource, /Candidates do not need ChatGPT/);
 assert.match(readmeSource, /1–5 Job Alignment Evidence Rating/);
 
 console.log('Workflow tests passed.');

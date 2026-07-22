@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gazelle-assessment",
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-07-22",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gazelle-assessment-production",
+      "database_id": "2097c7fc-bd1b-4139-9c1b-6c1077e2b7c9"
+    }
+  ],
+  "vars": {
+    "AI_PROVIDER": "openai",
+    "APP_BASE_URL": "https://gazelle-assessment.gazellehunt.workers.dev",
+    "BREVO_SENDER_EMAIL": "assesment@gazellehunt.com",
+    "BREVO_SENDER_NAME": "Gazelle Assessment",
+    "OPENAI_MODEL": "gpt-5-mini",
+    "SUPER_ADMIN_EMAIL": "david.alejandro.pa@gmail.com"
+  }
+}
