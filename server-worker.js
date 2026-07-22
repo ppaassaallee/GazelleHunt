@@ -1261,7 +1261,7 @@ async function candidatePortalData(request, env) {
         )
         SELECT i.id, i.test_id, i.locale, i.status, i.created_at, i.expires_at, i.completed_at,
           t.name_en, t.name_es, t.estimated_minutes,
-          (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = ? AND used.test_id = i.test_id AND used.status <> 'failed') AS attempts_used,
+          (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = ? AND used.test_id = i.test_id AND used.status NOT IN ('failed', 'provider_unconfirmed')) AS attempts_used,
           COALESCE(a.attempt_limit, 3) AS attempt_limit
         FROM ranked i JOIN assessment_tests t ON t.id = i.test_id
         LEFT JOIN candidate_test_access a ON a.candidate_id = i.candidate_id AND a.test_id = i.test_id
@@ -1654,7 +1654,7 @@ async function testAttemptStatus(env, candidateId, testId, updatedByUserId = nul
   `).bind(candidateId, testId, updatedByUserId, now).run();
   const row = await env.DB.prepare(`
     SELECT a.attempt_limit,
-      (SELECT COUNT(*) FROM invitations i WHERE i.candidate_id = a.candidate_id AND i.test_id = a.test_id AND i.status <> 'failed') AS attempts_used
+      (SELECT COUNT(*) FROM invitations i WHERE i.candidate_id = a.candidate_id AND i.test_id = a.test_id AND i.status NOT IN ('failed', 'provider_unconfirmed')) AS attempts_used
     FROM candidate_test_access a WHERE a.candidate_id = ? AND a.test_id = ?
   `).bind(candidateId, testId).first();
   const limit = Number(row?.attempt_limit || 3);
@@ -1829,7 +1829,7 @@ async function listCandidates(env, user) {
       i.id AS invitation_id, i.locale AS invitation_locale, i.status AS invitation_status, i.provider_message_id,
       i.test_id AS invitation_test_id, invitation_test.name_en AS invitation_test_name,
       COALESCE(access.attempt_limit, 3) AS attempt_limit,
-      CASE WHEN i.test_id IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = i.test_id AND used.status <> 'failed') END AS attempts_used,
+      CASE WHEN i.test_id IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = i.test_id AND used.status NOT IN ('failed', 'provider_unconfirmed')) END AS attempts_used,
       i.created_at AS invitation_created_at, i.delivered_at, i.completed_at AS invitation_completed_at,
       a.id AS assessment_id, a.assessment_version, a.model_version, a.model_status, a.locale AS assessment_locale,
       a.experience_branch, a.completed_at AS assessment_completed_at, a.duration_ms, a.potential_index,
@@ -2046,7 +2046,7 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     FROM candidate_test_access access
     WHERE access.candidate_id = ? AND access.test_id = ?
-      AND (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = access.candidate_id AND used.test_id = access.test_id AND used.status <> 'failed') < access.attempt_limit
+      AND (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = access.candidate_id AND used.test_id = access.test_id AND used.status NOT IN ('failed', 'provider_unconfirmed')) < access.attempt_limit
   `).bind(invitationId, candidate.id, tokenHash, locale, 'sending', user.email, now.toISOString(), expiresAt, candidate.company_id, test.id, listId, batchId, user.id, candidate.id, test.id).run();
   if (!Number(reserved.meta?.changes || 0)) {
     const error = new Error('attempt_limit_reached');
@@ -2122,7 +2122,7 @@ async function createBulkResend(request, env, user, context) {
   const candidates = await env.DB.prepare(`
     SELECT c.id, c.company_id, c.name,
       (SELECT i.locale FROM invitations i WHERE i.candidate_id = c.id AND i.test_id = ? AND i.status <> 'failed' ORDER BY i.created_at DESC LIMIT 1) AS previous_locale,
-      (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = ? AND used.status <> 'failed') AS attempts_used,
+      (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = ? AND used.status NOT IN ('failed', 'provider_unconfirmed')) AS attempts_used,
       COALESCE((SELECT access.attempt_limit FROM candidate_test_access access WHERE access.candidate_id = c.id AND access.test_id = ?), 3) AS attempt_limit
     FROM candidates c WHERE c.id IN (${candidateIds.map(() => '?').join(',')}) AND ${scope.sql}
     ORDER BY c.company_id, c.name

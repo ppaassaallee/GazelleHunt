@@ -75,6 +75,7 @@ assert.match(serverSource, /candidateScope\(user\)/);
 assert.match(serverSource, /user\.role !== 'admin'/);
 assert.match(serverSource, /status <> 'failed'/);
 assert.match(serverSource, /attempt_limit = attempt_limit \+ 3/);
+assert.match(serverSource, /status NOT IN \('failed', 'provider_unconfirmed'\)/);
 assert.match(serverSource, /__Host-gz_candidate_session/);
 
 console.log('Candidate portal tests passed.');
