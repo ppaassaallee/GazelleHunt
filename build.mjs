@@ -20,6 +20,7 @@ const ogBase64 = existsSync(ogPath) ? (await readFile(ogPath)).toString('base64'
 const candidateWelcomePath = resolve(new URL('public/candidate-welcome.png', root).pathname);
 const candidateWelcomeBase64 = existsSync(candidateWelcomePath) ? (await readFile(candidateWelcomePath)).toString('base64') : '';
 const worker = `
+import { connect as connectSocket } from 'cloudflare:sockets';
 const htmlAsset = ${JSON.stringify(html)};
 const stylesAsset = ${JSON.stringify(css)};
 const engineAsset = ${JSON.stringify(engine)};

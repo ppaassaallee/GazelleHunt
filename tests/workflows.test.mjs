@@ -213,6 +213,7 @@ assert.match(appSource, /Alineación laboral basada en evidencia/);
 assert.doesNotMatch(appSource, /Uncalibrated pilot|Piloto sin calibrar|Human review required/);
 assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/);
 assert.doesNotMatch(appSource, /signin-with-chatgpt/);
+assert.match(appSource, /SMTP relay with STARTTLS/);
 
 for (const route of [
   '/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me',

@@ -1365,14 +1365,31 @@ function emailConfig(env) {
   const senderEmail = cleanEmail(env.BREVO_SENDER_EMAIL);
   const senderName = cleanText(env.BREVO_SENDER_NAME, 140) || 'Gazelle Assessment';
   const webhookToken = String(env.BREVO_WEBHOOK_TOKEN || '');
+  const smtpKey = String(env.BREVO_SMTP_KEY || '');
+  const smtpLogin = cleanText(env.BREVO_SMTP_LOGIN, 180);
+  const smtpHost = cleanText(env.BREVO_SMTP_HOST, 180) || 'smtp-relay.brevo.com';
+  const configuredPort = Number(env.BREVO_SMTP_PORT || 587);
+  const smtpPort = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535 ? configuredPort : 587;
+  const requestedTransport = cleanText(env.BREVO_EMAIL_TRANSPORT, 20).toLowerCase();
+  const transport = requestedTransport === 'smtp' ? 'smtp' : 'api';
+  const apiConfigured = Boolean(apiKey && senderEmail);
+  const smtpConfigured = Boolean(smtpKey && smtpLogin && senderEmail);
+  const sendingConfigured = transport === 'smtp' ? smtpConfigured : apiConfigured;
   return {
-    configured: Boolean(apiKey && senderEmail && webhookToken.length >= 24),
-    sendingConfigured: Boolean(apiKey && senderEmail),
+    configured: Boolean(sendingConfigured && webhookToken.length >= 24),
+    sendingConfigured,
     webhookConfigured: webhookToken.length >= 24,
+    apiConfigured,
+    smtpConfigured,
+    transport,
     senderEmail,
     senderName,
     apiKey,
     webhookToken,
+    smtpKey,
+    smtpLogin,
+    smtpHost,
+    smtpPort,
   };
 }
 
@@ -1483,9 +1500,7 @@ async function callAiJson(env, request) {
   return { ...result, provider: config.provider };
 }
 
-async function sendBrevo(env, message) {
-  const config = emailConfig(env);
-  if (!config.configured) throw new Error('email_not_configured');
+async function sendBrevoApi(config, message) {
   const invitationId = cleanText(message.invitationId, 100);
   const tag = cleanText(message.tag, 80).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'gazelle-assessment';
   const headers = { idempotencyKey: invitationId || crypto.randomUUID() };
@@ -1512,7 +1527,135 @@ async function sendBrevo(env, message) {
   }
   const messageId = cleanText(body.messageId, 300);
   if (!messageId) throw new Error('brevo_missing_message_id');
-  return { id: messageId, message: 'Brevo accepted the transactional email.' };
+  return { id: messageId, transport: 'api', message: 'Brevo accepted the transactional email API request.' };
+}
+
+function smtpHeader(value) {
+  return cleanText(value, 500).replace(/[\r\n]+/g, ' ').trim();
+}
+
+function base64Utf8(value) {
+  const bytes = new TextEncoder().encode(String(value || ''));
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+  return btoa(binary);
+}
+
+function foldedBase64(value) {
+  return base64Utf8(value).match(/.{1,76}/g)?.join('\r\n') || '';
+}
+
+function encodedEmailHeader(value) {
+  const text = smtpHeader(value);
+  return /[^\x20-\x7E]/.test(text) ? `=?UTF-8?B?${base64Utf8(text)}?=` : text;
+}
+
+function smtpMessage(config, message, messageId) {
+  const boundary = `gazelle-${crypto.randomUUID()}`;
+  const tag = smtpHeader(message.tag).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'gazelle-assessment';
+  const invitationId = smtpHeader(message.invitationId);
+  const toName = encodedEmailHeader(message.toName || message.to);
+  const fromName = encodedEmailHeader(config.senderName);
+  const headers = [
+    `From: ${fromName} <${config.senderEmail}>`,
+    `To: ${toName} <${message.to}>`,
+    `Subject: ${encodedEmailHeader(message.subject)}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: ${messageId}`,
+    'MIME-Version: 1.0',
+    `X-Mailin-Tag: ${tag}`,
+    invitationId ? `X-Mailin-custom: invitation_id:${invitationId}` : '',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ].filter(Boolean);
+  return `${headers.join('\r\n')}\r\n\r\n--${boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${foldedBase64(message.text)}\r\n--${boundary}\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${foldedBase64(message.html)}\r\n--${boundary}--\r\n`;
+}
+
+async function smtpReadReply(state, timeoutMs = 15000) {
+  const lines = [];
+  while (true) {
+    const newline = state.buffer.indexOf('\n');
+    if (newline >= 0) {
+      const line = state.buffer.slice(0, newline + 1).replace(/[\r\n]+$/, '');
+      state.buffer = state.buffer.slice(newline + 1);
+      if (line) lines.push(line);
+      const match = line.match(/^(\d{3})([ -])/);
+      if (match?.[2] === ' ') return { code: Number(match[1]), lines, text: lines.join(' | ') };
+      continue;
+    }
+    let timer;
+    const chunk = await Promise.race([
+      state.reader.read(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('brevo_smtp_timeout')), timeoutMs); }),
+    ]).finally(() => clearTimeout(timer));
+    if (chunk.done) throw new Error('brevo_smtp_disconnected');
+    state.buffer += state.decoder.decode(chunk.value, { stream: true });
+  }
+}
+
+async function smtpCommand(writer, state, command, allowedCodes) {
+  await writer.write(new TextEncoder().encode(`${command}\r\n`));
+  const reply = await smtpReadReply(state);
+  if (!allowedCodes.includes(reply.code)) {
+    const error = new Error(reply.code === 535 ? 'brevo_smtp_authentication_failed' : 'brevo_smtp_rejected');
+    error.providerStatus = reply.code === 535 ? 401 : 502;
+    error.providerMessage = cleanText(reply.text, 400) || 'Brevo SMTP rejected the command.';
+    throw error;
+  }
+  return reply;
+}
+
+async function sendBrevoSmtp(config, message) {
+  let socket;
+  let reader;
+  let writer;
+  const messageId = `<${crypto.randomUUID()}@gazellehunt.com>`;
+  try {
+    socket = connectSocket({ hostname: config.smtpHost, port: config.smtpPort }, { secureTransport: 'starttls', allowHalfOpen: false });
+    await socket.opened;
+    reader = socket.readable.getReader();
+    writer = socket.writable.getWriter();
+    let state = { reader, decoder: new TextDecoder(), buffer: '' };
+    const greeting = await smtpReadReply(state);
+    if (greeting.code !== 220) throw new Error('brevo_smtp_greeting_rejected');
+    await smtpCommand(writer, state, 'EHLO gazellehunt.com', [250]);
+    await smtpCommand(writer, state, 'STARTTLS', [220]);
+    reader.releaseLock();
+    writer.releaseLock();
+    socket = socket.startTls();
+    await socket.opened;
+    reader = socket.readable.getReader();
+    writer = socket.writable.getWriter();
+    state = { reader, decoder: new TextDecoder(), buffer: '' };
+    await smtpCommand(writer, state, 'EHLO gazellehunt.com', [250]);
+    await smtpCommand(writer, state, 'AUTH LOGIN', [334]);
+    await smtpCommand(writer, state, btoa(config.smtpLogin), [334]);
+    await smtpCommand(writer, state, btoa(config.smtpKey), [235]);
+    await smtpCommand(writer, state, `MAIL FROM:<${config.senderEmail}>`, [250]);
+    await smtpCommand(writer, state, `RCPT TO:<${message.to}>`, [250, 251]);
+    await smtpCommand(writer, state, 'DATA', [354]);
+    const mime = smtpMessage(config, message, messageId).replace(/\r?\n\./g, '\r\n..');
+    await writer.write(new TextEncoder().encode(`${mime}.\r\n`));
+    const accepted = await smtpReadReply(state, 30000);
+    if (accepted.code !== 250) {
+      const error = new Error('brevo_smtp_message_rejected');
+      error.providerStatus = 502;
+      error.providerMessage = cleanText(accepted.text, 400);
+      throw error;
+    }
+    await smtpCommand(writer, state, 'QUIT', [221]).catch(() => null);
+    const queuedId = accepted.text.match(/<[^>]+>/)?.[0] || messageId;
+    return { id: queuedId, transport: 'smtp', message: 'Brevo SMTP relay accepted the transactional email.' };
+  } finally {
+    try { reader?.releaseLock(); } catch {}
+    try { writer?.releaseLock(); } catch {}
+    try { socket?.close(); } catch {}
+  }
+}
+
+async function sendBrevo(env, message) {
+  const config = emailConfig(env);
+  if (!config.sendingConfigured) throw new Error('email_not_configured');
+  return config.transport === 'smtp' ? sendBrevoSmtp(config, message) : sendBrevoApi(config, message);
 }
 
 const BREVO_TRANSACTIONAL_EVENTS = Object.freeze([
@@ -1553,7 +1696,7 @@ function normalizedProviderMessageId(value) {
 async function emailDeliveryDiagnostics(request, env, user) {
   if (!isSuperAdmin(user)) return json({ error: 'Super administrator access is required.', code: 'super_admin_required' }, 403);
   const config = emailConfig(env);
-  if (!config.configured) return json({ error: 'Brevo transactional email is not fully configured.', code: 'email_not_configured' }, 503);
+  if (!config.apiConfigured) return json({ error: 'The Brevo API key is required for delivery diagnostics.', code: 'brevo_api_not_configured' }, 503);
   const batchId = cleanText(new URL(request.url).searchParams.get('batchId'), 100);
   if (!batchId) return json({ error: 'A batch ID is required.', code: 'batch_required' }, 422);
   const batch = await env.DB.prepare(`SELECT id, total_count, accepted_count, failed_count, created_at FROM send_batches WHERE id = ?`).bind(batchId).first();
@@ -2524,8 +2667,8 @@ async function sendTestEmail(request, env, admin) {
       html: '<div style="font-family:Arial,sans-serif"><h1>Gazelle Assessment</h1><p>Brevo accepted this transactional email test.</p><p>Delivery events should be confirmed through the authenticated webhook.</p></div>',
       tag: 'gazelle-connection-test',
     });
-    await audit(env, admin.email, 'email_connection_tested', 'email_provider', 'brevo', { to, providerMessageId: provider.id });
-    return json({ status: 'accepted', providerMessageId: provider.id });
+    await audit(env, admin.email, 'email_connection_tested', 'email_provider', 'brevo', { to, providerMessageId: provider.id, transport: provider.transport });
+    return json({ status: 'accepted', providerMessageId: provider.id, transport: provider.transport });
   } catch (error) {
     return json({ error: error.providerMessage || 'Brevo did not accept the test message.', code: error.message }, error.providerStatus || 502);
   }
@@ -2534,7 +2677,7 @@ async function sendTestEmail(request, env, admin) {
 async function configureBrevoWebhook(request, env, user) {
   if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can configure the provider webhook.' }, 403);
   const config = emailConfig(env);
-  if (!config.configured) return json({ error: 'Brevo email and webhook secrets are not fully configured.', code: 'email_not_configured' }, 503);
+  if (!config.apiConfigured || !config.webhookConfigured) return json({ error: 'Brevo API and webhook secrets are not fully configured.', code: 'email_not_configured' }, 503);
   const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || new URL(request.url).origin;
   const webhookUrl = `${origin}/api/brevo/webhook?integration=gazelle-v1`;
   try {
@@ -3059,6 +3202,9 @@ async function handleApi(request, env, context) {
         sendingConfigured: email.sendingConfigured,
         webhookConfigured: email.webhookConfigured,
         provider: 'Brevo',
+        transport: email.transport,
+        apiConfigured: email.apiConfigured,
+        smtpConfigured: email.smtpConfigured,
         senderEmail: email.senderEmail || null,
         senderName: email.senderName,
       },

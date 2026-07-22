@@ -32,7 +32,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, smtpMessage, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -51,6 +51,26 @@ assert.equal(configured.configured, true);
 assert.equal(configured.sendingConfigured, true);
 assert.equal(configured.webhookConfigured, true);
 assert.equal(configured.senderEmail, 'assessments@example.com');
+assert.equal(configured.transport, 'api');
+assert.equal(configured.apiConfigured, true);
+
+const smtpConfigured = brevo.emailConfig({
+  ...env,
+  BREVO_EMAIL_TRANSPORT: 'smtp',
+  BREVO_SMTP_LOGIN: 'relay@example.com',
+  BREVO_SMTP_KEY: 'smtp-test-key',
+});
+assert.equal(smtpConfigured.transport, 'smtp');
+assert.equal(smtpConfigured.smtpConfigured, true);
+assert.equal(smtpConfigured.sendingConfigured, true);
+const mime = brevo.smtpMessage(smtpConfigured, {
+  invitationId: 'invitation-123', tag: 'Tenure Potential', to: 'candidate@example.com', toName: 'Candidate Name',
+  subject: 'Assessment invitation\r\nBcc: attacker@example.com', text: 'Plain content', html: '<p>HTML content</p>',
+}, '<gazelle-test@gazellehunt.com>');
+assert.match(mime, /Message-ID: <gazelle-test@gazellehunt\.com>/);
+assert.match(mime, /X-Mailin-custom: invitation_id:invitation-123/);
+assert.doesNotMatch(mime, /\r\nBcc:/);
+assert.match(mime, /multipart\/alternative/);
 
 const sent = await brevo.sendBrevo(env, {
   invitationId: 'invitation-123',
@@ -96,5 +116,7 @@ assert.equal(brevo.batchDeliveryStatus({ status: 'api_accepted', accepted_count:
 assert.equal(brevo.batchDeliveryStatus({ status: 'processing', accepted_count: 0, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0 }), 'processing');
 assert.match(source, /\/api\/admin\/email-diagnostics/);
 assert.match(source, /\/smtp\/statistics\/events\?days=2/);
+assert.match(source, /secureTransport: 'starttls'/);
+assert.match(source, /AUTH LOGIN/);
 
 console.log('Brevo integration tests passed.');
