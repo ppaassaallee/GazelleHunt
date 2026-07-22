@@ -48,7 +48,7 @@ function navItems() {
 const state = {
   view: 'home', reportTab: 'report', reportLocale: 'en', candidates: [], results: [], filteredStatus: 'All', search: '',
   health: {
-    database: false,
+    database: false, publicBaseUrl: '',
     email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' },
     ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5-mini' },
   },
@@ -58,6 +58,7 @@ const state = {
   stages: [], referrals: [], journeyCandidateId: null,
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
   csv: null, reportResultId: null, reportSearch: '', reportTestId: 'all', reportScope: 'all', reportRole: 'all', reportListId: 'all', previewReport: null, runner: null,
+  directSendReceipt: null,
 };
 
 function icon(name) {
@@ -140,9 +141,9 @@ function statusBadge(status) {
     api_accepted: 'API accepted', api_accepted_with_errors: 'API accepted with errors',
     provider_unconfirmed: 'Brevo unconfirmed', provider_confirmed: 'Brevo confirmed',
     provider_confirmed_with_errors: 'Brevo confirmed with errors', partially_confirmed: 'Partially confirmed',
-    delivered_with_errors: 'Delivered with errors',
+    delivered_with_errors: 'Delivered with errors', smtp_ready: 'SMTP ready',
   };
-  const tone = ['completed', 'delivered', 'active'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'sending', 'deferred', 'pending', 'processing', 'api_accepted', 'api_accepted_with_errors', 'provider_unconfirmed', 'provider_confirmed', 'provider_confirmed_with_errors', 'partially_confirmed', 'delivered_with_errors'].includes(value) ? 'orange' : 'neutral';
+  const tone = ['completed', 'delivered', 'active', 'smtp_ready'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'sending', 'deferred', 'pending', 'processing', 'api_accepted', 'api_accepted_with_errors', 'provider_unconfirmed', 'provider_confirmed', 'provider_confirmed_with_errors', 'partially_confirmed', 'delivered_with_errors'].includes(value) ? 'orange' : 'neutral';
   return `<span class="badge badge-${tone}">${esc(labels[value] || value.replaceAll('_', ' '))}</span>`;
 }
 
@@ -352,8 +353,19 @@ function renderImport() {
 function renderSend(prefill = {}) {
   const emailReady = state.health.email?.configured;
   const activeTests = state.tests.filter((test) => test.status === 'active');
+  const receipt = state.directSendReceipt;
+  const receiptCandidate = receipt ? state.candidates.find((candidate) => candidate.invitation_id === receipt.invitationId) : null;
+  const receiptStatus = receiptCandidate?.invitation_status || receipt?.status || 'accepted';
+  const receiptTest = receipt ? state.tests.find((test) => test.id === receipt.testId) : null;
+  const receiptMessage = receiptStatus === 'delivered' || receiptStatus === 'completed'
+    ? 'Brevo confirmed delivery to the recipient mail server.'
+    : receiptStatus === 'accepted'
+      ? 'Brevo SMTP accepted the message. Refresh to check the delivery event.'
+      : 'The latest provider status is shown below. Refresh to check for a newer event.';
+  const publicHost = (state.health.publicBaseUrl || location.origin).replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const receiptHtml = receipt ? `<section class="direct-send-receipt" aria-live="polite"><div class="receipt-heading"><span class="receipt-icon">${icon(receiptStatus === 'delivered' || receiptStatus === 'completed' ? 'check' : 'mail')}</span><div><p class="eyebrow">Direct-send receipt</p><h3>Invitation submitted</h3><p>${esc(receiptMessage)}</p></div>${statusBadge(receiptStatus)}</div><dl class="receipt-details"><div><dt>Candidate</dt><dd>${esc(receipt.candidateName)}</dd><small>${esc(receipt.candidateEmail)}</small></div><div><dt>Assessment</dt><dd>${esc(receiptTest?.name_en || 'Assessment')}</dd><small>${receipt.locale === 'es' ? 'Email in Spanish' : 'Email in English'}</small></div><div><dt>Transport</dt><dd>Brevo SMTP</dd><small>${esc(formatDate(receipt.submittedAt))}</small></div><div><dt>Public access</dt><dd>${esc(publicHost)}</dd><small>No ChatGPT account required</small></div></dl><div class="receipt-footer"><p>Direct sends are tracked on the candidate record and do not appear in the batch table.</p><div class="receipt-actions"><button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button><button class="button button-secondary" data-nav="candidates">${icon('users')}View candidate</button></div></div></section>` : '';
   const companyField = state.user?.role === 'super_admin' && !prefill.id ? `<div class="field"><label for="invite-company">Company</label><select class="select" id="invite-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></div>` : '';
-  return `${pageIntro('One-off delivery', 'Direct test send', 'Use lists for cohorts and test sets. Direct send is available for an individual exception.', `<button class="button button-secondary" data-nav="lists">${icon('list')}Use a list instead</button>`)}<div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Candidate invitation</h3><p>The candidate still chooses English or Spanish before starting.</p></div>${statusBadge(emailReady ? 'delivered' : 'Not configured')}</div><form class="card-body form-grid" id="invite-form"><input type="hidden" id="invite-candidate-id" value="${esc(prefill.id || '')}"><div class="field"><label for="invite-name">Candidate name</label><input class="input" id="invite-name" required value="${esc(prefill.name || '')}"></div><div class="field"><label for="invite-email">Email</label><input class="input" id="invite-email" type="email" required value="${esc(prefill.email || '')}"></div><div class="field"><label for="invite-phone">Phone</label><input class="input" id="invite-phone" value="${esc(prefill.phone || '')}"></div><div class="field"><label for="invite-role">Role</label><input class="input" id="invite-role" required value="${esc(prefill.role || 'Bilingual Customer Care')}"></div><div class="field"><label for="invite-site">Site</label><input class="input" id="invite-site" value="${esc(prefill.site || '')}"></div>${companyField}<div class="field"><label for="invite-test">Test</label><select class="select" id="invite-test">${activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('')}</select></div><div class="field"><label for="invite-locale">Suggested email language</label><select class="select" id="invite-locale"><option value="en">English</option><option value="es">Español</option></select></div><div class="form-span"><button class="button button-primary" type="submit" ${!emailReady || state.busy ? 'disabled' : ''}>${icon('send')}${state.busy ? 'Sending…' : 'Send invitation'}</button>${!emailReady ? '<p class="field-help">Connect and verify Brevo in Settings before sending.</p>' : ''}</div></form></section><section class="stack">${activeTests.map(testCatalogCard).join('')}<article class="card"><div class="card-header"><div><h3>Delivery controls</h3><p>High-deliverability requirements.</p></div></div><div class="card-body guardrail-list">${guardrail('Verified sender', 'Authenticate the sender or domain in Brevo and publish DMARC with your domain policy.', emailReady ? 'Configured' : 'Open')}${guardrail('Idempotent sending', 'Each invitation uses a stable idempotency key to prevent accidental duplicates.', 'Active')}${guardrail('Authenticated webhooks', 'Delivery failures and complaints update the invitation record.', 'Implemented')}</div></article></section></div>`;
+  return `${pageIntro('One-off delivery', 'Direct test send', 'Use lists for cohorts and test sets. Direct send is available for an individual exception.', `<button class="button button-secondary" data-nav="lists">${icon('list')}Use a list instead</button>`)}${receiptHtml}<div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Candidate invitation</h3><p>The candidate still chooses English or Spanish before starting.</p></div>${statusBadge(emailReady ? 'smtp_ready' : 'Not configured')}</div><form class="card-body form-grid" id="invite-form"><input type="hidden" id="invite-candidate-id" value="${esc(prefill.id || '')}"><div class="field"><label for="invite-name">Candidate name</label><input class="input" id="invite-name" required value="${esc(prefill.name || '')}"></div><div class="field"><label for="invite-email">Email</label><input class="input" id="invite-email" type="email" required value="${esc(prefill.email || '')}"></div><div class="field"><label for="invite-phone">Phone</label><input class="input" id="invite-phone" value="${esc(prefill.phone || '')}"></div><div class="field"><label for="invite-role">Role</label><input class="input" id="invite-role" required value="${esc(prefill.role || 'Bilingual Customer Care')}"></div><div class="field"><label for="invite-site">Site</label><input class="input" id="invite-site" value="${esc(prefill.site || '')}"></div>${companyField}<div class="field"><label for="invite-test">Test</label><select class="select" id="invite-test">${activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('')}</select></div><div class="field"><label for="invite-locale">Suggested email language</label><select class="select" id="invite-locale"><option value="en">English</option><option value="es">Español</option></select></div><div class="form-span"><button class="button button-primary" type="submit" ${!emailReady || state.busy ? 'disabled' : ''}>${icon('send')}${state.busy ? 'Sending…' : 'Send invitation'}</button>${!emailReady ? '<p class="field-help">Connect and verify Brevo in Settings before sending.</p>' : ''}</div></form></section><section class="stack">${activeTests.map(testCatalogCard).join('')}<article class="card"><div class="card-header"><div><h3>Delivery controls</h3><p>High-deliverability requirements.</p></div></div><div class="card-body guardrail-list">${guardrail('Verified sender', 'Authenticate the sender or domain in Brevo and publish DMARC with your domain policy.', emailReady ? 'Configured' : 'Open')}${guardrail('Idempotent sending', 'Each invitation uses a stable idempotency key to prevent accidental duplicates.', 'Active')}${guardrail('Authenticated webhooks', 'Delivery failures and complaints update the invitation record.', 'Implemented')}</div></article></section></div>`;
 }
 
 function renderProgress() {
@@ -795,8 +807,10 @@ async function sendInvitation(event) {
   state.busy = true; render();
   try {
     const response = await fetchJson('/api/invitations', { method: 'POST', body: JSON.stringify({ candidateId: candidateId || undefined, candidate: candidateId ? undefined : candidate, companyId: document.getElementById('invite-company')?.value, testId, locale }) });
-    toast(`Brevo accepted the invitation: ${response.providerMessageId}`);
-    await loadWorkspace(); state.view = 'progress';
+    state.directSendReceipt = { invitationId: response.invitationId, providerMessageId: response.providerMessageId, transport: response.transport || 'smtp', status: response.status || 'accepted', candidateName: candidate.name, candidateEmail: candidate.email, locale, testId, submittedAt: new Date().toISOString() };
+    state.view = 'send';
+    toast('Invitation submitted through Brevo SMTP. Checking delivery.');
+    await loadWorkspace();
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
 }

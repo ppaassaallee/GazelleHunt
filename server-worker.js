@@ -2203,7 +2203,7 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
     const provider = await sendBrevo(env, { to: candidate.email, toName: candidate.name, ...copy, invitationId, tag: test.slug });
     await env.DB.prepare(`UPDATE invitations SET status = ?, provider_message_id = ? WHERE id = ?`).bind('accepted', provider.id, invitationId).run();
     await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, testId: test.id, listId, batchId });
-    return { invitationId, status: 'accepted', providerMessageId: provider.id, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
+    return { invitationId, status: 'accepted', providerMessageId: provider.id, transport: provider.transport, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
   } catch (error) {
     await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('failed', invitationId).run();
     await audit(env, user.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null, testId: test.id, listId, batchId });
@@ -3197,6 +3197,7 @@ async function handleApi(request, env, context) {
     const ai = aiConfig(env);
     return json({
       database: true,
+      publicBaseUrl: cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || url.origin,
       email: {
         configured: email.configured,
         sendingConfigured: email.sendingConfigured,
