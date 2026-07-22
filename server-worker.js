@@ -1698,21 +1698,23 @@ async function emailDeliveryDiagnostics(request, env, user) {
   const config = emailConfig(env);
   if (!config.apiConfigured) return json({ error: 'The Brevo API key is required for delivery diagnostics.', code: 'brevo_api_not_configured' }, 503);
   const batchId = cleanText(new URL(request.url).searchParams.get('batchId'), 100);
-  if (!batchId) return json({ error: 'A batch ID is required.', code: 'batch_required' }, 422);
-  const batch = await env.DB.prepare(`SELECT id, total_count, accepted_count, failed_count, created_at FROM send_batches WHERE id = ?`).bind(batchId).first();
-  if (!batch) return json({ error: 'Batch not found.', code: 'batch_not_found' }, 404);
-  const invitationResult = await env.DB.prepare(`
-    SELECT invitation_id, provider_message_id FROM send_batch_items
-    WHERE batch_id = ? AND provider_message_id IS NOT NULL
-  `).bind(batch.id).all();
+  const batch = batchId ? await env.DB.prepare(`SELECT id, total_count, accepted_count, failed_count, created_at FROM send_batches WHERE id = ?`).bind(batchId).first() : null;
+  if (batchId && !batch) return json({ error: 'Batch not found.', code: 'batch_not_found' }, 404);
+  const invitationResult = batch
+    ? await env.DB.prepare(`SELECT invitation_id, provider_message_id FROM send_batch_items WHERE batch_id = ? AND provider_message_id IS NOT NULL`).bind(batch.id).all()
+    : await env.DB.prepare(`SELECT id AS invitation_id, provider_message_id FROM invitations WHERE provider_message_id IS NOT NULL ORDER BY created_at DESC LIMIT 500`).all();
   const invitations = invitationResult.results || [];
   const providerIds = new Set(invitations.map((entry) => normalizedProviderMessageId(entry.provider_message_id)).filter(Boolean));
   const invitationIds = invitations.map((entry) => entry.invitation_id).filter(Boolean);
-  const sampleMessageId = invitations[0]?.provider_message_id || null;
-  const [account, activity, sampleLookup] = await Promise.all([
+  const latestTest = await env.DB.prepare(`SELECT json_extract(payload_json, '$.providerMessageId') AS provider_message_id FROM audit_events WHERE event_type = 'email_connection_tested' ORDER BY created_at DESC LIMIT 1`).first();
+  const sampleMessageId = latestTest?.provider_message_id || invitations[0]?.provider_message_id || null;
+  const [account, activity, sampleLookup, sampleEvents, senders, domains] = await Promise.all([
     brevoApiRequest(config, '/account'),
     brevoApiRequest(config, '/smtp/statistics/events?days=2&limit=5000&sort=desc'),
     sampleMessageId ? brevoApiRequest(config, `/smtp/emails?messageId=${encodeURIComponent(sampleMessageId)}&limit=10`) : Promise.resolve({ count: 0, transactionalEmails: [] }),
+    sampleMessageId ? brevoApiRequest(config, `/smtp/statistics/events?messageId=${encodeURIComponent(sampleMessageId)}&limit=100&sort=desc`) : Promise.resolve({ events: [] }),
+    brevoApiRequest(config, '/senders').catch(() => ({ senders: [] })),
+    brevoApiRequest(config, '/senders/domains').catch(() => ({ domains: [] })),
   ]);
   const matchedEvents = (activity.events || []).filter((event) => providerIds.has(normalizedProviderMessageId(event.messageId)));
   const eventCounts = {};
@@ -1723,6 +1725,11 @@ async function emailDeliveryDiagnostics(request, env, user) {
   const taggedEvents = (activity.events || []).filter((event) => event.tag === 'tenure-potential');
   const taggedEventCounts = {};
   taggedEvents.forEach((event) => { taggedEventCounts[event.event || 'unknown'] = (taggedEventCounts[event.event || 'unknown'] || 0) + 1; });
+  const sampleEventCounts = {};
+  (sampleEvents.events || []).forEach((event) => { sampleEventCounts[event.event || 'unknown'] = (sampleEventCounts[event.event || 'unknown'] || 0) + 1; });
+  const senderRecord = (senders.senders || []).find((sender) => cleanEmail(sender.email) === config.senderEmail);
+  const senderDomain = config.senderEmail.split('@')[1] || '';
+  const domainRecord = (domains.domains || []).find((domain) => cleanText(domain.domain_name, 180).toLowerCase() === senderDomain);
   let webhookCounts = [];
   if (invitationIds.length) {
     const webhookResult = await env.DB.prepare(`
@@ -1741,13 +1748,15 @@ async function emailDeliveryDiagnostics(request, env, user) {
       relayUsername: cleanEmail(account.relay?.data?.userName),
       plans: (account.plan || []).map((plan) => ({ type: cleanText(plan.type, 60), creditsType: cleanText(plan.creditsType, 60), credits: Number(plan.credits || 0) })),
     },
-    batch: {
+    sender: { email: config.senderEmail, exists: Boolean(senderRecord), active: Boolean(senderRecord?.active) },
+    domain: { name: senderDomain, exists: Boolean(domainRecord), verified: Boolean(domainRecord?.verified), authenticated: Boolean(domainRecord?.authenticated) },
+    batch: batch ? {
       id: batch.id,
       total: Number(batch.total_count || 0),
       accepted: Number(batch.accepted_count || 0),
       failed: Number(batch.failed_count || 0),
       createdAt: batch.created_at,
-    },
+    } : null,
     provider: {
       messageIds: providerIds.size,
       matchedMessageIds: matchedProviderIds.size,
@@ -1759,6 +1768,15 @@ async function emailDeliveryDiagnostics(request, env, user) {
       tenurePotentialEventCounts: taggedEventCounts,
       latestAccountEventAt: (activity.events || []).map((event) => event.date).filter(Boolean).sort().at(-1) || null,
       sampleMessageLookupCount: Number(sampleLookup.count || 0),
+      sampleMessageId,
+      sampleEventCounts,
+      sampleEvents: (sampleEvents.events || []).slice(0, 10).map((event) => ({ event: cleanText(event.event, 80) || 'unknown', date: cleanText(event.date, 80) || null, reason: cleanText(event.reason, 200) || null })),
+      recentEvents: (activity.events || []).slice(0, 12).map((event) => ({
+        event: cleanText(event.event, 80) || 'unknown',
+        date: cleanText(event.date, 80) || null,
+        tag: cleanText(event.tag, 80) || null,
+        matchedInvitation: providerIds.has(normalizedProviderMessageId(event.messageId)),
+      })),
     },
     webhook: { eventCounts: webhookCounts.map((entry) => ({ event: entry.event_type, count: Number(entry.count || 0) })) },
   });

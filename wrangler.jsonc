@@ -18,7 +18,7 @@
   "vars": {
     "AI_PROVIDER": "openai",
     "APP_BASE_URL": "https://gazelle-assessment.gazellehunt.workers.dev",
-    "BREVO_EMAIL_TRANSPORT": "smtp",
+    "BREVO_EMAIL_TRANSPORT": "api",
     "BREVO_SENDER_EMAIL": "assesment@gazellehunt.com",
     "BREVO_SENDER_NAME": "Gazelle Assessment",
     "BREVO_SMTP_HOST": "smtp-relay.brevo.com",

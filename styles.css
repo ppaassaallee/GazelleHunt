@@ -358,6 +358,15 @@ tbody tr:hover td { background: #fcfdfd; }
 .scenario-finding b { color: #356462; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
 .scenario-finding span { color: #475456; font-size: 11px; line-height: 1.5; }
 .notice { padding: 13px 14px; border: 1px solid #e8d89b; background: var(--yellow-soft); color: #6f510f; border-radius: 7px; font-size: 12px; line-height: 1.55; }
+.email-diagnostics { margin-top: 12px; padding: 13px; display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 7px; background: #f7f9f9; }
+.email-diagnostics > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.email-diagnostics strong { font-size: 12px; }
+.email-diagnostics span { color: var(--muted); font-size: 10px; }
+.diagnostic-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.diagnostic-sample { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.diagnostic-events { display: grid; gap: 5px; padding-top: 9px; border-top: 1px solid var(--line); }
+.diagnostic-events span { display: flex; justify-content: space-between; gap: 10px; }
+.diagnostic-events b { color: var(--ink); }
 .direct-send-receipt { margin-bottom: 18px; border: 1px solid #afd9cf; border-left: 4px solid var(--teal); background: #f3faf8; border-radius: 7px; padding: 18px; }
 .receipt-heading { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: start; gap: 12px; }
 .receipt-heading h3 { margin: 2px 0 4px; font-size: 18px; }

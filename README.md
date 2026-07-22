@@ -144,7 +144,7 @@ pnpm test
 pnpm deploy:cloudflare
 ```
 
-Configure `AUTH_PEPPER`, `SUPER_ADMIN_BOOTSTRAP_TOKEN`, `BREVO_API_KEY`, `BREVO_SMTP_KEY`, `BREVO_WEBHOOK_TOKEN`, and the selected AI provider key with `wrangler secret put`; never add their values to `wrangler.jsonc` or source control. Production uses Brevo SMTP with STARTTLS for message submission and retains the API key for webhook management and delivery diagnostics. After changing the public domain, update `APP_BASE_URL`, redeploy, and recreate the Brevo webhook so invitations and candidate portal links use the new origin.
+Configure `AUTH_PEPPER`, `SUPER_ADMIN_BOOTSTRAP_TOKEN`, `BREVO_API_KEY`, `BREVO_SMTP_KEY`, `BREVO_WEBHOOK_TOKEN`, and the selected AI provider key with `wrangler secret put`; never add their values to `wrangler.jsonc` or source control. Production uses the Brevo Transactional Email API so every accepted message receives a provider ID that can be reconciled with delivery events; the authenticated SMTP relay remains available as a fallback transport. After changing the public domain, update `APP_BASE_URL`, redeploy, and recreate the Brevo webhook so invitations and candidate portal links use the new origin.
 
 ## Production boundary
 

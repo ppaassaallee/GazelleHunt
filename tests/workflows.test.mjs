@@ -95,6 +95,7 @@ assert.equal(csvApi.csvMappedCandidates(excelCsv)[0].errors.length, 0);
 
 csvApi.state.user = { role: 'admin', companyName: 'Allied Global' };
 csvApi.state.health.email.configured = true;
+csvApi.state.health.email.transport = 'api';
 csvApi.state.tests = [{ id: 'test_tenure_potential', name_en: 'Tenure Potential', status: 'active', engine_key: 'tenure_potential' }];
 csvApi.state.bulkResendTestId = 'test_tenure_potential';
 csvApi.state.candidates = [
@@ -118,13 +119,14 @@ assert.match(progressHtml, /Brevo unconfirmed/);
 assert.match(progressHtml, /0 \/ 25 confirmed/);
 assert.match(progressHtml, /0 delivered/);
 
-csvApi.state.directSendReceipt = { invitationId: 'invite-direct', providerMessageId: 'message-direct', transport: 'smtp', status: 'accepted', candidateName: 'Direct Candidate', candidateEmail: 'direct@example.com', locale: 'es', testId: 'test_tenure_potential', submittedAt: '2026-07-22T14:49:40.427Z' };
+csvApi.state.directSendReceipt = { invitationId: 'invite-direct', providerMessageId: 'message-direct', transport: 'api', status: 'accepted', candidateName: 'Direct Candidate', candidateEmail: 'direct@example.com', locale: 'es', testId: 'test_tenure_potential', submittedAt: '2026-07-22T14:49:40.427Z' };
 csvApi.state.candidates = [{ id: 'candidate-direct', invitation_id: 'invite-direct', invitation_status: 'delivered' }];
 const directSendHtml = csvApi.renderSend();
 assert.match(directSendHtml, /Invitation submitted/);
 assert.match(directSendHtml, /Brevo confirmed delivery/);
 assert.match(directSendHtml, /Direct sends are tracked on the candidate record and do not appear in the batch table/);
-assert.match(directSendHtml, /SMTP ready/);
+assert.match(directSendHtml, /API ready/);
+assert.match(directSendHtml, /Brevo Transactional API/);
 assert.match(directSendHtml, /No ChatGPT account required/);
 
 csvApi.state.user = { id: 'owner-1', role: 'super_admin', companyName: 'Gazelle Platform' };
@@ -187,11 +189,11 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260722\.16/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260722\.16/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260722\.16/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260722\.16/);
-assert.match(indexSource, /pdf-report\.js\?v=20260722\.16/);
+assert.match(indexSource, /app\.js\?v=20260722\.21/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260722\.21/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260722\.21/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260722\.21/);
+assert.match(indexSource, /pdf-report\.js\?v=20260722\.21/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
@@ -223,6 +225,10 @@ assert.doesNotMatch(appSource, /Uncalibrated pilot|Piloto sin calibrar|Human rev
 assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/);
 assert.doesNotMatch(appSource, /signin-with-chatgpt/);
 assert.match(appSource, /SMTP relay with STARTTLS/);
+assert.match(appSource, /Check Brevo activity/);
+assert.match(serverSource, /recentEvents/);
+assert.match(serverSource, /senderRecord/);
+assert.match(serverSource, /domainRecord/);
 
 for (const route of [
   '/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me',

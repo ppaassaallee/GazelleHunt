@@ -49,7 +49,7 @@ const state = {
   view: 'home', reportTab: 'report', reportLocale: 'en', candidates: [], results: [], filteredStatus: 'All', search: '',
   health: {
     database: false, publicBaseUrl: '',
-    email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' },
+    email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', transport: 'api', senderEmail: null, senderName: 'Gazelle Assessment' },
     ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5-mini' },
   },
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
@@ -58,7 +58,7 @@ const state = {
   stages: [], referrals: [], journeyCandidateId: null,
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
   csv: null, reportResultId: null, reportSearch: '', reportTestId: 'all', reportScope: 'all', reportRole: 'all', reportListId: 'all', previewReport: null, runner: null,
-  directSendReceipt: null,
+  directSendReceipt: null, emailDiagnostics: null,
 };
 
 function icon(name) {
@@ -141,9 +141,9 @@ function statusBadge(status) {
     api_accepted: 'API accepted', api_accepted_with_errors: 'API accepted with errors',
     provider_unconfirmed: 'Brevo unconfirmed', provider_confirmed: 'Brevo confirmed',
     provider_confirmed_with_errors: 'Brevo confirmed with errors', partially_confirmed: 'Partially confirmed',
-    delivered_with_errors: 'Delivered with errors', smtp_ready: 'SMTP ready',
+    delivered_with_errors: 'Delivered with errors', smtp_ready: 'SMTP ready', api_ready: 'API ready',
   };
-  const tone = ['completed', 'delivered', 'active', 'smtp_ready'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'sending', 'deferred', 'pending', 'processing', 'api_accepted', 'api_accepted_with_errors', 'provider_unconfirmed', 'provider_confirmed', 'provider_confirmed_with_errors', 'partially_confirmed', 'delivered_with_errors'].includes(value) ? 'orange' : 'neutral';
+  const tone = ['completed', 'delivered', 'active', 'smtp_ready', 'api_ready'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'sending', 'deferred', 'pending', 'processing', 'api_accepted', 'api_accepted_with_errors', 'provider_unconfirmed', 'provider_confirmed', 'provider_confirmed_with_errors', 'partially_confirmed', 'delivered_with_errors'].includes(value) ? 'orange' : 'neutral';
   return `<span class="badge badge-${tone}">${esc(labels[value] || value.replaceAll('_', ' '))}</span>`;
 }
 
@@ -352,20 +352,23 @@ function renderImport() {
 
 function renderSend(prefill = {}) {
   const emailReady = state.health.email?.configured;
+  const configuredTransport = state.health.email?.transport === 'smtp' ? 'smtp' : 'api';
   const activeTests = state.tests.filter((test) => test.status === 'active');
   const receipt = state.directSendReceipt;
   const receiptCandidate = receipt ? state.candidates.find((candidate) => candidate.invitation_id === receipt.invitationId) : null;
   const receiptStatus = receiptCandidate?.invitation_status || receipt?.status || 'accepted';
   const receiptTest = receipt ? state.tests.find((test) => test.id === receipt.testId) : null;
+  const receiptTransport = receipt?.transport === 'smtp' ? 'smtp' : 'api';
+  const receiptTransportName = receiptTransport === 'smtp' ? 'Brevo SMTP' : 'Brevo Transactional API';
   const receiptMessage = receiptStatus === 'delivered' || receiptStatus === 'completed'
     ? 'Brevo confirmed delivery to the recipient mail server.'
     : receiptStatus === 'accepted'
-      ? 'Brevo SMTP accepted the message. Refresh to check the delivery event.'
+      ? `${receiptTransportName} accepted the message. Refresh to check the delivery event.`
       : 'The latest provider status is shown below. Refresh to check for a newer event.';
   const publicHost = (state.health.publicBaseUrl || location.origin).replace(/^https?:\/\//, '').replace(/\/$/, '');
-  const receiptHtml = receipt ? `<section class="direct-send-receipt" aria-live="polite"><div class="receipt-heading"><span class="receipt-icon">${icon(receiptStatus === 'delivered' || receiptStatus === 'completed' ? 'check' : 'mail')}</span><div><p class="eyebrow">Direct-send receipt</p><h3>Invitation submitted</h3><p>${esc(receiptMessage)}</p></div>${statusBadge(receiptStatus)}</div><dl class="receipt-details"><div><dt>Candidate</dt><dd>${esc(receipt.candidateName)}</dd><small>${esc(receipt.candidateEmail)}</small></div><div><dt>Assessment</dt><dd>${esc(receiptTest?.name_en || 'Assessment')}</dd><small>${receipt.locale === 'es' ? 'Email in Spanish' : 'Email in English'}</small></div><div><dt>Transport</dt><dd>Brevo SMTP</dd><small>${esc(formatDate(receipt.submittedAt))}</small></div><div><dt>Public access</dt><dd>${esc(publicHost)}</dd><small>No ChatGPT account required</small></div></dl><div class="receipt-footer"><p>Direct sends are tracked on the candidate record and do not appear in the batch table.</p><div class="receipt-actions"><button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button><button class="button button-secondary" data-nav="candidates">${icon('users')}View candidate</button></div></div></section>` : '';
+  const receiptHtml = receipt ? `<section class="direct-send-receipt" aria-live="polite"><div class="receipt-heading"><span class="receipt-icon">${icon(receiptStatus === 'delivered' || receiptStatus === 'completed' ? 'check' : 'mail')}</span><div><p class="eyebrow">Direct-send receipt</p><h3>Invitation submitted</h3><p>${esc(receiptMessage)}</p></div>${statusBadge(receiptStatus)}</div><dl class="receipt-details"><div><dt>Candidate</dt><dd>${esc(receipt.candidateName)}</dd><small>${esc(receipt.candidateEmail)}</small></div><div><dt>Assessment</dt><dd>${esc(receiptTest?.name_en || 'Assessment')}</dd><small>${receipt.locale === 'es' ? 'Email in Spanish' : 'Email in English'}</small></div><div><dt>Transport</dt><dd>${esc(receiptTransportName)}</dd><small>${esc(formatDate(receipt.submittedAt))}</small></div><div><dt>Public access</dt><dd>${esc(publicHost)}</dd><small>No ChatGPT account required</small></div></dl><div class="receipt-footer"><p>Direct sends are tracked on the candidate record and do not appear in the batch table.</p><div class="receipt-actions"><button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button><button class="button button-secondary" data-nav="candidates">${icon('users')}View candidate</button></div></div></section>` : '';
   const companyField = state.user?.role === 'super_admin' && !prefill.id ? `<div class="field"><label for="invite-company">Company</label><select class="select" id="invite-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></div>` : '';
-  return `${pageIntro('One-off delivery', 'Direct test send', 'Use lists for cohorts and test sets. Direct send is available for an individual exception.', `<button class="button button-secondary" data-nav="lists">${icon('list')}Use a list instead</button>`)}${receiptHtml}<div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Candidate invitation</h3><p>The candidate still chooses English or Spanish before starting.</p></div>${statusBadge(emailReady ? 'smtp_ready' : 'Not configured')}</div><form class="card-body form-grid" id="invite-form"><input type="hidden" id="invite-candidate-id" value="${esc(prefill.id || '')}"><div class="field"><label for="invite-name">Candidate name</label><input class="input" id="invite-name" required value="${esc(prefill.name || '')}"></div><div class="field"><label for="invite-email">Email</label><input class="input" id="invite-email" type="email" required value="${esc(prefill.email || '')}"></div><div class="field"><label for="invite-phone">Phone</label><input class="input" id="invite-phone" value="${esc(prefill.phone || '')}"></div><div class="field"><label for="invite-role">Role</label><input class="input" id="invite-role" required value="${esc(prefill.role || 'Bilingual Customer Care')}"></div><div class="field"><label for="invite-site">Site</label><input class="input" id="invite-site" value="${esc(prefill.site || '')}"></div>${companyField}<div class="field"><label for="invite-test">Test</label><select class="select" id="invite-test">${activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('')}</select></div><div class="field"><label for="invite-locale">Suggested email language</label><select class="select" id="invite-locale"><option value="en">English</option><option value="es">Español</option></select></div><div class="form-span"><button class="button button-primary" type="submit" ${!emailReady || state.busy ? 'disabled' : ''}>${icon('send')}${state.busy ? 'Sending…' : 'Send invitation'}</button>${!emailReady ? '<p class="field-help">Connect and verify Brevo in Settings before sending.</p>' : ''}</div></form></section><section class="stack">${activeTests.map(testCatalogCard).join('')}<article class="card"><div class="card-header"><div><h3>Delivery controls</h3><p>High-deliverability requirements.</p></div></div><div class="card-body guardrail-list">${guardrail('Verified sender', 'Authenticate the sender or domain in Brevo and publish DMARC with your domain policy.', emailReady ? 'Configured' : 'Open')}${guardrail('Idempotent sending', 'Each invitation uses a stable idempotency key to prevent accidental duplicates.', 'Active')}${guardrail('Authenticated webhooks', 'Delivery failures and complaints update the invitation record.', 'Implemented')}</div></article></section></div>`;
+  return `${pageIntro('One-off delivery', 'Direct test send', 'Use lists for cohorts and test sets. Direct send is available for an individual exception.', `<button class="button button-secondary" data-nav="lists">${icon('list')}Use a list instead</button>`)}${receiptHtml}<div class="grid grid-2"><section class="card"><div class="card-header"><div><h3>Candidate invitation</h3><p>The candidate still chooses English or Spanish before starting.</p></div>${statusBadge(emailReady ? `${configuredTransport}_ready` : 'Not configured')}</div><form class="card-body form-grid" id="invite-form"><input type="hidden" id="invite-candidate-id" value="${esc(prefill.id || '')}"><div class="field"><label for="invite-name">Candidate name</label><input class="input" id="invite-name" required value="${esc(prefill.name || '')}"></div><div class="field"><label for="invite-email">Email</label><input class="input" id="invite-email" type="email" required value="${esc(prefill.email || '')}"></div><div class="field"><label for="invite-phone">Phone</label><input class="input" id="invite-phone" value="${esc(prefill.phone || '')}"></div><div class="field"><label for="invite-role">Role</label><input class="input" id="invite-role" required value="${esc(prefill.role || 'Bilingual Customer Care')}"></div><div class="field"><label for="invite-site">Site</label><input class="input" id="invite-site" value="${esc(prefill.site || '')}"></div>${companyField}<div class="field"><label for="invite-test">Test</label><select class="select" id="invite-test">${activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('')}</select></div><div class="field"><label for="invite-locale">Suggested email language</label><select class="select" id="invite-locale"><option value="en">English</option><option value="es">Español</option></select></div><div class="form-span"><button class="button button-primary" type="submit" ${!emailReady || state.busy ? 'disabled' : ''}>${icon('send')}${state.busy ? 'Sending…' : 'Send invitation'}</button>${!emailReady ? '<p class="field-help">Connect and verify Brevo in Settings before sending.</p>' : ''}</div></form></section><section class="stack">${activeTests.map(testCatalogCard).join('')}<article class="card"><div class="card-header"><div><h3>Delivery controls</h3><p>High-deliverability requirements.</p></div></div><div class="card-body guardrail-list">${guardrail('Verified sender', 'Authenticate the sender or domain in Brevo and publish DMARC with your domain policy.', emailReady ? 'Configured' : 'Open')}${guardrail('Idempotent sending', 'Each invitation uses a stable idempotency key to prevent accidental duplicates.', 'Active')}${guardrail('Authenticated webhooks', 'Delivery failures and complaints update the invitation record.', 'Implemented')}</div></article></section></div>`;
 }
 
 function renderProgress() {
@@ -595,6 +598,13 @@ function renderSettings() {
   const transport = email.transport === 'smtp' ? 'SMTP relay with STARTTLS' : 'Transactional Email API';
   const emailStatus = email.configured ? 'Ready' : email.sendingConfigured ? 'Webhook required' : 'Setup required';
   const aiSecret = ai.providerKey === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY';
+  const diagnostics = state.emailDiagnostics;
+  const diagnosticCounts = diagnostics ? Object.entries(diagnostics.provider?.accountEventCounts || {}).map(([event, total]) => `<span class="badge badge-neutral">${esc(event)}: ${Number(total)}</span>`).join('') : '';
+  const diagnosticEvents = diagnostics?.provider?.recentEvents || [];
+  const diagnosticPlans = diagnostics ? (diagnostics.account?.plans || []).map((plan) => `<span class="badge badge-neutral">${esc(plan.type || plan.creditsType || 'plan')}: ${Number(plan.credits || 0)} credits</span>`).join('') : '';
+  const sampleCounts = diagnostics ? Object.entries(diagnostics.provider?.sampleEventCounts || {}).map(([event, total]) => `${event}: ${Number(total)}`).join(', ') : '';
+  const senderStatus = diagnostics ? `<span class="badge badge-${diagnostics.sender?.active ? 'teal' : 'red'}">Sender ${diagnostics.sender?.active ? 'active' : diagnostics.sender?.exists ? 'inactive' : 'missing'}</span><span class="badge badge-${diagnostics.domain?.authenticated ? 'teal' : 'red'}">Domain ${diagnostics.domain?.authenticated ? 'authenticated' : diagnostics.domain?.verified ? 'verified only' : 'not authenticated'}</span><span class="badge badge-${diagnostics.account?.relayEnabled ? 'teal' : 'red'}">Relay ${diagnostics.account?.relayEnabled ? 'enabled' : 'disabled'}</span>` : '';
+  const diagnosticsHtml = diagnostics ? `<div class="email-diagnostics"><div><strong>Latest Brevo activity</strong><span>${diagnostics.provider.latestAccountEventAt ? formatDate(diagnostics.provider.latestAccountEventAt) : 'No provider events found in the last two days'}</span></div><div class="diagnostic-counts">${senderStatus}</div><div class="diagnostic-counts">${diagnosticPlans || '<span class="badge badge-orange">No active email credits reported</span>'}</div><div class="diagnostic-counts">${diagnosticCounts || '<span class="badge badge-orange">No events</span>'}</div><div class="diagnostic-sample"><strong>Latest test message</strong><span>${Number(diagnostics.provider.sampleMessageLookupCount || 0) ? 'Found in Brevo' : 'Not found in Brevo activity'}${sampleCounts ? ` · ${esc(sampleCounts)}` : ' · no delivery event'}</span></div>${diagnosticEvents.length ? `<div class="diagnostic-events">${diagnosticEvents.slice(0, 6).map((event) => `<span><b>${esc(event.event)}</b>${esc(event.date || 'No timestamp')}${event.tag ? ` · ${esc(event.tag)}` : ''}${event.matchedInvitation ? ' · matched' : ''}</span>`).join('')}</div>` : ''}</div>` : '';
   return `${pageIntro('Secure runtime configuration', 'Settings', 'Email, AI provider, and authentication secrets stay server-side; the browser sees only connection status.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh status</button>`)}
     <div class="grid grid-2">
       <section class="card settings-card">
@@ -605,6 +615,7 @@ function renderSettings() {
         ${settingLine('API diagnostics', email.apiConfigured ? 'API key is configured for logs and webhooks' : 'Add BREVO_API_KEY', email.apiConfigured ? 'Ready' : 'Required')}
         ${settingLine('Webhook authentication', email.webhookConfigured ? 'Secret header token is configured' : 'Add BREVO_WEBHOOK_TOKEN', email.webhookConfigured ? 'Ready' : 'Required')}
         <div class="field email-test"><label for="email-test-recipient">Connection test recipient</label><div class="inline-field"><input class="input" id="email-test-recipient" type="email" placeholder="you@company.com"><button class="button button-primary" data-action="test-email" ${!email.configured || state.busy ? 'disabled' : ''}>Send test</button></div><small>Brevo acceptance is recorded immediately; the authenticated webhook confirms delivery.</small></div>
+        ${state.user?.role === 'super_admin' ? `<button class="button button-secondary" data-action="check-brevo-activity" ${!email.apiConfigured || state.busy ? 'disabled' : ''}>${icon('refresh')}Check Brevo activity</button>${diagnosticsHtml}` : ''}
       </section>
       <section class="card settings-card">
         <h3>Connect Brevo</h3>
@@ -809,7 +820,7 @@ async function sendInvitation(event) {
     const response = await fetchJson('/api/invitations', { method: 'POST', body: JSON.stringify({ candidateId: candidateId || undefined, candidate: candidateId ? undefined : candidate, companyId: document.getElementById('invite-company')?.value, testId, locale }) });
     state.directSendReceipt = { invitationId: response.invitationId, providerMessageId: response.providerMessageId, transport: response.transport || 'smtp', status: response.status || 'accepted', candidateName: candidate.name, candidateEmail: candidate.email, locale, testId, submittedAt: new Date().toISOString() };
     state.view = 'send';
-    toast('Invitation submitted through Brevo SMTP. Checking delivery.');
+    toast(`Invitation submitted through Brevo ${response.transport === 'smtp' ? 'SMTP' : 'API'}. Checking delivery.`);
     await loadWorkspace();
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
@@ -1068,6 +1079,15 @@ async function configureBrevoWebhook() {
   finally { state.busy = false; render(); }
 }
 
+async function checkBrevoActivity() {
+  state.busy = true; render();
+  try {
+    state.emailDiagnostics = await fetchJson('/api/admin/email-diagnostics');
+    toast('Brevo activity refreshed.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
 function render() {
   if (aiRefreshTimer) {
     clearTimeout(aiRefreshTimer);
@@ -1103,6 +1123,7 @@ function bindEvents() {
     if (action === 'bulk-resend') bulkResendCandidateTests();
     if (action === 'test-email') testEmail();
     if (action === 'configure-brevo-webhook') configureBrevoWebhook();
+    if (action === 'check-brevo-activity') checkBrevoActivity();
     if (action === 'generate-ai') generateAiAnalysis();
     if (action === 'download-pdf') downloadPdf();
     if (action === 'clear-report-filters') {
