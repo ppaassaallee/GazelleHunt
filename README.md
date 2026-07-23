@@ -7,7 +7,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.1` 
 ## What is implemented
 
 - Public email/password registration with approval required before access
-- Five protected super administrators: Alejandro Pascual (`david.alejandro.pa@gmail.com`), Alexandra (`karla.ms@alliedglobal.com`), Jose Lima (`jose.le@alliedglobal.com`), Daniela Llanos (`daniela.ld@alliedglobal.com`), and Eduardo (`eduardo.ac@alliedglobal.com`)
+- Six protected super administrators: Alejandro Pascual (`david.alejandro.pa@gmail.com`), Alexandra (`karla.ms@alliedglobal.com`), Jose Lima (`jose.le@alliedglobal.com`), Daniela Llanos (`daniela.ld@alliedglobal.com`), Eduardo (`eduardo.ac@alliedglobal.com`), and Marcos Gutierrez (`marcos.gs@alliedglobal.com`)
 - Server-enforced recruiter, company administrator, and super administrator scopes
 - Secure PBKDF2 password derivation, revocable server-side sessions, secure cookies, and authentication rate limits
 - Multi-company candidate records with company-scoped email uniqueness
@@ -43,7 +43,7 @@ Public registrations are created with `pending` status. A super administrator ca
 
 - `recruiter`: sees only candidates and lists they own
 - `admin`: sees all candidates and lists in their company
-- `super_admin`: sees all companies; restricted in code and database triggers to the two protected email addresses listed above
+- `super_admin`: sees all companies; restricted in code and database triggers to the protected email addresses listed above
 
 The first owner activation also claims legacy pilot candidates for the Gazelle Platform company. The activation key becomes unusable after Alejandro's primary owner account exists.
 

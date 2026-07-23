@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [migration, passwordResetMigration, secondarySuperAdminMigration, expandedSuperAdminMigration, tenurePotential021Migration, server, app] = await Promise.all([
+const [migration, passwordResetMigration, secondarySuperAdminMigration, expandedSuperAdminMigration, tenurePotential021Migration, marcosSuperAdminMigration, server, app] = await Promise.all([
   readFile(new URL('../drizzle/0003_multitenant_accounts_lists_tests.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0006_password_reset_tokens.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0007_secondary_super_admin.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0008_expand_super_admin_allowlist.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0009_tenure_potential_021.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../drizzle/0010_add_marcos_super_admin.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../app.js', import.meta.url), 'utf8'),
 ]);
@@ -36,6 +37,9 @@ for (const email of [
 assert.match(expandedSuperAdminMigration, /DROP TRIGGER IF EXISTS users_super_admin_allowlist_insert/);
 assert.match(expandedSuperAdminMigration, /CREATE TRIGGER users_super_admin_allowlist_update/);
 assert.match(tenurePotential021Migration, /2\.0\.1-pilot/);
+assert.match(marcosSuperAdminMigration, /marcos\.gs@alliedglobal\.com/);
+assert.match(marcosSuperAdminMigration, /DROP TRIGGER IF EXISTS users_super_admin_allowlist_insert/);
+assert.match(marcosSuperAdminMigration, /CREATE TRIGGER users_super_admin_allowlist_update/);
 
 assert.match(server, /user\.role === 'admin'/);
 assert.match(server, /user\.role === 'super_admin'/);

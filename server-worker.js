@@ -180,7 +180,8 @@ const schemaStatements = [
       'karla.ms@alliedglobal.com',
       'jose.le@alliedglobal.com',
       'daniela.ld@alliedglobal.com',
-      'eduardo.ac@alliedglobal.com'
+      'eduardo.ac@alliedglobal.com',
+      'marcos.gs@alliedglobal.com'
     )
     BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
   `CREATE TRIGGER IF NOT EXISTS users_super_admin_allowlist_update
@@ -190,7 +191,8 @@ const schemaStatements = [
       'karla.ms@alliedglobal.com',
       'jose.le@alliedglobal.com',
       'daniela.ld@alliedglobal.com',
-      'eduardo.ac@alliedglobal.com'
+      'eduardo.ac@alliedglobal.com',
+      'marcos.gs@alliedglobal.com'
     )
     BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
   `CREATE TABLE IF NOT EXISTS sessions (
@@ -735,6 +737,7 @@ const SUPER_ADMIN_EMAILS = new Set([
   'jose.le@alliedglobal.com',
   'daniela.ld@alliedglobal.com',
   'eduardo.ac@alliedglobal.com',
+  'marcos.gs@alliedglobal.com',
 ]);
 const commonPasswords = new Set([
   'password', 'password123', '12345678', '123456789', 'qwerty123', 'letmein123',

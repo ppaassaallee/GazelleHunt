@@ -49,6 +49,7 @@ assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'supe
 assert.equal(auth.isSuperAdmin({ email: 'jose.le@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
 assert.equal(auth.isSuperAdmin({ email: 'daniela.ld@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
 assert.equal(auth.isSuperAdmin({ email: 'eduardo.ac@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
+assert.equal(auth.isSuperAdmin({ email: 'marcos.gs@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
 assert.equal(auth.isSuperAdmin({ email: 'rogue@example.com', role: 'super_admin', status: 'active' }), false);
 assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'admin', status: 'active' }), false);
 
