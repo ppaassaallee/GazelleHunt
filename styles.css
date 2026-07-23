@@ -472,7 +472,7 @@ tbody tr:hover td { background: #fcfdfd; }
 .approval-actions { display: flex; gap: 6px; }
 .account-table { min-width: 1080px; }
 .account-select { min-width: 145px; }
-.account-actions { display: flex; gap: 7px; }
+.account-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .account-actions .button { white-space: nowrap; }
 .batch-progress { min-width: 180px; display: grid; gap: 6px; }
 .batch-progress small { color: var(--muted); font-size: 10px; }

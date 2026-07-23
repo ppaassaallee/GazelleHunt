@@ -7,7 +7,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 ## What is implemented
 
 - Public email/password registration with approval required before access
-- Two protected super administrators: Alejandro Pascual (`david.alejandro.pa@gmail.com`) and Alexandra (`karla.ms@alliedglobal.com`)
+- Five protected super administrators: Alejandro Pascual (`david.alejandro.pa@gmail.com`), Alexandra (`karla.ms@alliedglobal.com`), Jose Lima (`jose.le@alliedglobal.com`), Daniela Llanos (`daniela.ld@alliedglobal.com`), and Eduardo (`eduardo.ac@alliedglobal.com`)
 - Server-enforced recruiter, company administrator, and super administrator scopes
 - Secure PBKDF2 password derivation, revocable server-side sessions, secure cookies, and authentication rate limits
 - Multi-company candidate records with company-scoped email uniqueness
@@ -63,7 +63,7 @@ Passwords are derived with PBKDF2-HMAC-SHA-256 and a per-user random salt. Brows
 4. A platform super administrator selects the company and either **Recruiter** or **Company admin**, then approves the account. The platform requests a Brevo sign-in notification automatically.
 5. After activation, a platform super administrator can change the person's company, role, or status from the account table.
 
-Users who forget their password select **Forgot password?** on the sign-in page. Brevo sends a one-time link that expires after 60 minutes; completing the reset revokes prior sessions. A super administrator can also use **Send reset** beside any active recruiter or administrator. Passwords and reset tokens are never displayed to administrators, and only reset-token hashes are stored.
+Users who forget their password select **Forgot password?** on the sign-in page. Brevo sends a one-time link that expires after 60 minutes; completing the reset revokes prior sessions. A super administrator can also use **Send access link** beside any active platform account, including another protected super administrator. Passwords and reset tokens are never displayed to administrators, and only reset-token hashes are stored.
 
 ## Lists and tests
 

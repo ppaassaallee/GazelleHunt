@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [migration, passwordResetMigration, secondarySuperAdminMigration, server, app] = await Promise.all([
+const [migration, passwordResetMigration, secondarySuperAdminMigration, expandedSuperAdminMigration, server, app] = await Promise.all([
   readFile(new URL('../drizzle/0003_multitenant_accounts_lists_tests.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0006_password_reset_tokens.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0007_secondary_super_admin.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../drizzle/0008_expand_super_admin_allowlist.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../app.js', import.meta.url), 'utf8'),
 ]);
@@ -24,6 +25,15 @@ assert.match(passwordResetMigration, /password_reset_tokens_user_idx/);
 assert.match(secondarySuperAdminMigration, /DROP INDEX IF EXISTS users_single_active_super_admin/);
 assert.match(secondarySuperAdminMigration, /karla\.ms@alliedglobal\.com/);
 assert.match(secondarySuperAdminMigration, /users_super_admin_allowlist_insert/);
+for (const email of [
+  'david.alejandro.pa@gmail.com',
+  'karla.ms@alliedglobal.com',
+  'jose.le@alliedglobal.com',
+  'daniela.ld@alliedglobal.com',
+  'eduardo.ac@alliedglobal.com',
+]) assert.match(expandedSuperAdminMigration, new RegExp(email.replaceAll('.', '\\.')));
+assert.match(expandedSuperAdminMigration, /DROP TRIGGER IF EXISTS users_super_admin_allowlist_insert/);
+assert.match(expandedSuperAdminMigration, /CREATE TRIGGER users_super_admin_allowlist_update/);
 
 assert.match(server, /user\.role === 'admin'/);
 assert.match(server, /user\.role === 'super_admin'/);
@@ -47,7 +57,7 @@ assert.match(server, /candidate_list_ids_csv/);
 assert.match(app, /Lists and multi-test batches/);
 assert.match(app, /A candidate can belong to multiple lists/);
 assert.match(app, /Platform super administrators can approve accounts/);
-assert.match(app, /Send reset/);
+assert.match(app, /Send access link/);
 assert.match(app, /User access updated/);
 assert.match(app, /Resend to/);
 assert.match(app, /Select all eligible visible candidates/);

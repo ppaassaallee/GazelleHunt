@@ -46,6 +46,9 @@ assert.equal(auth.constantTimeEqual('same-value', 'same-value'), true);
 assert.equal(auth.constantTimeEqual('same-value', 'other-value'), false);
 assert.equal(auth.isSuperAdmin({ email: 'david.alejandro.pa@gmail.com', role: 'super_admin', status: 'active' }), true);
 assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
+assert.equal(auth.isSuperAdmin({ email: 'jose.le@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
+assert.equal(auth.isSuperAdmin({ email: 'daniela.ld@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
+assert.equal(auth.isSuperAdmin({ email: 'eduardo.ac@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
 assert.equal(auth.isSuperAdmin({ email: 'rogue@example.com', role: 'super_admin', status: 'active' }), false);
 assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'admin', status: 'active' }), false);
 
@@ -59,5 +62,7 @@ assert.match(source, /UPDATE sessions SET revoked_at = \?/);
 assert.match(source, /\/api\/auth\/password-reset\/request/);
 assert.match(source, /\/api\/auth\/password-reset\/confirm/);
 assert.match(source, /adminSendPasswordReset/);
+assert.doesNotMatch(source, /Use the self-service reset flow for super administrator accounts/);
+assert.match(source, /Set up or reset your Gazelle Assessment password/);
 
 console.log('Authentication security tests passed.');

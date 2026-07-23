@@ -175,11 +175,23 @@ const schemaStatements = [
   `DROP TRIGGER IF EXISTS users_super_admin_email_update`,
   `CREATE TRIGGER IF NOT EXISTS users_super_admin_allowlist_insert
     BEFORE INSERT ON users
-    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN ('david.alejandro.pa@gmail.com', 'karla.ms@alliedglobal.com')
+    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN (
+      'david.alejandro.pa@gmail.com',
+      'karla.ms@alliedglobal.com',
+      'jose.le@alliedglobal.com',
+      'daniela.ld@alliedglobal.com',
+      'eduardo.ac@alliedglobal.com'
+    )
     BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
   `CREATE TRIGGER IF NOT EXISTS users_super_admin_allowlist_update
     BEFORE UPDATE OF role, email ON users
-    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN ('david.alejandro.pa@gmail.com', 'karla.ms@alliedglobal.com')
+    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN (
+      'david.alejandro.pa@gmail.com',
+      'karla.ms@alliedglobal.com',
+      'jose.le@alliedglobal.com',
+      'daniela.ld@alliedglobal.com',
+      'eduardo.ac@alliedglobal.com'
+    )
     BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
   `CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
@@ -673,7 +685,13 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const CANDIDATE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const OWNER_EMAIL = 'david.alejandro.pa@gmail.com';
-const SUPER_ADMIN_EMAILS = new Set([OWNER_EMAIL, 'karla.ms@alliedglobal.com']);
+const SUPER_ADMIN_EMAILS = new Set([
+  OWNER_EMAIL,
+  'karla.ms@alliedglobal.com',
+  'jose.le@alliedglobal.com',
+  'daniela.ld@alliedglobal.com',
+  'eduardo.ac@alliedglobal.com',
+]);
 const commonPasswords = new Set([
   'password', 'password123', '12345678', '123456789', 'qwerty123', 'letmein123',
   'admin123', 'welcome123', 'contraseña', 'contrasena', 'gazelle123',
@@ -1694,9 +1712,9 @@ async function issuePasswordReset(request, env, target, requestedBy = null) {
     const provider = await sendBrevo(env, {
       to: target.email,
       toName: target.name,
-      subject: 'Reset your Gazelle Assessment password',
-      text: `Hello ${target.name},\n\nUse this secure link to choose a new Gazelle Assessment password. The link expires in 60 minutes and can be used only once:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this message.\n\n---\n\nHola ${target.name},\n\nUsa este enlace seguro para elegir una nueva contraseña de Gazelle Assessment. El enlace vence en 60 minutos y solo puede usarse una vez:\n\n${resetUrl}\n\nSi no solicitaste este cambio, puedes ignorar este mensaje.`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Reset your password</h1><p>Hello ${escapeHtml(target.name)},</p><p>Use the secure link below to choose a new Gazelle Assessment password. It expires in 60 minutes and can be used only once.</p><p><a href="${escapeHtml(resetUrl)}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Choose new password</a></p><hr style="border:0;border-top:1px solid #dbe2e1;margin:28px 0"><h2 style="font-size:20px">Restablece tu contraseña</h2><p>Usa el enlace seguro para elegir una nueva contraseña. Vence en 60 minutos y solo puede usarse una vez.</p><p style="font-size:13px;color:#687174">If you did not request this, you can ignore this message. · Si no solicitaste este cambio, puedes ignorar este mensaje.</p></div>`,
+      subject: 'Set up or reset your Gazelle Assessment password',
+      text: `Hello ${target.name},\n\nUse this secure link to create or reset your Gazelle Assessment password. The link expires in 60 minutes and can be used only once:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this message.\n\n---\n\nHola ${target.name},\n\nUsa este enlace seguro para crear o restablecer tu contraseña de Gazelle Assessment. El enlace vence en 60 minutos y solo puede usarse una vez:\n\n${resetUrl}\n\nSi no solicitaste este cambio, puedes ignorar este mensaje.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Set up or reset your password</h1><p>Hello ${escapeHtml(target.name)},</p><p>Use the secure link below to create or reset your Gazelle Assessment password. It expires in 60 minutes and can be used only once.</p><p><a href="${escapeHtml(resetUrl)}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Create or reset password</a></p><hr style="border:0;border-top:1px solid #dbe2e1;margin:28px 0"><h2 style="font-size:20px">Crea o restablece tu contraseña</h2><p>Usa el enlace seguro para crear o restablecer tu contraseña. Vence en 60 minutos y solo puede usarse una vez.</p><p style="font-size:13px;color:#687174">If you did not request this, you can ignore this message. · Si no solicitaste este cambio, puedes ignorar este mensaje.</p></div>`,
       tag: 'staff-password-reset',
     });
     await audit(env, requestedBy?.email || target.email, 'password_reset_requested', 'user', target.id, { providerMessageId: provider.id, requestedByAdmin: Boolean(requestedBy) });
@@ -3280,7 +3298,6 @@ async function adminSendPasswordReset(request, env, user, targetUserId) {
   if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can send password reset links.' }, 403);
   const target = await env.DB.prepare(`SELECT id, email, name, status, role FROM users WHERE id = ?`).bind(targetUserId).first();
   if (!target) return json({ error: 'User not found.' }, 404);
-  if (target.role === 'super_admin') return json({ error: 'Use the self-service reset flow for super administrator accounts.' }, 403);
   if (target.status !== 'active') return json({ error: 'Activate the account before sending a password reset link.' }, 422);
   if (!await rateLimit(env, request, 'admin_password_reset', target.email, 5, 60 * 60)) {
     return json({ error: 'Too many reset links were requested for this account. Try again later.', code: 'rate_limited' }, 429);
