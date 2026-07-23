@@ -116,6 +116,8 @@ assert.equal(brevo.batchDeliveryStatus({ status: 'api_accepted', accepted_count:
 assert.equal(brevo.batchDeliveryStatus({ status: 'processing', accepted_count: 0, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0 }), 'processing');
 assert.match(source, /\/api\/admin\/email-diagnostics/);
 assert.match(source, /\/smtp\/statistics\/events\?days=2/);
+assert.match(source, /\/smtp\/blockedContacts\?limit=100/);
+assert.match(source, /\/smtp\/emails\?email=/);
 assert.match(source, /secureTransport: 'starttls'/);
 assert.match(source, /AUTH LOGIN/);
 

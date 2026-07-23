@@ -1693,6 +1693,38 @@ function normalizedProviderMessageId(value) {
   return cleanText(value, 400).replace(/^</, '').replace(/>$/, '').trim();
 }
 
+async function brevoBlockedRecipient(config, email) {
+  const recipient = cleanEmail(email);
+  if (!recipient) return { checked: false, blocked: false, reason: null, senderEmail: null };
+  let offset = 0;
+  let total = 0;
+  let checked = 0;
+  for (let page = 0; page < 20; page += 1) {
+    const body = await brevoApiRequest(config, `/smtp/blockedContacts?limit=100&offset=${offset}&sort=desc`);
+    const contacts = body.contacts || [];
+    total = Number(body.count || contacts.length);
+    checked += contacts.length;
+    const match = contacts.find((contact) => {
+      if (cleanEmail(contact.email) !== recipient) return false;
+      const blockedSender = cleanEmail(contact.senderEmail);
+      return !blockedSender || blockedSender === config.senderEmail;
+    });
+    if (match) {
+      return {
+        checked: true,
+        blocked: true,
+        reason: cleanText(match.reason?.message || match.reason?.code, 240) || 'Blocked or unsubscribed',
+        reasonCode: cleanText(match.reason?.code, 100) || null,
+        senderEmail: cleanEmail(match.senderEmail) || null,
+        blockedAt: cleanText(match.blockedAt, 80) || null,
+      };
+    }
+    offset += contacts.length;
+    if (!contacts.length || offset >= total) break;
+  }
+  return { checked: true, blocked: false, reason: null, senderEmail: null, checkedContacts: checked, totalContacts: total };
+}
+
 async function emailDeliveryDiagnostics(request, env, user) {
   if (!isSuperAdmin(user)) return json({ error: 'Super administrator access is required.', code: 'super_admin_required' }, 403);
   const config = emailConfig(env);
@@ -1706,13 +1738,22 @@ async function emailDeliveryDiagnostics(request, env, user) {
   const invitations = invitationResult.results || [];
   const providerIds = new Set(invitations.map((entry) => normalizedProviderMessageId(entry.provider_message_id)).filter(Boolean));
   const invitationIds = invitations.map((entry) => entry.invitation_id).filter(Boolean);
-  const latestTest = await env.DB.prepare(`SELECT json_extract(payload_json, '$.providerMessageId') AS provider_message_id FROM audit_events WHERE event_type = 'email_connection_tested' ORDER BY created_at DESC LIMIT 1`).first();
+  const latestTest = await env.DB.prepare(`
+    SELECT json_extract(payload_json, '$.providerMessageId') AS provider_message_id,
+      json_extract(payload_json, '$.to') AS recipient
+    FROM audit_events WHERE event_type = 'email_connection_tested'
+    ORDER BY created_at DESC LIMIT 1
+  `).first();
   const sampleMessageId = latestTest?.provider_message_id || invitations[0]?.provider_message_id || null;
-  const [account, activity, sampleLookup, sampleEvents, senders, domains] = await Promise.all([
+  const sampleRecipient = cleanEmail(latestTest?.recipient);
+  const [account, activity, sampleLookup, sampleEvents, recipientLookup, recipientEvents, blockedRecipient, senders, domains] = await Promise.all([
     brevoApiRequest(config, '/account'),
     brevoApiRequest(config, '/smtp/statistics/events?days=2&limit=5000&sort=desc'),
     sampleMessageId ? brevoApiRequest(config, `/smtp/emails?messageId=${encodeURIComponent(sampleMessageId)}&limit=10`) : Promise.resolve({ count: 0, transactionalEmails: [] }),
     sampleMessageId ? brevoApiRequest(config, `/smtp/statistics/events?messageId=${encodeURIComponent(sampleMessageId)}&limit=100&sort=desc`) : Promise.resolve({ events: [] }),
+    sampleRecipient ? brevoApiRequest(config, `/smtp/emails?email=${encodeURIComponent(sampleRecipient)}&limit=50&sort=desc`) : Promise.resolve({ count: 0, transactionalEmails: [] }),
+    sampleRecipient ? brevoApiRequest(config, `/smtp/statistics/events?email=${encodeURIComponent(sampleRecipient)}&days=2&limit=100&sort=desc`) : Promise.resolve({ events: [] }),
+    brevoBlockedRecipient(config, sampleRecipient),
     brevoApiRequest(config, '/senders').catch(() => ({ senders: [] })),
     brevoApiRequest(config, '/senders/domains').catch(() => ({ domains: [] })),
   ]);
@@ -1727,6 +1768,10 @@ async function emailDeliveryDiagnostics(request, env, user) {
   taggedEvents.forEach((event) => { taggedEventCounts[event.event || 'unknown'] = (taggedEventCounts[event.event || 'unknown'] || 0) + 1; });
   const sampleEventCounts = {};
   (sampleEvents.events || []).forEach((event) => { sampleEventCounts[event.event || 'unknown'] = (sampleEventCounts[event.event || 'unknown'] || 0) + 1; });
+  const recipientEventCounts = {};
+  (recipientEvents.events || []).forEach((event) => { recipientEventCounts[event.event || 'unknown'] = (recipientEventCounts[event.event || 'unknown'] || 0) + 1; });
+  const sampleNormalizedId = normalizedProviderMessageId(sampleMessageId);
+  const recipientMessageMatch = (recipientLookup.transactionalEmails || []).some((entry) => normalizedProviderMessageId(entry.messageId) === sampleNormalizedId);
   const senderRecord = (senders.senders || []).find((sender) => cleanEmail(sender.email) === config.senderEmail);
   const senderDomain = config.senderEmail.split('@')[1] || '';
   const domainRecord = (domains.domains || []).find((domain) => cleanText(domain.domain_name, 180).toLowerCase() === senderDomain);
@@ -1750,6 +1795,17 @@ async function emailDeliveryDiagnostics(request, env, user) {
     },
     sender: { email: config.senderEmail, exists: Boolean(senderRecord), active: Boolean(senderRecord?.active) },
     domain: { name: senderDomain, exists: Boolean(domainRecord), verified: Boolean(domainRecord?.verified), authenticated: Boolean(domainRecord?.authenticated) },
+    recipient: {
+      checked: blockedRecipient.checked,
+      blocked: blockedRecipient.blocked,
+      reason: blockedRecipient.reason,
+      reasonCode: blockedRecipient.reasonCode || null,
+      blockedAt: blockedRecipient.blockedAt || null,
+      senderEmail: blockedRecipient.senderEmail,
+      transactionalEmailCount: Number(recipientLookup.count || 0),
+      latestMessageMatchedByRecipient: recipientMessageMatch,
+      eventCounts: recipientEventCounts,
+    },
     batch: batch ? {
       id: batch.id,
       total: Number(batch.total_count || 0),
