@@ -65,8 +65,8 @@ const report = {
   quality: { status: 'pilot_usable' },
   supportLabels: ['Clear written expectations', 'Consistent coaching', 'Advance schedule notice'],
   scenarioResponses: scenarios.map((scenario, index) => ({ ...scenario, scenario_id: scenario.id, response_text: answers[index], response_ms: 95000 + index * 17000 })),
-  aiAnalysis: { status: 'completed', provider: 'OpenAI', model: 'gpt-5.5', prompt_version: 'analysis-v2.1.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64), output: { en: localized, es: localized } },
-  assessmentVersion: 'TP-0.2.0', modelVersion: 'transparent-equal-weight-v1', auditHash: 'c'.repeat(64),
+  aiAnalysis: { status: 'completed', provider: 'OpenAI', model: 'gpt-5-mini', prompt_version: 'analysis-v2.2.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64), output: { en: localized, es: localized } },
+  assessmentVersion: 'TP-0.2.1', modelVersion: 'transparent-equal-weight-v1', auditHash: 'c'.repeat(64),
 };
 
 const outputPath = process.argv[2] || '/tmp/gazelle-report-qa.pdf';

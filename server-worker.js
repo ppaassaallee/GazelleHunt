@@ -529,6 +529,8 @@ function cleanEmail(value) {
 const sensitiveEvidencePattern = /\b(age|aged|race|racial|ethnicity|ethnic|nationality|religion|religious|sex|gender|sexual orientation|pregnan\w*|disab\w*|health|medical|diagnos\w*|mental health|family|familia(?:s|r(?:es)?)?|childcare|caregiv\w*|financial|finanzas|politic\w*|union|edad|raza|etnia|nacionalidad|religión|religion|sexo|género|genero|orientación sexual|embaraz\w*|discap\w*|salud(?: mental)?|médic\w*|diagnóstic\w*|diagnostic\w*|cuidador(?:a|es|as)?|responsabilidades? de cuidado|polític\w*|politic\w*|sindicat\w*)\b/iu;
 const contactEvidencePattern = /(?:https?:\/\/|www\.|\b[^\s@]+@[^\s@]+\.[^\s@]+\b|(?:\+?\d[\d\s().-]{7,}\d))/iu;
 const prohibitedAnalysisPattern = /\b(recommend\w*\s+(?:to\s+)?(?:hire|reject)|should\s+(?:be\s+)?(?:hired|rejected)|hire\s+this\s+candidate|reject\s+this\s+candidate|contratar\s+(?:a\s+)?(?:este|esta)\s+candidat\w*|rechazar\s+(?:a\s+)?(?:este|esta)\s+candidat\w*|diagnos\w*|diagnóstic\w*|high[ -]risk|low[ -]risk|alto\s+riesgo|bajo\s+riesgo)\b/iu;
+const internalEvidenceCodePattern = /\b(?:(?:fit|intent|reliability|support|experienced|new)_[a-z0-9_]+|scenario_[123])\b/iu;
+const unclearRecruiterPhrasePattern = /\b(?:coaching\s+(?:and|y)\s+voice|solicita\s+coaching\s+y\s+voz|requests?\s+coaching\s+and\s+voice|intención\s+media|moderate\s+intent)\b/iu;
 
 function redactAiEvidence(value) {
   let redacted = false;
@@ -575,6 +577,17 @@ function validateAnalysisOutput(output, evidence) {
       || !Array.isArray(localized?.interview_focus) || localized.interview_focus.length < 3
       || !Array.isArray(localized?.support_actions) || localized.support_actions.length < 3) return false;
   }
+  const recruiterFacingText = [
+    output.en?.title, output.en?.executive_summary, ...(output.en?.paragraphs || []), ...(output.en?.observed_strengths || []),
+    ...(output.en?.watch_areas || []), ...(output.en?.interview_focus || []), ...(output.en?.support_actions || []),
+    output.es?.title, output.es?.executive_summary, ...(output.es?.paragraphs || []), ...(output.es?.observed_strengths || []),
+    ...(output.es?.watch_areas || []), ...(output.es?.interview_focus || []), ...(output.es?.support_actions || []),
+    output.job_alignment?.label_en, output.job_alignment?.label_es, output.job_alignment?.rationale_en, output.job_alignment?.rationale_es,
+    ...(output.job_alignment?.counterevidence_en || []), ...(output.job_alignment?.counterevidence_es || []),
+    ...(output.job_alignment?.conditions_en || []), ...(output.job_alignment?.conditions_es || []),
+    ...(output.scenario_findings || []).flatMap((entry) => [entry.finding_en, entry.finding_es]),
+  ].filter(Boolean);
+  if (recruiterFacingText.some((value) => internalEvidenceCodePattern.test(value) || unclearRecruiterPhrasePattern.test(value))) return false;
   const itemIds = new Set(evidence.scoringTrace.map((entry) => entry.itemId));
   const scenarioIds = new Set(evidence.scenarios.map((entry) => entry.scenarioId));
   const alignment = output?.job_alignment;
@@ -605,6 +618,36 @@ function localizedAnalysisOutput(output, locale) {
   };
 }
 
+function normalizeRecruiterAnalysisOutput(output) {
+  const normalized = JSON.parse(JSON.stringify(output || {}));
+  for (const locale of ['en', 'es']) {
+    const localized = normalized[locale] || {};
+    for (const field of ['title', 'executive_summary']) {
+      localized[field] = GazelleAiAssessment.recruiterText(localized[field], locale);
+    }
+    for (const field of ['paragraphs', 'observed_strengths', 'watch_areas', 'interview_focus', 'support_actions']) {
+      localized[field] = (localized[field] || []).map((value) => GazelleAiAssessment.recruiterText(value, locale));
+    }
+    normalized[locale] = localized;
+  }
+  const alignment = normalized.job_alignment || {};
+  for (const field of ['label_en', 'rationale_en']) alignment[field] = GazelleAiAssessment.recruiterText(alignment[field], 'en');
+  for (const field of ['label_es', 'rationale_es']) alignment[field] = GazelleAiAssessment.recruiterText(alignment[field], 'es');
+  for (const field of ['counterevidence_en', 'conditions_en']) {
+    alignment[field] = (alignment[field] || []).map((value) => GazelleAiAssessment.recruiterText(value, 'en'));
+  }
+  for (const field of ['counterevidence_es', 'conditions_es']) {
+    alignment[field] = (alignment[field] || []).map((value) => GazelleAiAssessment.recruiterText(value, 'es'));
+  }
+  normalized.job_alignment = alignment;
+  normalized.scenario_findings = (normalized.scenario_findings || []).map((finding) => ({
+    ...finding,
+    finding_en: GazelleAiAssessment.recruiterText(finding.finding_en, 'en'),
+    finding_es: GazelleAiAssessment.recruiterText(finding.finding_es, 'es'),
+  }));
+  return normalized;
+}
+
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' })[character]);
 }
@@ -621,7 +664,8 @@ async function ensureSchema(env) {
   await env.DB.batch([
     env.DB.prepare(`INSERT OR IGNORE INTO companies (id, name, candidate_brand_name, referral_bonus_cents, candidate_portal_enabled, status, created_at, updated_at) VALUES ('org_legacy', 'Gazelle Platform', 'Allied Global', 10000, 1, 'active', ?, ?)`).bind(now, now),
     env.DB.prepare(`UPDATE companies SET candidate_brand_name = COALESCE(candidate_brand_name, CASE WHEN id = 'org_legacy' THEN 'Allied Global' ELSE name END), referral_bonus_cents = COALESCE(referral_bonus_cents, 10000), candidate_portal_enabled = COALESCE(candidate_portal_enabled, 1)`),
-    env.DB.prepare(`INSERT OR IGNORE INTO assessment_tests (id, code, slug, name_en, name_es, description_en, description_es, engine_key, version, status, estimated_minutes, item_count, created_at, updated_at) VALUES ('test_tenure_potential', 'TP-001', 'tenure-potential', 'Tenure Potential', 'Potencial de Permanencia', 'Transparent assessment of role alignment, stay intention, and work reliability.', 'Evaluacion transparente de alineacion con el rol, intencion de permanencia y confiabilidad laboral.', 'tenure_potential', '2.0.0-pilot', 'active', 15, 27, ?, ?)`).bind(now, now),
+    env.DB.prepare(`INSERT OR IGNORE INTO assessment_tests (id, code, slug, name_en, name_es, description_en, description_es, engine_key, version, status, estimated_minutes, item_count, created_at, updated_at) VALUES ('test_tenure_potential', 'TP-001', 'tenure-potential', 'Tenure Potential', 'Potencial de Permanencia', 'Transparent assessment of role alignment, stay intention, and work reliability.', 'Evaluacion transparente de alineacion con el rol, intencion de permanencia y confiabilidad laboral.', 'tenure_potential', '2.0.1-pilot', 'active', 15, 27, ?, ?)`).bind(now, now),
+    env.DB.prepare(`UPDATE assessment_tests SET version = '2.0.1-pilot', updated_at = ? WHERE id = 'test_tenure_potential' AND version <> '2.0.1-pilot'`).bind(now),
     env.DB.prepare(`UPDATE candidates SET company_id = 'org_legacy' WHERE company_id IS NULL`),
     env.DB.prepare(`UPDATE invitations SET company_id = 'org_legacy' WHERE company_id IS NULL`),
     env.DB.prepare(`UPDATE invitations SET test_id = 'test_tenure_potential' WHERE test_id IS NULL`),
@@ -2533,8 +2577,8 @@ async function getInvitation(request, env) {
     assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
     test: { id: row.test_id, name_en: row.test_name_en, name_es: row.test_name_es, engineKey: row.engine_key },
     roleConditions: {
-      en: ['Rotating evening or weekend schedule', 'Back-to-back customer conversations', 'Quality, productivity, and attendance targets'],
-      es: ['Horario rotativo nocturno o de fin de semana', 'Conversaciones consecutivas con clientes', 'Metas de calidad, productividad y asistencia'],
+      en: ['Published work schedule and attendance expectations', 'Back-to-back customer conversations', 'Quality and productivity targets'],
+      es: ['Horario de trabajo informado y expectativas de asistencia', 'Conversaciones consecutivas con clientes', 'Metas de calidad y productividad'],
     },
   });
 }
@@ -2695,6 +2739,29 @@ async function aiEvidenceForAssessment(env, assessmentId) {
   };
 }
 
+function recruiterModelEvidence(evidence) {
+  const assessmentVersion = evidence.assessmentVersion || GazelleAssessmentEngine.ASSESSMENT_VERSION;
+  const scoringTrace = (evidence.scoringTrace || []).map((entry) => {
+    const definition = GazelleAssessmentEngine.itemDefinition(entry.itemId, assessmentVersion);
+    const responseIndex = Number(entry.rawResponse) - 1;
+    return {
+      ...entry,
+      item_text_en: definition?.text?.en || '',
+      item_text_es: definition?.text?.es || '',
+      response_label_en: GazelleAssessmentEngine.RESPONSE_LABELS.en[responseIndex] || '',
+      response_label_es: GazelleAssessmentEngine.RESPONSE_LABELS.es[responseIndex] || '',
+      recruiter_meaning_en: GazelleAiAssessment.recruiterEvidenceLabel(entry.itemId, 'en'),
+      recruiter_meaning_es: GazelleAiAssessment.recruiterEvidenceLabel(entry.itemId, 'es'),
+    };
+  });
+  const supportProfile = (evidence.supportProfile || []).map((entry) => ({
+    ...entry,
+    support_action_en: GazelleAiAssessment.recruiterEvidenceLabel(entry.itemId, 'en'),
+    support_action_es: GazelleAiAssessment.recruiterEvidenceLabel(entry.itemId, 'es'),
+  }));
+  return { ...evidence, scoringTrace, supportProfile };
+}
+
 async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) {
   const config = aiConfig(env);
   const now = new Date().toISOString();
@@ -2710,7 +2777,8 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
   const evidence = await aiEvidenceForAssessment(env, assessmentId);
   if (!evidence) throw new Error('assessment_not_found');
   if (evidence.scenarios.length !== 3) throw new Error('scenario_evidence_incomplete');
-  const { assessmentId: omittedAssessmentId, ...modelEvidence } = evidence;
+  const { assessmentId: omittedAssessmentId, ...storedEvidence } = evidence;
+  const modelEvidence = recruiterModelEvidence(storedEvidence);
   const evidenceHash = await sha256(GazelleAssessmentEngine.stableStringify(modelEvidence));
   await env.DB.prepare(`
     INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, evidence_hash, created_at, updated_at)
@@ -2728,15 +2796,16 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
       safetyIdentifier: `assessment_${assessmentId}`,
       maxOutputTokens: 9000,
     });
-    if (!validateAnalysisOutput(ai.data, modelEvidence)) throw new Error('ai_invalid_analysis');
-    const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(ai.data));
+    const analysisData = normalizeRecruiterAnalysisOutput(ai.data);
+    if (!validateAnalysisOutput(analysisData, modelEvidence)) throw new Error('ai_invalid_analysis');
+    const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(analysisData));
     const updatedAt = new Date().toISOString();
     await env.DB.prepare(`
       UPDATE ai_analyses SET status = ?, provider = ?, model = ?, provider_response_id = ?, output_hash = ?, output_en_json = ?, output_es_json = ?,
         evidence_claims_json = ?, limitations_json = ?, error_code = NULL, updated_at = ? WHERE assessment_id = ?
     `).bind(
-      'completed', ai.provider, ai.model, ai.responseId, outputHash, JSON.stringify(localizedAnalysisOutput(ai.data, 'en')), JSON.stringify(localizedAnalysisOutput(ai.data, 'es')),
-      JSON.stringify(ai.data.evidence_claims || []), JSON.stringify(ai.data.limitations || []), updatedAt, assessmentId,
+      'completed', ai.provider, ai.model, ai.responseId, outputHash, JSON.stringify(localizedAnalysisOutput(analysisData, 'en')), JSON.stringify(localizedAnalysisOutput(analysisData, 'es')),
+      JSON.stringify(analysisData.evidence_claims || []), JSON.stringify(analysisData.limitations || []), updatedAt, assessmentId,
     ).run();
     await audit(env, actorEmail, 'ai_analysis_completed', 'assessment', assessmentId, {
       provider: ai.provider, model: ai.model,
@@ -2968,7 +3037,7 @@ async function analyzePreview(request, env, admin) {
     });
   }
 
-  const modelEvidence = {
+  const modelEvidence = recruiterModelEvidence({
     assessmentVersion: result.assessmentVersion,
     scoringModel: result.modelVersion,
     modelStatus: result.modelStatus,
@@ -2989,7 +3058,7 @@ async function analyzePreview(request, env, admin) {
     scoringTrace: result.scoringTrace,
     weights: result.weights,
     scenarios,
-  };
+  });
   const evidenceHash = await sha256(GazelleAssessmentEngine.stableStringify(modelEvidence));
   const previewId = crypto.randomUUID();
   try {
@@ -3001,8 +3070,9 @@ async function analyzePreview(request, env, admin) {
       safetyIdentifier: `preview_${previewId}`,
       maxOutputTokens: 9000,
     });
-    if (!validateAnalysisOutput(ai.data, modelEvidence)) throw new Error('ai_invalid_analysis');
-    const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(ai.data));
+    const analysisData = normalizeRecruiterAnalysisOutput(ai.data);
+    if (!validateAnalysisOutput(analysisData, modelEvidence)) throw new Error('ai_invalid_analysis');
+    const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(analysisData));
     const updatedAt = new Date().toISOString();
     await audit(env, admin.email, 'preview_ai_analysis_completed', 'preview', previewId, {
       provider: ai.provider, model: ai.model,
@@ -3020,9 +3090,9 @@ async function analyzePreview(request, env, admin) {
         provider_response_id: ai.responseId,
         evidence_hash: evidenceHash,
         output_hash: outputHash,
-        output: { en: localizedAnalysisOutput(ai.data, 'en'), es: localizedAnalysisOutput(ai.data, 'es') },
-        evidence_claims: ai.data.evidence_claims || [],
-        limitations: ai.data.limitations || [],
+        output: { en: localizedAnalysisOutput(analysisData, 'en'), es: localizedAnalysisOutput(analysisData, 'es') },
+        evidence_claims: analysisData.evidence_claims || [],
+        limitations: analysisData.limitations || [],
         updated_at: updatedAt,
       },
     });

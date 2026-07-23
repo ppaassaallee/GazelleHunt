@@ -1,5 +1,5 @@
 (function initializeGazelleAssessment(global) {
-  const ASSESSMENT_VERSION = 'TP-0.2.0';
+  const ASSESSMENT_VERSION = 'TP-0.2.1';
   const MODEL_VERSION = 'transparent-equal-weight-v1';
 
   const RESPONSE_LABELS = {
@@ -52,8 +52,8 @@
 
   const ITEMS = [
     item('fit_schedule', 'fit', false,
-      'The rotating evening or weekend schedule described for this role is workable for me for at least six months.',
-      'El horario rotativo nocturno o de fin de semana descrito para este puesto es viable para mí durante al menos seis meses.'),
+      'The work schedule described for this role is compatible with my availability for at least six months.',
+      'El horario informado para este puesto es compatible con mi disponibilidad durante al menos seis meses.'),
     item('fit_location', 'fit', false,
       'The work location and travel requirements described for this role are sustainable for me.',
       'La ubicación y los desplazamientos descritos para este puesto son sostenibles para mí.'),
@@ -167,6 +167,21 @@
 
   function applicableItems(experienceBranch) {
     return ITEMS.filter((candidate) => candidate.branch === 'core' || candidate.branch === experienceBranch);
+  }
+
+  function itemDefinition(itemId, assessmentVersion = ASSESSMENT_VERSION) {
+    const definition = ITEMS.find((candidate) => candidate.id === itemId);
+    if (!definition) return null;
+    if (assessmentVersion === 'TP-0.2.0' && itemId === 'fit_schedule') {
+      return {
+        ...definition,
+        text: {
+          en: 'The rotating evening or weekend schedule described for this role is workable for me for at least six months.',
+          es: 'El horario rotativo nocturno o de fin de semana descrito para este puesto es viable para mí durante al menos seis meses.',
+        },
+      };
+    }
+    return definition;
   }
 
   function transformedValue(response, reverse) {
@@ -298,6 +313,7 @@
     DIMENSIONS,
     ITEMS,
     applicableItems,
+    itemDefinition,
     scoreAssessment,
     supportLabel,
     stableStringify,

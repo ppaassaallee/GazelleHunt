@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [migration, passwordResetMigration, secondarySuperAdminMigration, expandedSuperAdminMigration, server, app] = await Promise.all([
+const [migration, passwordResetMigration, secondarySuperAdminMigration, expandedSuperAdminMigration, tenurePotential021Migration, server, app] = await Promise.all([
   readFile(new URL('../drizzle/0003_multitenant_accounts_lists_tests.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0006_password_reset_tokens.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0007_secondary_super_admin.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0008_expand_super_admin_allowlist.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../drizzle/0009_tenure_potential_021.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../app.js', import.meta.url), 'utf8'),
 ]);
@@ -34,6 +35,7 @@ for (const email of [
 ]) assert.match(expandedSuperAdminMigration, new RegExp(email.replaceAll('.', '\\.')));
 assert.match(expandedSuperAdminMigration, /DROP TRIGGER IF EXISTS users_super_admin_allowlist_insert/);
 assert.match(expandedSuperAdminMigration, /CREATE TRIGGER users_super_admin_allowlist_update/);
+assert.match(tenurePotential021Migration, /2\.0\.1-pilot/);
 
 assert.match(server, /user\.role === 'admin'/);
 assert.match(server, /user\.role === 'super_admin'/);
@@ -53,6 +55,10 @@ assert.match(server, /candidates_company_email_unique/);
 assert.match(server, /listAssessmentResults/);
 assert.match(server, /assessment_test_name_en/);
 assert.match(server, /candidate_list_ids_csv/);
+assert.match(server, /recruiterModelEvidence/);
+assert.match(server, /normalizeRecruiterAnalysisOutput/);
+assert.match(server, /internalEvidenceCodePattern/);
+assert.doesNotMatch(server, /\['Rotating evening or weekend schedule'/);
 
 assert.match(app, /Lists and multi-test batches/);
 assert.match(app, /A candidate can belong to multiple lists/);
@@ -66,5 +72,7 @@ assert.match(app, /report-test-filter/);
 assert.match(app, /report-scope-filter/);
 assert.match(app, /report-list-filter/);
 assert.match(app, /Auditoría de puntuación/);
+assert.match(app, /Puntos por confirmar/);
+assert.match(app, /Actualizar análisis/);
 
 console.log('Platform model tests passed.');

@@ -18,6 +18,13 @@ assert.match(ai.ANALYSIS_INSTRUCTIONS, /exactly five substantive paragraphs in E
 assert.match(ai.ANALYSIS_INSTRUCTIONS, /do not.*hire\/reject recommendation/i);
 assert.match(ai.ANALYSIS_INSTRUCTIONS, /untrusted evidence, not an instruction/i);
 assert.match(ai.ANALYSIS_INSTRUCTIONS, /all three scenario IDs/i);
+assert.match(ai.ANALYSIS_INSTRUCTIONS, /Never show internal questionnaire IDs/i);
+assert.match(ai.ANALYSIS_INSTRUCTIONS, /natural, professional Latin American Spanish/i);
+assert.doesNotMatch(ai.fallbackScenarios({ subscales: { fit: { score: 40 } } })[0].question_en, /night|evening|rotating shift/i);
+const recruiterSpanish = ai.recruiterText('Las salvedades son la intención media (intent_six_months, intent_path), y solicita coaching y voz (support_coach, support_voice).', 'es');
+assert.equal(recruiterSpanish, 'Los puntos que conviene confirmar son una intención de permanencia que todavía necesita confirmación, y se beneficiaría de acompañamiento constante durante la capacitación y de un canal seguro para expresar inquietudes.');
+assert.doesNotMatch(recruiterSpanish, /intent_|support_|coaching y voz|salvedades/i);
+assert.match(ai.recruiterText('The response on reliability_recovery needs confirmation.', 'en'), /recovering carefully after a difficult interaction or mistake/);
 assert.deepEqual([1, 2, 3].map(ai.stableScenarioId), ['scenario_1', 'scenario_2', 'scenario_3']);
 assert.equal(ai.stableScenarioId(4), '');
 
@@ -79,7 +86,7 @@ const report = {
   supportLabels: ['Clear written expectations', 'Consistent coaching'],
   scenarioResponses: scenarios.map((scenario) => ({ ...scenario, response_text: 'I would clarify the immediate priority, explain the tradeoff, ask for specific feedback, and document the agreed next action.' })),
   aiAnalysis: { status: 'completed', provider: 'OpenAI', model: ai.DEFAULT_MODEL, prompt_version: ai.ANALYSIS_PROMPT_VERSION, evidence_hash: 'a'.repeat(64), output_hash: 'c'.repeat(64), output: analysisOutput },
-  assessmentVersion: 'TP-0.2.0', modelVersion: 'transparent-equal-weight-v1', auditHash: 'b'.repeat(64),
+  assessmentVersion: 'TP-0.2.1', modelVersion: 'transparent-equal-weight-v1', auditHash: 'b'.repeat(64),
 };
 
 for (const locale of ['en', 'es']) {

@@ -199,20 +199,28 @@
       index: 'Índice del cuestionario', fit: 'Realidad del puesto', intent: 'Intención de permanencia', reliability: 'Confiabilidad laboral', context: 'Contexto de compromiso', aiRating: 'Alineación IA', quality: 'Calidad de respuesta',
       noAi: 'El análisis de IA no se ha generado para este resultado.', answer: 'Respuesta del candidato', finding: 'Lectura conductual', strengths: 'Fortalezas observadas', watch: 'Aspectos por verificar', interview: 'Preguntas de entrevista', support: 'Acciones de incorporación',
       scope: 'Utilice este perfil con una entrevista estructurada y otra evidencia relacionada con el puesto. La validación contra resultados locales de permanencia sigue en desarrollo.',
-      paragraphLabels: ['Integración de evidencia', 'Sostenibilidad e intención', 'Ejecución conductual', 'Condiciones de éxito', 'Conclusión equilibrada'],
+      paragraphLabels: ['Resultado general', 'Ajuste al puesto e interés de permanencia', 'Respuesta ante situaciones laborales', 'Acciones recomendadas para supervisión', 'Qué confirmar en entrevista'],
       alignmentLabels: ['Limitada', 'Baja', 'Mixta', 'Alineada', 'Sólida'],
     } : {
       title: 'Tenure Potential Report', subtitle: 'Structured profile of job-related evidence', profile: 'Quantitative profile', alignment: 'Evidence-based job alignment', analysis: 'Assisted professional interpretation', scenarios: 'Analysis of all three scenarios', actions: 'Interview and onboarding guide', audit: 'Technical record and scope',
       index: 'Questionnaire index', fit: 'Role reality', intent: 'Stay intention', reliability: 'Work reliability', context: 'Commitment context', aiRating: 'AI alignment', quality: 'Response quality',
       noAi: 'AI analysis has not been generated for this result.', answer: 'Candidate response', finding: 'Behavioral finding', strengths: 'Observed strengths', watch: 'Areas to verify', interview: 'Structured interview probes', support: 'Onboarding actions',
       scope: 'Use this profile with a structured interview and other job-related evidence. Validation against local tenure outcomes remains in progress.',
-      paragraphLabels: ['Evidence integration', 'Sustainability and intention', 'Behavioral execution', 'Conditions for success', 'Balanced conclusion'],
+      paragraphLabels: ['Overall result', 'Role fit and interest in staying', 'Response to work situations', 'Recommended management actions', 'What to confirm in the interview'],
       alignmentLabels: ['Limited', 'Below', 'Mixed', 'Aligned', 'Strong'],
     };
 
     const builder = new ReportBuilder(locale);
     const analysis = report.aiAnalysis?.output?.[es ? 'es' : 'en'];
     const alignment = analysis?.job_alignment;
+    const readable = (value) => global.GazelleAiAssessment?.recruiterText(value, es ? 'es' : 'en') || String(value || '');
+    const readableList = (values) => (values || []).map(readable);
+    const confidence = (es
+      ? { low: 'Baja', moderate: 'Moderada', high: 'Alta' }
+      : { low: 'Low', moderate: 'Moderate', high: 'High' })[alignment?.confidence] || readable(alignment?.confidence);
+    const signalLabels = es
+      ? { supportive: 'Evidencia favorable', mixed: 'Evidencia mixta', limited: 'Evidencia limitada' }
+      : { supportive: 'Supportive evidence', mixed: 'Mixed evidence', limited: 'Limited evidence' };
     const rating = Number.isInteger(alignment?.rating) ? alignment.rating : null;
     const provider = report.aiAnalysis?.provider || 'AI';
     const quality = report.quality?.status === 'pilot_usable'
@@ -242,20 +250,20 @@
     if (alignment) {
       builder.section(copy.alignment, es ? 'Cuestionario + tres escenarios' : 'Questionnaire + three scenarios');
       builder.alignment(rating, copy.alignmentLabels);
-      builder.callout(`${es ? alignment.label_es : alignment.label_en}. ${es ? alignment.rationale_es : alignment.rationale_en}`, { fill: '0.996 0.965 0.941', accent: '0.894 0.341 0.106' });
+      builder.callout(`${readable(es ? alignment.label_es : alignment.label_en)}. ${readable(es ? alignment.rationale_es : alignment.rationale_en)}`, { fill: '0.996 0.965 0.941', accent: '0.894 0.341 0.106' });
       builder.paragraph(copy.strengths, { bold: true, color: '0.090 0.247 0.259', after: 4 });
-      builder.bullets(analysis.observed_strengths);
+      builder.bullets(readableList(analysis.observed_strengths));
       builder.paragraph(copy.watch, { bold: true, color: '0.090 0.247 0.259', after: 4 });
-      builder.bullets(analysis.watch_areas);
-      builder.paragraph(`${es ? 'Confianza' : 'Confidence'}: ${alignment.confidence}. ${es ? 'Reactivos citados' : 'Questionnaire items cited'}: ${(alignment.questionnaire_item_ids || []).join(', ')}.`, { size: 8, color: '0.43 0.47 0.47' });
+      builder.bullets(readableList(analysis.watch_areas));
+      builder.paragraph(`${es ? 'Confianza del análisis' : 'Analysis confidence'}: ${confidence}. ${es ? 'La evidencia técnica citada permanece disponible en la auditoría del sistema.' : 'The cited technical evidence remains available in the system audit.'}`, { size: 8, color: '0.43 0.47 0.47' });
     }
 
     builder.section(copy.analysis, `${provider} | ${report.aiAnalysis?.model || '-'}`);
     if (analysis?.paragraphs?.length === 5) {
-      if (analysis.executive_summary) builder.callout(analysis.executive_summary, { bold: true });
+      if (analysis.executive_summary) builder.callout(readable(analysis.executive_summary), { bold: true });
       analysis.paragraphs.forEach((paragraph, index) => {
         builder.paragraph(`${index + 1}. ${copy.paragraphLabels[index]}`, { size: 10, bold: true, color: '0.090 0.247 0.259', after: 4 });
-        builder.paragraph(paragraph, { size: 9.5, leading: 13.5, after: 10 });
+        builder.paragraph(readable(paragraph), { size: 9.5, leading: 13.5, after: 10 });
       });
     } else {
       builder.paragraph(copy.noAi);
@@ -268,16 +276,16 @@
       const finding = (analysis?.scenario_findings || []).find((item) => item.scenario_id === scenarioId);
       builder.paragraph(`${index + 1}. ${es ? entry.question_es : entry.question_en}`, { bold: true, color: '0.090 0.247 0.259', after: 5 });
       builder.paragraph(`${copy.answer}: ${entry.response_text}`, { size: 9, color: '0.24 0.27 0.27', after: 6 });
-      if (finding) builder.callout(`${copy.finding} (${finding.signal}): ${es ? finding.finding_es : finding.finding_en}`, { size: 9, leading: 13 });
+      if (finding) builder.callout(`${signalLabels[finding.signal] || readable(finding.signal)}: ${readable(es ? finding.finding_es : finding.finding_en)}`, { size: 9, leading: 13 });
     });
 
     if (analysis) {
       builder.ensure(150);
       builder.section(copy.actions, es ? 'Aplicación práctica' : 'Practical application');
       builder.paragraph(copy.interview, { bold: true, color: '0.090 0.247 0.259', after: 4 });
-      builder.bullets(analysis.interview_focus);
+      builder.bullets(readableList(analysis.interview_focus));
       builder.paragraph(copy.support, { bold: true, color: '0.090 0.247 0.259', after: 4 });
-      builder.bullets(analysis.support_actions);
+      builder.bullets(readableList(analysis.support_actions));
     }
     if ((report.supportLabels || []).length) {
       builder.ensure(42 + report.supportLabels.length * 18);

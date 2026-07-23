@@ -16,7 +16,7 @@ const [appSource, indexSource, serverSource, readmeSource, buildSource] = await 
 const appElement = { innerHTML: '' };
 const fetchCalls = [];
 const previewAnalysis = {
-  status: 'completed', provider: 'OpenAI', model: 'gpt-5.5', prompt_version: 'analysis-v2.1.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64),
+  status: 'completed', provider: 'OpenAI', model: 'gpt-5.5', prompt_version: 'analysis-v2.2.0', evidence_hash: 'a'.repeat(64), output_hash: 'b'.repeat(64),
   output: {
     en: { title: 'Preview analysis', paragraphs: Array.from({ length: 5 }, (_, index) => `English paragraph ${index + 1}`), interview_focus: ['Focus one', 'Focus two', 'Focus three'] },
     es: { title: 'Análisis de vista previa', paragraphs: Array.from({ length: 5 }, (_, index) => `Párrafo en español ${index + 1}`), interview_focus: ['Enfoque uno', 'Enfoque dos', 'Enfoque tres'] },
@@ -44,12 +44,12 @@ const context = {
       if (String(url).startsWith('/api/assessment')) {
         return {
           candidate: { name: 'Candidate', role: 'Customer Care', site: 'Guatemala City' },
-          roleConditions: { en: ['Rotating schedule'], es: ['Horario rotativo'] },
+          roleConditions: { en: ['Published work schedule'], es: ['Horario de trabajo informado'] },
         };
       }
       if (url === '/api/candidates') return { candidates: [] };
       if (url === '/api/results') return { results: [] };
-      if (url === '/api/tests') return { tests: [{ id: 'test_tenure_potential', code: 'TP-001', name_en: 'Tenure Potential', name_es: 'Potencial de Permanencia', description_en: 'Transparent assessment.', description_es: 'Evaluacion transparente.', engine_key: 'tenure_potential', status: 'active', version: '2.0.0-pilot', estimated_minutes: 15, item_count: 27 }] };
+      if (url === '/api/tests') return { tests: [{ id: 'test_tenure_potential', code: 'TP-001', name_en: 'Tenure Potential', name_es: 'Potencial de Permanencia', description_en: 'Transparent assessment.', description_es: 'Evaluacion transparente.', engine_key: 'tenure_potential', status: 'active', version: '2.0.1-pilot', estimated_minutes: 15, item_count: 27 }] };
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
       if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
@@ -72,7 +72,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, renderSend, renderProgress, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderAudit, renderMethod, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, renderSend, renderProgress, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderReport, renderAudit, renderMethod, state, render };`, context);
 await Promise.resolve();
 
 const csvApi = context.__gazelleWorkflowTest;
@@ -152,6 +152,32 @@ assert.match(spanishDirectory, /Todas las listas/);
 assert.match(csvApi.reportUiCopy().auditTab, /Auditoría de puntuación/);
 assert.match(csvApi.renderMethod(), /Plan de validación antes de realizar afirmaciones predictivas/);
 assert.match(csvApi.renderAudit({ auditHash: 'a'.repeat(64), assessmentVersion: '2.0', modelVersion: '2.0', locale: 'es', experienceBranch: 'experienced', durationMs: 600000, completedAt: new Date().toISOString(), scoringTrace: [], quality: { status: 'pilot_usable', flags: [] }, aiAnalysis: null, scenarioResponses: [] }), /Huella criptográfica del resultado/);
+const recruiterReadableHtml = csvApi.renderReport({
+  name: 'Candidate Example', role: 'Customer Care', completedAt: new Date().toISOString(),
+  potentialIndex: 70, potentialBand: 'conditional', quality: { status: 'pilot_usable' },
+  subscales: { fit: { score: 70 }, intent: { score: 65 }, reliability: { score: 75 }, context: { score: 60 } },
+  supportProfile: [], scenarioResponses: [],
+  aiAnalysis: {
+    status: 'completed', provider: 'OpenAI', model: 'gpt-5-mini', prompt_version: 'analysis-v2.1.0',
+    output: {
+      es: {
+        title: 'Análisis integrado',
+        executive_summary: 'Resumen claro.',
+        paragraphs: [
+          'Las salvedades son la intención media (intent_six_months, intent_path), y solicita coaching y voz (support_coach, support_voice).',
+          'La evidencia debe confirmarse en entrevista.', 'La respuesta muestra una primera acción.', 'La supervisión debe aclarar expectativas.', 'La entrevista debe confirmar las condiciones.',
+        ],
+        observed_strengths: ['Primera acción específica', 'Comunicación directa'],
+        watch_areas: ['Confirmar el horario', 'Confirmar interés de permanencia'],
+        interview_focus: ['¿Qué horario puedes sostener?', '¿Cómo pedirías ayuda?', '¿Qué esperas de la capacitación?'],
+        support_actions: ['Aclarar expectativas', 'Asignar un instructor', 'Programar retroalimentación'],
+      },
+    },
+  },
+});
+assert.match(recruiterReadableHtml, /Los puntos que conviene confirmar/);
+assert.match(recruiterReadableHtml, /Ajuste al puesto e interés de permanencia/);
+assert.doesNotMatch(recruiterReadableHtml, /intent_six_months|intent_path|support_coach|support_voice|coaching y voz/);
 csvApi.state.reportLocale = 'en';
 
 context.__gazelleWorkflowTest.startPreview();
@@ -189,12 +215,12 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /styles\.css\?v=20260723\.3/);
-assert.match(indexSource, /app\.js\?v=20260723\.3/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260723\.3/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260723\.3/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260723\.3/);
-assert.match(indexSource, /pdf-report\.js\?v=20260723\.3/);
+assert.match(indexSource, /styles\.css\?v=20260723\.4/);
+assert.match(indexSource, /app\.js\?v=20260723\.4/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260723\.4/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260723\.4/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260723\.4/);
+assert.match(indexSource, /pdf-report\.js\?v=20260723\.4/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
@@ -220,8 +246,10 @@ assert.match(appSource, /Candidate lists/);
 assert.match(appSource, /Send selected tests/);
 assert.match(appSource, /Continue to scenarios/);
 assert.match(appSource, /Download PDF/);
-assert.match(appSource, /Evidence-based job alignment/);
-assert.match(appSource, /Alineación laboral basada en evidencia/);
+assert.match(appSource, /Role alignment: 1–5 interpretation/);
+assert.match(appSource, /Ajuste al puesto: lectura de 1 a 5/);
+assert.match(appSource, /Questions ready to ask|Interview questions ready to ask/);
+assert.match(appSource, /Preguntas listas para la entrevista/);
 assert.doesNotMatch(appSource, /Uncalibrated pilot|Piloto sin calibrar|Human review required/);
 assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/);
 assert.doesNotMatch(appSource, /signin-with-chatgpt/);

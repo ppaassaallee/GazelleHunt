@@ -338,6 +338,7 @@ tbody tr:hover td { background: #fcfdfd; }
 .analysis-paragraphs article { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 15px 0; border-bottom: 1px solid var(--line); }
 .analysis-paragraphs article > span,
 .scenario-evidence article > span { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; background: var(--orange-soft); color: var(--orange-dark); font-size: 11px; font-weight: 850; }
+.analysis-paragraphs h4 { margin: 0 0 6px; color: var(--ink); font-size: 12px; }
 .analysis-paragraphs p { margin: 0; color: #3f494b; font-size: 13px; line-height: 1.68; }
 .action-columns { margin: 18px 0; }
 .action-columns > div:last-child { border-left-color: var(--orange); }

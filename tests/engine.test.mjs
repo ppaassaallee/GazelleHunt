@@ -12,7 +12,7 @@ for (const branch of ['experienced', 'new']) {
   const responseTimes = Object.fromEntries(items.map((item) => [item.id, 6000]));
   const result = engine.scoreAssessment({ answers, responseTimes, experienceBranch: branch, durationMs: 162000 });
 
-  assert.equal(result.assessmentVersion, 'TP-0.2.0');
+  assert.equal(result.assessmentVersion, 'TP-0.2.1');
   assert.equal(result.modelStatus, 'pilot_uncalibrated');
   assert.equal(result.scoringTrace.length, 27);
   assert.equal(result.weights.support, 0);
@@ -20,6 +20,12 @@ for (const branch of ['experienced', 'new']) {
   assert.ok(result.potentialIndex >= 0 && result.potentialIndex <= 100);
   assert.equal(result.missingItemIds.length, 0);
 }
+
+const currentScheduleItem = engine.itemDefinition('fit_schedule');
+assert.match(currentScheduleItem.text.en, /compatible with my availability/i);
+assert.match(currentScheduleItem.text.es, /compatible con mi disponibilidad/i);
+assert.doesNotMatch(`${currentScheduleItem.text.en} ${currentScheduleItem.text.es}`, /night|evening|nocturn/i);
+assert.match(engine.itemDefinition('fit_schedule', 'TP-0.2.0').text.en, /evening or weekend/i);
 
 const incompleteItems = engine.applicableItems('new');
 const incompleteAnswers = Object.fromEntries(incompleteItems.slice(1).map((item) => [item.id, 3]));

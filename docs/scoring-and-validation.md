@@ -2,7 +2,7 @@
 
 ## Current status
 
-- Assessment version: `TP-0.2.0`
+- Assessment version: `TP-0.2.1`
 - Scoring model: `transparent-equal-weight-v1`
 - Status: `pilot_uncalibrated`
 - Permitted claim: descriptive Tenure Potential index for research and structured human review
@@ -17,6 +17,8 @@
 3. **Work reliability** — six items covering quality during repetition, recovery after setbacks, early support-seeking, follow-through, adjustment persistence, and overcommitment.
 
 Each construct contributes one-third of the pilot index.
+
+Version `TP-0.2.1` replaces the first schedule item with a role-neutral statement about compatibility with the schedule actually communicated for the position. The scoring key and equal-weight model are unchanged. Assessments completed under `TP-0.2.0` retain their original item wording and version in the audit record.
 
 ### Unscored evidence
 
