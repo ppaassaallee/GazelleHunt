@@ -189,11 +189,11 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260722\.23/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260722\.23/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260722\.23/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260722\.23/);
-assert.match(indexSource, /pdf-report\.js\?v=20260722\.23/);
+assert.match(indexSource, /app\.js\?v=20260723\.1/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260723\.1/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260723\.1/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260723\.1/);
+assert.match(indexSource, /pdf-report\.js\?v=20260723\.1/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
@@ -226,12 +226,16 @@ assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/)
 assert.doesNotMatch(appSource, /signin-with-chatgpt/);
 assert.match(appSource, /SMTP relay with STARTTLS/);
 assert.match(appSource, /Check Brevo activity/);
+assert.match(appSource, /Forgot password\?/);
+assert.match(appSource, /data-reset-user/);
+assert.match(appSource, /data-save-user/);
 assert.match(serverSource, /recentEvents/);
 assert.match(serverSource, /senderRecord/);
 assert.match(serverSource, /domainRecord/);
 
 for (const route of [
   '/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me',
+  '/api/auth/password-reset/request', '/api/auth/password-reset/confirm',
   '/api/tests', '/api/lists', '/api/batches', '/api/results', '/api/admin/users',
   '/api/brevo/configure-webhook',
 ]) assert.match(serverSource, new RegExp(route.replaceAll('/', '\\/')));

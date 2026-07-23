@@ -4,6 +4,7 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../candidate-portal.js', import.meta.url), 'utf8');
 const serverSource = fs.readFileSync(new URL('../server-worker.js', import.meta.url), 'utf8');
+const stylesSource = fs.readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 const appElement = { innerHTML: '' };
 let storedLocale = null;
 const portalPayload = {
@@ -77,5 +78,8 @@ assert.match(serverSource, /status <> 'failed'/);
 assert.match(serverSource, /attempt_limit = attempt_limit \+ 3/);
 assert.match(serverSource, /status NOT IN \('failed', 'provider_unconfirmed'\)/);
 assert.match(serverSource, /__Host-gz_candidate_session/);
+assert.match(stylesSource, /height: 100dvh/);
+assert.match(stylesSource, /\.cp-language \{[^}]*height: 44px/s);
+assert.match(stylesSource, /\.scenario-response \{ min-height: 170px/);
 
 console.log('Candidate portal tests passed.');

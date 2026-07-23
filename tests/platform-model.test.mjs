@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [migration, server, app] = await Promise.all([
+const [migration, passwordResetMigration, server, app] = await Promise.all([
   readFile(new URL('../drizzle/0003_multitenant_accounts_lists_tests.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../drizzle/0006_password_reset_tokens.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../app.js', import.meta.url), 'utf8'),
 ]);
@@ -17,6 +18,8 @@ assert.match(migration, /UNIQUE \(company_id, email\)/);
 assert.match(migration, /users_single_active_super_admin/);
 assert.match(migration, /david\.alejandro\.pa@gmail\.com/);
 assert.match(migration, /test_tenure_potential/);
+assert.match(passwordResetMigration, /CREATE TABLE IF NOT EXISTS password_reset_tokens/);
+assert.match(passwordResetMigration, /password_reset_tokens_user_idx/);
 
 assert.match(server, /user\.role === 'admin'/);
 assert.match(server, /user\.role === 'super_admin'/);
@@ -40,6 +43,8 @@ assert.match(server, /candidate_list_ids_csv/);
 assert.match(app, /Lists and multi-test batches/);
 assert.match(app, /A candidate can belong to multiple lists/);
 assert.match(app, /Only Alejandro Pascual can approve accounts/);
+assert.match(app, /Send reset/);
+assert.match(app, /User access updated/);
 assert.match(app, /Resend to/);
 assert.match(app, /Select all eligible visible candidates/);
 assert.match(app, /filteredReportResults/);

@@ -55,6 +55,16 @@ Required authentication variables:
 
 Passwords are derived with PBKDF2-HMAC-SHA-256 and a per-user random salt. Browser sessions use a `__Host-` cookie with `Secure`, `HttpOnly`, and `SameSite=Strict`; only a hash of each random session token is stored.
 
+### Staff onboarding and password recovery
+
+1. Send the public application URL to the recruiter or administrator.
+2. The person selects **Create an account**, enters their company, and chooses their own password.
+3. The registration appears in **Users & companies → Approval queue**.
+4. Alejandro selects the company and either **Recruiter** or **Company admin**, then approves the account. The platform requests a Brevo sign-in notification automatically.
+5. After activation, Alejandro can change the person's company, role, or status from the account table.
+
+Users who forget their password select **Forgot password?** on the sign-in page. Brevo sends a one-time link that expires after 60 minutes; completing the reset revokes prior sessions. Alejandro can also use **Send reset** beside any active recruiter or administrator. Passwords and reset tokens are never displayed to administrators, and only reset-token hashes are stored.
+
 ## Lists and tests
 
 The operating workflow is:

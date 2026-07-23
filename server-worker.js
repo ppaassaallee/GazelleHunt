@@ -190,6 +190,17 @@ const schemaStatements = [
     revoked_at TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    requested_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (requested_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens(user_id, created_at DESC)`,
   `CREATE TABLE IF NOT EXISTS auth_rate_limits (
     rate_key TEXT NOT NULL,
     action TEXT NOT NULL,
@@ -658,6 +669,7 @@ const CANDIDATE_SESSION_COOKIE = '__Host-gz_candidate_session';
 const PASSWORD_ITERATIONS = 100000;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const CANDIDATE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const OWNER_EMAIL = 'david.alejandro.pa@gmail.com';
 const commonPasswords = new Set([
   'password', 'password123', '12345678', '123456789', 'qwerty123', 'letmein123',
@@ -1656,6 +1668,94 @@ async function sendBrevo(env, message) {
   const config = emailConfig(env);
   if (!config.sendingConfigured) throw new Error('email_not_configured');
   return config.transport === 'smtp' ? sendBrevoSmtp(config, message) : sendBrevoApi(config, message);
+}
+
+function runtimeOrigin(request, env) {
+  return cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || new URL(request.url).origin;
+}
+
+async function issuePasswordReset(request, env, target, requestedBy = null) {
+  const token = randomToken();
+  const tokenHash = await sessionTokenHash(token, env);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + PASSWORD_RESET_TTL_MS);
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL`).bind(now.toISOString(), target.id),
+    env.DB.prepare(`
+      INSERT INTO password_reset_tokens (token_hash, user_id, requested_by_user_id, created_at, expires_at, used_at)
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `).bind(tokenHash, target.id, requestedBy?.id || null, now.toISOString(), expiresAt.toISOString()),
+  ]);
+  const resetUrl = `${runtimeOrigin(request, env)}/?reset=${encodeURIComponent(token)}`;
+  try {
+    const provider = await sendBrevo(env, {
+      to: target.email,
+      toName: target.name,
+      subject: 'Reset your Gazelle Assessment password',
+      text: `Hello ${target.name},\n\nUse this secure link to choose a new Gazelle Assessment password. The link expires in 60 minutes and can be used only once:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this message.\n\n---\n\nHola ${target.name},\n\nUsa este enlace seguro para elegir una nueva contraseña de Gazelle Assessment. El enlace vence en 60 minutos y solo puede usarse una vez:\n\n${resetUrl}\n\nSi no solicitaste este cambio, puedes ignorar este mensaje.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Reset your password</h1><p>Hello ${escapeHtml(target.name)},</p><p>Use the secure link below to choose a new Gazelle Assessment password. It expires in 60 minutes and can be used only once.</p><p><a href="${escapeHtml(resetUrl)}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Choose new password</a></p><hr style="border:0;border-top:1px solid #dbe2e1;margin:28px 0"><h2 style="font-size:20px">Restablece tu contraseña</h2><p>Usa el enlace seguro para elegir una nueva contraseña. Vence en 60 minutos y solo puede usarse una vez.</p><p style="font-size:13px;color:#687174">If you did not request this, you can ignore this message. · Si no solicitaste este cambio, puedes ignorar este mensaje.</p></div>`,
+      tag: 'staff-password-reset',
+    });
+    await audit(env, requestedBy?.email || target.email, 'password_reset_requested', 'user', target.id, { providerMessageId: provider.id, requestedByAdmin: Boolean(requestedBy) });
+    return provider;
+  } catch (error) {
+    await env.DB.prepare(`UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?`).bind(new Date().toISOString(), tokenHash).run();
+    await audit(env, requestedBy?.email || target.email, 'password_reset_delivery_failed', 'user', target.id, { errorCode: error.message });
+    throw error;
+  }
+}
+
+async function requestPasswordReset(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const email = cleanEmail(body.email);
+  if (!await rateLimit(env, request, 'password_reset_request', email || 'invalid', 3, 60 * 60)) {
+    return json({ error: 'Too many reset requests. Try again later.', code: 'rate_limited' }, 429);
+  }
+  const target = email ? await env.DB.prepare(`SELECT id, email, name, status FROM users WHERE email = ? COLLATE NOCASE`).bind(email).first() : null;
+  if (target?.status === 'active') await issuePasswordReset(request, env, target).catch(() => null);
+  return json({ accepted: true, message: 'If an active account exists, a password reset link has been sent.' }, 202);
+}
+
+async function confirmPasswordReset(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const token = cleanText(body.token, 300);
+  const newPassword = String(body.newPassword || '');
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) return json({ error: passwordError, code: 'weak_password' }, 422);
+  if (!token || !await rateLimit(env, request, 'password_reset_confirm', 'token', 8, 60 * 60)) {
+    return json({ error: 'This password reset link is invalid or expired.', code: 'invalid_reset_token' }, 422);
+  }
+  const tokenHash = await sessionTokenHash(token, env);
+  const stored = await env.DB.prepare(`
+    SELECT t.token_hash, t.user_id, t.expires_at, t.used_at, u.email, u.status
+    FROM password_reset_tokens t JOIN users u ON u.id = t.user_id
+    WHERE t.token_hash = ?
+  `).bind(tokenHash).first();
+  if (!stored || stored.used_at || stored.status !== 'active' || new Date(stored.expires_at).getTime() <= Date.now()) {
+    return json({ error: 'This password reset link is invalid or expired.', code: 'invalid_reset_token' }, 422);
+  }
+  const passwordData = await passwordRecord(newPassword, env);
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ?, password_changed_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(passwordData.hash, passwordData.salt, passwordData.iterations, now, now, stored.user_id),
+    env.DB.prepare(`UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL`).bind(now, stored.user_id),
+    env.DB.prepare(`UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`).bind(now, stored.user_id),
+  ]);
+  await audit(env, stored.email, 'password_reset_completed', 'user', stored.user_id, {});
+  return json({ changed: true });
+}
+
+async function sendAccountApprovedEmail(request, env, target, companyName, role) {
+  const loginUrl = `${runtimeOrigin(request, env)}/`;
+  return sendBrevo(env, {
+    to: target.email,
+    toName: target.name,
+    subject: 'Your Gazelle Assessment access is ready',
+    text: `Hello ${target.name},\n\nAlejandro approved your Gazelle Assessment account as ${role === 'admin' ? 'Company administrator' : 'Recruiter'} for ${companyName}. Sign in with the password you created during registration:\n\n${loginUrl}\n\nIf you forgot your password, select “Forgot password?” on the sign-in page.`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Your access is ready</h1><p>Hello ${escapeHtml(target.name)},</p><p>Alejandro approved your account as <strong>${role === 'admin' ? 'Company administrator' : 'Recruiter'}</strong> for <strong>${escapeHtml(companyName)}</strong>.</p><p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Sign in to Gazelle</a></p><p style="font-size:13px;color:#687174">Use the password you created during registration. If you forgot it, select “Forgot password?” on the sign-in page.</p></div>`,
+    tag: 'staff-access-approved',
+  });
 }
 
 const BREVO_TRANSACTIONAL_EVENTS = Object.freeze([
@@ -3161,7 +3261,33 @@ async function updateUser(request, env, user, targetUserId) {
     .bind(companyId || null, role, status, user.id, status, now, now, targetUserId).run();
   if (status !== 'active') await env.DB.prepare(`UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`).bind(now, targetUserId).run();
   await audit(env, user.email, 'user_access_updated', 'user', targetUserId, { status, role, companyId });
+  if (target.status !== 'active' && status === 'active') {
+    const company = await env.DB.prepare(`SELECT name FROM companies WHERE id = ?`).bind(companyId).first();
+    try {
+      const provider = await sendAccountApprovedEmail(request, env, target, company?.name || companyName, role);
+      await audit(env, user.email, 'user_approval_email_sent', 'user', targetUserId, { providerMessageId: provider.id });
+    } catch (error) {
+      await audit(env, user.email, 'user_approval_email_failed', 'user', targetUserId, { errorCode: error.message });
+    }
+  }
   return listUsers(env, user);
+}
+
+async function adminSendPasswordReset(request, env, user, targetUserId) {
+  if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can send password reset links.' }, 403);
+  const target = await env.DB.prepare(`SELECT id, email, name, status, role FROM users WHERE id = ?`).bind(targetUserId).first();
+  if (!target) return json({ error: 'User not found.' }, 404);
+  if (target.email === OWNER_EMAIL || target.role === 'super_admin') return json({ error: 'Use the self-service reset flow for the super administrator account.' }, 403);
+  if (target.status !== 'active') return json({ error: 'Activate the account before sending a password reset link.' }, 422);
+  if (!await rateLimit(env, request, 'admin_password_reset', target.email, 5, 60 * 60)) {
+    return json({ error: 'Too many reset links were requested for this account. Try again later.', code: 'rate_limited' }, 429);
+  }
+  try {
+    const provider = await issuePasswordReset(request, env, target, user);
+    return json({ sent: true, providerMessageId: provider.id });
+  } catch (error) {
+    return json({ error: error.providerMessage || 'The password reset email could not be sent.', code: error.message }, error.providerStatus || 502);
+  }
 }
 
 function normalizedBrevoEvent(value) {
@@ -3236,6 +3362,8 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/auth/signup' && request.method === 'POST') return signUp(request, env);
   if (url.pathname === '/api/auth/login' && request.method === 'POST') return logIn(request, env);
   if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logOut(request, env);
+  if (url.pathname === '/api/auth/password-reset/request' && request.method === 'POST') return requestPasswordReset(request, env);
+  if (url.pathname === '/api/auth/password-reset/confirm' && request.method === 'POST') return confirmPasswordReset(request, env);
   if (url.pathname === '/api/candidate/portal' && request.method === 'GET') return candidatePortalData(request, env);
   if (url.pathname === '/api/candidate/auth/signup' && request.method === 'POST') return candidateSignUp(request, env);
   if (url.pathname === '/api/candidate/auth/login' && request.method === 'POST') return candidateLogIn(request, env);
@@ -3314,6 +3442,8 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/batches' && request.method === 'GET') return json({ batches: await listSendBatches(env, user) });
   if (url.pathname === '/api/batches' && request.method === 'POST') return createSendBatch(request, env, user, context);
   if (url.pathname === '/api/admin/users' && request.method === 'GET') return listUsers(env, user);
+  const userPasswordResetMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/password-reset$/);
+  if (userPasswordResetMatch && request.method === 'POST') return adminSendPasswordReset(request, env, user, cleanText(userPasswordResetMatch[1], 100));
   const userMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
   if (userMatch && request.method === 'PATCH') return updateUser(request, env, user, cleanText(userMatch[1], 100));
   if (url.pathname === '/api/email/test' && request.method === 'POST') return sendTestEmail(request, env, user);

@@ -53,6 +53,7 @@ const state = {
     ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5-mini' },
   },
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
+  resetToken: '', passwordResetSent: false, passwordResetComplete: false,
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
   tests: [], lists: [], batches: [], users: [], companies: [], selectedListId: null,
   stages: [], referrals: [], journeyCandidateId: null,
@@ -156,11 +157,23 @@ function shell(content) {
 
 function adminSignInPage() {
   if (state.accountPending) return `<main class="auth-app"><section class="auth-panel auth-message">${icon('clock')}<p class="eyebrow">Registration received</p><h1>Awaiting approval</h1><p>Alejandro Pascual will review your company and assign your recruiter or administrator role. Return here and sign in after approval.</p><button class="button button-primary" data-auth-mode="login">Back to sign in</button></section></main>`;
+  if (state.passwordResetSent) return `<main class="auth-app"><section class="auth-panel auth-message">${icon('mail')}<p class="eyebrow">Check your inbox</p><h1>Reset link requested</h1><p>If an active account exists for that email, Brevo has sent a secure one-time link. It expires in 60 minutes.</p><button class="button button-primary" data-auth-mode="login">Back to sign in</button></section></main>`;
+  if (state.passwordResetComplete) return `<main class="auth-app"><section class="auth-panel auth-message">${icon('check')}<p class="eyebrow">Password updated</p><h1>Your new password is ready</h1><p>All previous sessions were closed. Sign in again with your new password.</p><button class="button button-primary" data-auth-mode="login">Sign in</button></section></main>`;
   const setup = state.authMode === 'setup';
   const signup = state.authMode === 'signup';
-  const title = setup ? 'Activate super administrator' : signup ? 'Create your account' : 'Sign in to Gazelle';
-  const subtitle = setup ? 'Reserved for Alejandro Pascual. This activation can be completed only once.' : signup ? 'Your account remains pending until Alejandro approves it.' : 'Access candidates, lists, tests, sends, and reports for your role.';
-  return `<main class="auth-app"><section class="auth-brand"><div class="brand-mark">G</div><p class="eyebrow">Gazelle Assessment</p><h1>One platform for structured candidate assessments.</h1><p>Run bilingual tests, organize candidates into reusable lists, send batches, and keep every result auditable.</p><div class="auth-proof"><span>${icon('shield')}Server-enforced company access</span><span>${icon('list')}Lists and multi-test batches</span><span>${icon('file')}Bilingual PDF reports</span></div></section><section class="auth-panel"><div><p class="eyebrow">Secure account access</p><h2>${title}</h2><p>${subtitle}</p></div><form id="auth-form" class="auth-form" data-mode="${state.authMode}"><label class="field"><span>Email</span><input class="input" id="auth-email" type="email" autocomplete="email" required value="${setup ? esc(state.bootstrap.ownerEmail) : ''}" ${setup ? 'readonly' : ''}></label>${state.authMode !== 'login' ? `<label class="field"><span>Full name</span><input class="input" id="auth-name" autocomplete="name" required></label>` : ''}${signup ? `<label class="field"><span>Company</span><input class="input" id="auth-company" autocomplete="organization" required></label>` : ''}<label class="field"><span>Password</span><input class="input" id="auth-password" type="password" autocomplete="${state.authMode === 'login' ? 'current-password' : 'new-password'}" minlength="12" maxlength="128" required></label>${setup ? `<label class="field"><span>Owner activation key</span><input class="input" id="auth-bootstrap" type="password" autocomplete="one-time-code" required></label>` : ''}${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}<button class="button button-primary auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Please wait…' : setup ? 'Activate account' : signup ? 'Request access' : 'Sign in'}</button></form><div class="auth-switch">${state.authMode !== 'login' ? '<button data-auth-mode="login">Already have an account? Sign in</button>' : '<button data-auth-mode="signup">Create an account</button>'}${state.bootstrap.ownerSetupRequired && state.authMode !== 'setup' ? '<button data-auth-mode="setup">Alejandro: activate owner account</button>' : ''}</div><p class="auth-security">Passwords are never stored in plain text. Sessions use secure, HTTP-only cookies.</p></section></main>`;
+  const forgot = state.authMode === 'forgot';
+  const reset = state.authMode === 'reset';
+  const title = setup ? 'Activate super administrator' : signup ? 'Create your account' : forgot ? 'Reset your password' : reset ? 'Choose a new password' : 'Sign in to Gazelle';
+  const subtitle = setup ? 'Reserved for Alejandro Pascual. This activation can be completed only once.' : signup ? 'Choose your password now. Your account remains pending until Alejandro approves it.' : forgot ? 'Enter your work email and we will send a secure one-time link.' : reset ? 'Use at least 12 characters. Completing this step closes previous sessions.' : 'Access candidates, lists, tests, sends, and reports for your role.';
+  const emailField = reset ? '' : `<label class="field"><span>Email</span><input class="input" id="auth-email" type="email" autocomplete="email" required value="${setup ? esc(state.bootstrap.ownerEmail) : ''}" ${setup ? 'readonly' : ''}></label>`;
+  const identityFields = signup || setup ? `<label class="field"><span>Full name</span><input class="input" id="auth-name" autocomplete="name" required></label>` : '';
+  const companyField = signup ? `<label class="field"><span>Company</span><input class="input" id="auth-company" autocomplete="organization" required></label>` : '';
+  const passwordFields = forgot ? '' : `<label class="field"><span>${reset ? 'New password' : 'Password'}</span><input class="input" id="auth-password" type="password" autocomplete="${state.authMode === 'login' ? 'current-password' : 'new-password'}" minlength="12" maxlength="128" required></label>${reset ? '<label class="field"><span>Confirm new password</span><input class="input" id="auth-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>' : ''}`;
+  const submitLabel = setup ? 'Activate account' : signup ? 'Request access' : forgot ? 'Email reset link' : reset ? 'Save new password' : 'Sign in';
+  const authSwitch = state.authMode === 'login'
+    ? '<button data-auth-mode="signup">Create an account</button><button data-auth-mode="forgot">Forgot password?</button>'
+    : '<button data-auth-mode="login">Back to sign in</button>';
+  return `<main class="auth-app"><section class="auth-brand"><div class="brand-mark">G</div><p class="eyebrow">Gazelle Assessment</p><h1>One platform for structured candidate assessments.</h1><p>Run bilingual tests, organize candidates into reusable lists, send batches, and keep every result auditable.</p><div class="auth-proof"><span>${icon('shield')}Server-enforced company access</span><span>${icon('list')}Lists and multi-test batches</span><span>${icon('file')}Bilingual PDF reports</span></div></section><section class="auth-panel"><div><p class="eyebrow">Secure account access</p><h2>${title}</h2><p>${subtitle}</p></div><form id="auth-form" class="auth-form" data-mode="${state.authMode}">${emailField}${identityFields}${companyField}${passwordFields}${setup ? `<label class="field"><span>Owner activation key</span><input class="input" id="auth-bootstrap" type="password" autocomplete="one-time-code" required></label>` : ''}${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}<button class="button button-primary auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Please wait…' : submitLabel}</button></form><div class="auth-switch">${authSwitch}${state.bootstrap.ownerSetupRequired && state.authMode !== 'setup' ? '<button data-auth-mode="setup">Alejandro: activate owner account</button>' : ''}</div><p class="auth-security">Passwords are never stored in plain text. Reset links expire after 60 minutes and work once.</p></section></main>`;
 }
 
 function pageIntro(kicker, title, description, action = '') {
@@ -208,9 +221,9 @@ function renderLists() {
 function renderTeam() {
   if (state.user?.role !== 'super_admin') return '<div class="notice notice-error">Super administrator access is required.</div>';
   const pending = state.users.filter((user) => user.status === 'pending');
-  const active = state.users.filter((user) => user.status !== 'pending');
+  const managed = state.users.filter((user) => user.status !== 'pending');
   const companyOptions = state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('');
-  return `<div class="stack">${pageIntro('Platform control', 'Users & companies', 'Only Alejandro Pascual can approve accounts and assign recruiter or company administrator roles.', `<span class="badge badge-${pending.length ? 'orange' : 'teal'}">${pending.length} pending</span>`)}<section class="card"><div class="card-header"><div><h3>Approval queue</h3><p>Confirm company and minimum required role before activation.</p></div></div>${pending.length ? `<div class="approval-list">${pending.map((user) => `<article class="approval-row"><div class="person"><div class="person-avatar">${initials(user.name)}</div><div><strong>${esc(user.name)}</strong><span>${esc(user.email)} · requested ${esc(user.requested_company_name || 'no company')}</span></div></div><select class="select" id="approve-role-${user.id}"><option value="recruiter">Recruiter</option><option value="admin">Company admin</option></select><select class="select" id="approve-company-${user.id}"><option value="">Create/use company below</option>${companyOptions}</select><input class="input" id="approve-company-name-${user.id}" value="${esc(user.requested_company_name || '')}" placeholder="Company name"><div class="approval-actions"><button class="button button-primary" data-approve-user="${user.id}">Approve</button><button class="button button-secondary" data-reject-user="${user.id}">Reject</button></div></article>`).join('')}</div>` : '<div class="empty-panel"><h3>No accounts awaiting approval</h3><p>New public registrations will appear here.</p></div>'}</section><section class="card"><div class="card-header"><div><h3>Platform accounts</h3><p>One super administrator; all other accounts are company scoped.</p></div><span class="badge badge-neutral">${active.length} accounts</span></div><div class="table-scroll"><table><thead><tr><th>User</th><th>Company</th><th>Role</th><th>Status</th><th>Last sign-in</th></tr></thead><tbody>${active.map((user) => `<tr><td><strong>${esc(user.name)}</strong><br><span class="empty-value">${esc(user.email)}</span></td><td>${esc(user.company_name || 'Platform')}</td><td>${esc(user.role.replace('_', ' '))}</td><td>${statusBadge(user.status)}</td><td>${formatDate(user.last_login_at)}</td></tr>`).join('')}</tbody></table></div></section></div>`;
+  return `<div class="stack">${pageIntro('Platform control', 'Users & companies', 'Only Alejandro Pascual can approve accounts, assign company access, and send password reset links.', `<span class="badge badge-${pending.length ? 'orange' : 'teal'}">${pending.length} pending</span>`)}<section class="card"><div class="card-header"><div><h3>Approval queue</h3><p>Confirm company and minimum required role before activation. Approval sends a sign-in email automatically.</p></div></div>${pending.length ? `<div class="approval-list">${pending.map((user) => `<article class="approval-row"><div class="person"><div class="person-avatar">${initials(user.name)}</div><div><strong>${esc(user.name)}</strong><span>${esc(user.email)} · requested ${esc(user.requested_company_name || 'no company')}</span></div></div><select class="select" id="approve-role-${user.id}"><option value="recruiter">Recruiter</option><option value="admin">Company admin</option></select><select class="select" id="approve-company-${user.id}"><option value="">Create/use company below</option>${companyOptions}</select><input class="input" id="approve-company-name-${user.id}" value="${esc(user.requested_company_name || '')}" placeholder="Company name"><div class="approval-actions"><button class="button button-primary" data-approve-user="${user.id}">Approve</button><button class="button button-secondary" data-reject-user="${user.id}">Reject</button></div></article>`).join('')}</div>` : '<div class="empty-panel"><h3>No accounts awaiting approval</h3><p>New public registrations will appear here.</p></div>'}</section><section class="card"><div class="card-header"><div><h3>Platform accounts</h3><p>Update role, company, status, or send a secure password reset link.</p></div><span class="badge badge-neutral">${managed.length} accounts</span></div><div class="table-scroll"><table class="account-table"><thead><tr><th>User</th><th>Company</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Actions</th></tr></thead><tbody>${managed.map((user) => { const owner = user.role === 'super_admin'; return `<tr><td><strong>${esc(user.name)}</strong><br><span class="empty-value">${esc(user.email)}</span></td><td>${owner ? esc(user.company_name || 'Platform') : `<select class="select account-select" id="manage-company-${user.id}">${state.companies.map((company) => `<option value="${company.id}" ${company.id === user.company_id ? 'selected' : ''}>${esc(company.name)}</option>`).join('')}</select>`}</td><td>${owner ? 'super admin' : `<select class="select account-select" id="manage-role-${user.id}"><option value="recruiter" ${user.role === 'recruiter' ? 'selected' : ''}>Recruiter</option><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Company admin</option></select>`}</td><td>${owner ? statusBadge(user.status) : `<select class="select account-select" id="manage-status-${user.id}"><option value="active" ${user.status === 'active' ? 'selected' : ''}>Active</option><option value="suspended" ${user.status === 'suspended' ? 'selected' : ''}>Suspended</option><option value="rejected" ${user.status === 'rejected' ? 'selected' : ''}>Rejected</option></select>`}</td><td>${formatDate(user.last_login_at)}</td><td>${owner ? '<span class="empty-value">Protected owner</span>' : `<div class="account-actions"><button class="button button-secondary" data-save-user="${user.id}">${icon('check')}Save</button><button class="button button-secondary" data-reset-user="${user.id}" ${user.status === 'active' ? '' : 'disabled'}>${icon('key')}Send reset</button></div>`}</td></tr>`; }).join('')}</tbody></table></div></section></div>`;
 }
 
 function filteredCandidates() {
@@ -919,15 +932,33 @@ async function updateReferralStatus(referralId, status) {
 async function submitAuth(event) {
   event.preventDefault();
   const mode = event.currentTarget.dataset.mode;
+  const password = document.getElementById('auth-password')?.value;
+  if (mode === 'reset' && password !== document.getElementById('auth-password-confirm')?.value) {
+    state.error = 'The new passwords do not match.';
+    render();
+    return;
+  }
   const payload = {
     email: document.getElementById('auth-email')?.value,
-    password: document.getElementById('auth-password')?.value,
+    password,
     name: document.getElementById('auth-name')?.value,
     companyName: document.getElementById('auth-company')?.value,
     bootstrapToken: document.getElementById('auth-bootstrap')?.value,
   };
   state.busy = true; state.error = ''; render();
   try {
+    if (mode === 'forgot') {
+      await fetchJson('/api/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email: payload.email }) });
+      state.passwordResetSent = true;
+      return;
+    }
+    if (mode === 'reset') {
+      await fetchJson('/api/auth/password-reset/confirm', { method: 'POST', body: JSON.stringify({ token: state.resetToken, newPassword: password }) });
+      state.passwordResetComplete = true;
+      state.resetToken = '';
+      history.replaceState({}, '', '/');
+      return;
+    }
     const response = await fetchJson(mode === 'login' ? '/api/auth/login' : '/api/auth/signup', { method: 'POST', body: JSON.stringify(payload) });
     if (response.status === 'pending') {
       state.accountPending = true;
@@ -1009,7 +1040,11 @@ async function createTest(event) {
 }
 
 async function updateUserAccess(userId, status) {
-  const payload = status === 'rejected' ? { status } : {
+  const payload = status === 'rejected' ? { status } : status === 'managed' ? {
+    status: document.getElementById(`manage-status-${userId}`)?.value,
+    role: document.getElementById(`manage-role-${userId}`)?.value,
+    companyId: document.getElementById(`manage-company-${userId}`)?.value,
+  } : {
     status: 'active',
     role: document.getElementById(`approve-role-${userId}`)?.value,
     companyId: document.getElementById(`approve-company-${userId}`)?.value,
@@ -1020,7 +1055,16 @@ async function updateUserAccess(userId, status) {
     const response = await fetchJson(`/api/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(payload) });
     state.users = response.users || [];
     state.companies = response.companies || [];
-    toast(status === 'rejected' ? 'Registration rejected.' : 'User approved and access assigned.');
+    toast(status === 'rejected' ? 'Registration rejected.' : status === 'managed' ? 'User access updated.' : 'User approved. A sign-in email was requested through Brevo.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function sendUserPasswordReset(userId) {
+  state.busy = true;
+  try {
+    await fetchJson(`/api/admin/users/${encodeURIComponent(userId)}/password-reset`, { method: 'POST', body: '{}' });
+    toast('Secure password reset link sent through Brevo.');
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
 }
@@ -1113,7 +1157,14 @@ function render() {
 
 function bindEvents() {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => { state.view = button.dataset.nav; render(); }));
-  document.querySelectorAll('[data-auth-mode]').forEach((button) => button.addEventListener('click', () => { state.authMode = button.dataset.authMode; state.accountPending = false; state.error = ''; render(); }));
+  document.querySelectorAll('[data-auth-mode]').forEach((button) => button.addEventListener('click', () => {
+    state.authMode = button.dataset.authMode;
+    state.accountPending = false;
+    state.passwordResetSent = false;
+    state.passwordResetComplete = false;
+    state.error = '';
+    render();
+  }));
   document.getElementById('auth-form')?.addEventListener('submit', submitAuth);
   document.getElementById('mobile-menu')?.addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
   document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () => {
@@ -1145,6 +1196,8 @@ function bindEvents() {
   document.querySelectorAll('[data-batch-list]').forEach((button) => button.addEventListener('click', () => sendBatch(button.dataset.batchList)));
   document.querySelectorAll('[data-approve-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.approveUser, 'active')));
   document.querySelectorAll('[data-reject-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.rejectUser, 'rejected')));
+  document.querySelectorAll('[data-save-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.saveUser, 'managed')));
+  document.querySelectorAll('[data-reset-user]').forEach((button) => button.addEventListener('click', () => sendUserPasswordReset(button.dataset.resetUser)));
   document.getElementById('candidate-search')?.addEventListener('input', (event) => { state.search = event.target.value; render(); });
   document.getElementById('candidate-status')?.addEventListener('change', (event) => { state.filteredStatus = event.target.value; render(); });
   document.getElementById('bulk-resend-test')?.addEventListener('change', (event) => { state.bulkResendTestId = event.target.value; state.selectedCandidateIds = []; render(); });
@@ -1237,7 +1290,11 @@ function bindRunner() {
   }));
 }
 
-const inviteToken = new URLSearchParams(location.search).get('invite');
+const initialSearch = new URLSearchParams(location.search);
+const inviteToken = initialSearch.get('invite');
+state.resetToken = initialSearch.get('reset') || '';
+if (state.resetToken) state.authMode = 'reset';
 if (location.pathname.startsWith('/candidate')) globalThis.GazelleCandidatePortal.start();
 else if (inviteToken) startInvite(inviteToken);
+else if (state.resetToken) { state.loading = false; state.adminAuthenticated = false; render(); }
 else { render(); loadWorkspace(); }

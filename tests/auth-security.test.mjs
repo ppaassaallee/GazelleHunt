@@ -48,5 +48,12 @@ assert.equal(auth.constantTimeEqual('same-value', 'other-value'), false);
 const cookie = auth.sessionCookie('random-token', new Date(Date.now() + 60000));
 for (const attribute of ['__Host-gz_session=', 'Path=/', 'HttpOnly', 'Secure', 'SameSite=Strict']) assert.match(cookie, new RegExp(attribute));
 assert.match(auth.clearSessionCookie(), /Max-Age=0/);
+assert.match(source, /CREATE TABLE IF NOT EXISTS password_reset_tokens/);
+assert.match(source, /PASSWORD_RESET_TTL_MS = 60 \* 60 \* 1000/);
+assert.match(source, /password_reset_completed/);
+assert.match(source, /UPDATE sessions SET revoked_at = \?/);
+assert.match(source, /\/api\/auth\/password-reset\/request/);
+assert.match(source, /\/api\/auth\/password-reset\/confirm/);
+assert.match(source, /adminSendPasswordReset/);
 
 console.log('Authentication security tests passed.');
