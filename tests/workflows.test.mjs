@@ -189,11 +189,11 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /app\.js\?v=20260723\.1/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260723\.1/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260723\.1/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260723\.1/);
-assert.match(indexSource, /pdf-report\.js\?v=20260723\.1/);
+assert.match(indexSource, /app\.js\?v=20260723\.2/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260723\.2/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260723\.2/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260723\.2/);
+assert.match(indexSource, /pdf-report\.js\?v=20260723\.2/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);

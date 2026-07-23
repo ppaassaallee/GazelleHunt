@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [migration, passwordResetMigration, server, app] = await Promise.all([
+const [migration, passwordResetMigration, secondarySuperAdminMigration, server, app] = await Promise.all([
   readFile(new URL('../drizzle/0003_multitenant_accounts_lists_tests.sql', import.meta.url), 'utf8'),
   readFile(new URL('../drizzle/0006_password_reset_tokens.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../drizzle/0007_secondary_super_admin.sql', import.meta.url), 'utf8'),
   readFile(new URL('../server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../app.js', import.meta.url), 'utf8'),
 ]);
@@ -20,6 +21,9 @@ assert.match(migration, /david\.alejandro\.pa@gmail\.com/);
 assert.match(migration, /test_tenure_potential/);
 assert.match(passwordResetMigration, /CREATE TABLE IF NOT EXISTS password_reset_tokens/);
 assert.match(passwordResetMigration, /password_reset_tokens_user_idx/);
+assert.match(secondarySuperAdminMigration, /DROP INDEX IF EXISTS users_single_active_super_admin/);
+assert.match(secondarySuperAdminMigration, /karla\.ms@alliedglobal\.com/);
+assert.match(secondarySuperAdminMigration, /users_super_admin_allowlist_insert/);
 
 assert.match(server, /user\.role === 'admin'/);
 assert.match(server, /user\.role === 'super_admin'/);
@@ -42,7 +46,7 @@ assert.match(server, /candidate_list_ids_csv/);
 
 assert.match(app, /Lists and multi-test batches/);
 assert.match(app, /A candidate can belong to multiple lists/);
-assert.match(app, /Only Alejandro Pascual can approve accounts/);
+assert.match(app, /Platform super administrators can approve accounts/);
 assert.match(app, /Send reset/);
 assert.match(app, /User access updated/);
 assert.match(app, /Resend to/);

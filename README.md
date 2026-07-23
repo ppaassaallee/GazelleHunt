@@ -7,7 +7,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 ## What is implemented
 
 - Public email/password registration with approval required before access
-- Alejandro Pascual (`david.alejandro.pa@gmail.com`) as the only permitted super administrator
+- Two protected super administrators: Alejandro Pascual (`david.alejandro.pa@gmail.com`) and Alexandra (`karla.ms@alliedglobal.com`)
 - Server-enforced recruiter, company administrator, and super administrator scopes
 - Secure PBKDF2 password derivation, revocable server-side sessions, secure cookies, and authentication rate limits
 - Multi-company candidate records with company-scoped email uniqueness
@@ -39,13 +39,13 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.0` 
 
 ## Accounts and roles
 
-Public registrations are created with `pending` status. Only the super administrator can approve them, assign a company, and choose one of these roles:
+Public registrations are created with `pending` status. A super administrator can approve them, assign a company, and choose one of these roles:
 
 - `recruiter`: sees only candidates and lists they own
 - `admin`: sees all candidates and lists in their company
-- `super_admin`: sees all companies; restricted in code and database triggers to `david.alejandro.pa@gmail.com`
+- `super_admin`: sees all companies; restricted in code and database triggers to the two protected email addresses listed above
 
-The first owner activation also claims legacy pilot candidates for the Gazelle Platform company. The activation key becomes unusable after the sole super administrator exists.
+The first owner activation also claims legacy pilot candidates for the Gazelle Platform company. The activation key becomes unusable after Alejandro's primary owner account exists.
 
 Required authentication variables:
 
@@ -60,10 +60,10 @@ Passwords are derived with PBKDF2-HMAC-SHA-256 and a per-user random salt. Brows
 1. Send the public application URL to the recruiter or administrator.
 2. The person selects **Create an account**, enters their company, and chooses their own password.
 3. The registration appears in **Users & companies → Approval queue**.
-4. Alejandro selects the company and either **Recruiter** or **Company admin**, then approves the account. The platform requests a Brevo sign-in notification automatically.
-5. After activation, Alejandro can change the person's company, role, or status from the account table.
+4. A platform super administrator selects the company and either **Recruiter** or **Company admin**, then approves the account. The platform requests a Brevo sign-in notification automatically.
+5. After activation, a platform super administrator can change the person's company, role, or status from the account table.
 
-Users who forget their password select **Forgot password?** on the sign-in page. Brevo sends a one-time link that expires after 60 minutes; completing the reset revokes prior sessions. Alejandro can also use **Send reset** beside any active recruiter or administrator. Passwords and reset tokens are never displayed to administrators, and only reset-token hashes are stored.
+Users who forget their password select **Forgot password?** on the sign-in page. Brevo sends a one-time link that expires after 60 minutes; completing the reset revokes prior sessions. A super administrator can also use **Send reset** beside any active recruiter or administrator. Passwords and reset tokens are never displayed to administrators, and only reset-token hashes are stored.
 
 ## Lists and tests
 

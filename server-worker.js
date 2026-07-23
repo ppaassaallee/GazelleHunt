@@ -170,14 +170,16 @@ const schemaStatements = [
     FOREIGN KEY (company_id) REFERENCES companies(id),
     FOREIGN KEY (approved_by) REFERENCES users(id)
   )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS users_single_active_super_admin ON users((1)) WHERE role = 'super_admin' AND status = 'active'`,
-  `CREATE TRIGGER IF NOT EXISTS users_super_admin_email_insert
+  `DROP INDEX IF EXISTS users_single_active_super_admin`,
+  `DROP TRIGGER IF EXISTS users_super_admin_email_insert`,
+  `DROP TRIGGER IF EXISTS users_super_admin_email_update`,
+  `CREATE TRIGGER IF NOT EXISTS users_super_admin_allowlist_insert
     BEFORE INSERT ON users
-    WHEN NEW.role = 'super_admin' AND lower(NEW.email) <> 'david.alejandro.pa@gmail.com'
+    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN ('david.alejandro.pa@gmail.com', 'karla.ms@alliedglobal.com')
     BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
-  `CREATE TRIGGER IF NOT EXISTS users_super_admin_email_update
+  `CREATE TRIGGER IF NOT EXISTS users_super_admin_allowlist_update
     BEFORE UPDATE OF role, email ON users
-    WHEN NEW.role = 'super_admin' AND lower(NEW.email) <> 'david.alejandro.pa@gmail.com'
+    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN ('david.alejandro.pa@gmail.com', 'karla.ms@alliedglobal.com')
     BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
   `CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
@@ -671,6 +673,7 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const CANDIDATE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const OWNER_EMAIL = 'david.alejandro.pa@gmail.com';
+const SUPER_ADMIN_EMAILS = new Set([OWNER_EMAIL, 'karla.ms@alliedglobal.com']);
 const commonPasswords = new Set([
   'password', 'password123', '12345678', '123456789', 'qwerty123', 'letmein123',
   'admin123', 'welcome123', 'contraseña', 'contrasena', 'gazelle123',
@@ -893,7 +896,7 @@ async function candidateAccessFromToken(env, rawToken) {
 }
 
 function isSuperAdmin(user) {
-  return user?.status === 'active' && user.role === 'super_admin' && user.email === OWNER_EMAIL;
+  return user?.status === 'active' && user.role === 'super_admin' && SUPER_ADMIN_EMAILS.has(cleanEmail(user.email));
 }
 
 function candidateScope(user, alias = 'c') {
@@ -923,7 +926,7 @@ async function signUp(request, env) {
   if (existing) return json({ error: 'An account already exists for this email.', code: 'account_exists' }, 409);
 
   const isOwnerBootstrap = email === OWNER_EMAIL;
-  const currentSuperAdmin = await env.DB.prepare(`SELECT id FROM users WHERE role = 'super_admin' AND status = 'active'`).first();
+  const currentSuperAdmin = await env.DB.prepare(`SELECT id FROM users WHERE email = ? COLLATE NOCASE AND role = 'super_admin' AND status = 'active'`).bind(OWNER_EMAIL).first();
   if (isOwnerBootstrap && currentSuperAdmin) return json({ error: 'The super administrator account is already active.', code: 'owner_already_active' }, 409);
   if (isOwnerBootstrap) {
     const configuredOwner = cleanEmail(env.SUPER_ADMIN_EMAIL);
@@ -976,7 +979,7 @@ async function signUp(request, env) {
 
   await insertUser.run();
   await audit(env, email, 'user_registration_requested', 'user', userId, { requestedCompanyName });
-  return json({ status: 'pending', message: 'Your account is awaiting approval by Alejandro Pascual.' }, 202);
+  return json({ status: 'pending', message: 'Your account is awaiting approval by a platform super administrator.' }, 202);
 }
 
 async function logIn(request, env) {
@@ -991,10 +994,10 @@ async function logIn(request, env) {
   else await derivePassword(password || 'invalid', new Uint8Array(16), PASSWORD_ITERATIONS, authPepper(env));
   if (!valid) return json({ error: 'Email or password is incorrect.', code: 'invalid_credentials' }, 401);
   if (user.status !== 'active') {
-    const message = user.status === 'pending' ? 'Your account is awaiting approval by Alejandro Pascual.' : 'This account is not active.';
+    const message = user.status === 'pending' ? 'Your account is awaiting approval by a platform super administrator.' : 'This account is not active.';
     return json({ error: message, code: `account_${user.status}` }, 403);
   }
-  if (user.role === 'super_admin' && user.email !== OWNER_EMAIL) return json({ error: 'This account has an invalid role assignment.' }, 403);
+  if (user.role === 'super_admin' && !SUPER_ADMIN_EMAILS.has(cleanEmail(user.email))) return json({ error: 'This account has an invalid role assignment.' }, 403);
   const session = await createSession(request, env, user.id);
   const now = new Date().toISOString();
   await env.DB.batch([
@@ -1752,8 +1755,8 @@ async function sendAccountApprovedEmail(request, env, target, companyName, role)
     to: target.email,
     toName: target.name,
     subject: 'Your Gazelle Assessment access is ready',
-    text: `Hello ${target.name},\n\nAlejandro approved your Gazelle Assessment account as ${role === 'admin' ? 'Company administrator' : 'Recruiter'} for ${companyName}. Sign in with the password you created during registration:\n\n${loginUrl}\n\nIf you forgot your password, select “Forgot password?” on the sign-in page.`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Your access is ready</h1><p>Hello ${escapeHtml(target.name)},</p><p>Alejandro approved your account as <strong>${role === 'admin' ? 'Company administrator' : 'Recruiter'}</strong> for <strong>${escapeHtml(companyName)}</strong>.</p><p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Sign in to Gazelle</a></p><p style="font-size:13px;color:#687174">Use the password you created during registration. If you forgot it, select “Forgot password?” on the sign-in page.</p></div>`,
+    text: `Hello ${target.name},\n\nYour Gazelle Assessment account was approved as ${role === 'admin' ? 'Company administrator' : 'Recruiter'} for ${companyName}. Sign in with the password you created during registration:\n\n${loginUrl}\n\nIf you forgot your password, select “Forgot password?” on the sign-in page.`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><h1 style="font-size:24px">Your access is ready</h1><p>Hello ${escapeHtml(target.name)},</p><p>Your account was approved as <strong>${role === 'admin' ? 'Company administrator' : 'Recruiter'}</strong> for <strong>${escapeHtml(companyName)}</strong>.</p><p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#11756d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px">Sign in to Gazelle</a></p><p style="font-size:13px;color:#687174">Use the password you created during registration. If you forgot it, select “Forgot password?” on the sign-in page.</p></div>`,
     tag: 'staff-access-approved',
   });
 }
@@ -3237,7 +3240,7 @@ async function updateUser(request, env, user, targetUserId) {
   if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can manage users.' }, 403);
   const target = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(targetUserId).first();
   if (!target) return json({ error: 'User not found.' }, 404);
-  if (target.email === OWNER_EMAIL || target.role === 'super_admin') return json({ error: 'The sole super administrator account cannot be reassigned here.' }, 403);
+  if (target.role === 'super_admin') return json({ error: 'Protected super administrator accounts cannot be reassigned here.' }, 403);
   const body = await request.json().catch(() => ({}));
   const status = ['active', 'suspended', 'rejected'].includes(body.status) ? body.status : target.status;
   const role = ['recruiter', 'admin'].includes(body.role) ? body.role : target.role;
@@ -3277,7 +3280,7 @@ async function adminSendPasswordReset(request, env, user, targetUserId) {
   if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can send password reset links.' }, 403);
   const target = await env.DB.prepare(`SELECT id, email, name, status, role FROM users WHERE id = ?`).bind(targetUserId).first();
   if (!target) return json({ error: 'User not found.' }, 404);
-  if (target.email === OWNER_EMAIL || target.role === 'super_admin') return json({ error: 'Use the self-service reset flow for the super administrator account.' }, 403);
+  if (target.role === 'super_admin') return json({ error: 'Use the self-service reset flow for super administrator accounts.' }, 403);
   if (target.status !== 'active') return json({ error: 'Activate the account before sending a password reset link.' }, 422);
   if (!await rateLimit(env, request, 'admin_password_reset', target.email, 5, 60 * 60)) {
     return json({ error: 'Too many reset links were requested for this account. Try again later.', code: 'rate_limited' }, 429);
@@ -3356,7 +3359,7 @@ async function handleApi(request, env, context) {
   if (request.method !== 'GET' && !sameOrigin(request)) return json({ error: 'Invalid request origin.' }, 403);
   await ensureSchema(env);
   if (url.pathname === '/api/auth/bootstrap-status' && request.method === 'GET') {
-    const row = await env.DB.prepare(`SELECT id FROM users WHERE role = 'super_admin' AND status = 'active'`).first();
+    const row = await env.DB.prepare(`SELECT id FROM users WHERE email = ? COLLATE NOCASE AND role = 'super_admin' AND status = 'active'`).bind(OWNER_EMAIL).first();
     return json({ ownerSetupRequired: !row, ownerEmail: OWNER_EMAIL, registrationOpen: true });
   }
   if (url.pathname === '/api/auth/signup' && request.method === 'POST') return signUp(request, env);

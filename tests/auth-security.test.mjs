@@ -29,7 +29,7 @@ const context = {
   atob,
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__authTest = { validatePassword, passwordRecord, verifyPassword, sessionCookie, clearSessionCookie, constantTimeEqual, PASSWORD_ITERATIONS };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__authTest = { validatePassword, passwordRecord, verifyPassword, sessionCookie, clearSessionCookie, constantTimeEqual, isSuperAdmin, PASSWORD_ITERATIONS };`, context);
 
 const auth = context.__authTest;
 const env = { AUTH_PEPPER: 'test-only-pepper-that-is-longer-than-thirty-two-characters' };
@@ -44,6 +44,10 @@ assert.equal(await auth.verifyPassword('A valid and memorable passphrase 2026', 
 assert.equal(await auth.verifyPassword('Not the same passphrase', { password_hash: record.hash, password_salt: record.salt, password_iterations: record.iterations }, env), false);
 assert.equal(auth.constantTimeEqual('same-value', 'same-value'), true);
 assert.equal(auth.constantTimeEqual('same-value', 'other-value'), false);
+assert.equal(auth.isSuperAdmin({ email: 'david.alejandro.pa@gmail.com', role: 'super_admin', status: 'active' }), true);
+assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
+assert.equal(auth.isSuperAdmin({ email: 'rogue@example.com', role: 'super_admin', status: 'active' }), false);
+assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'admin', status: 'active' }), false);
 
 const cookie = auth.sessionCookie('random-token', new Date(Date.now() + 60000));
 for (const attribute of ['__Host-gz_session=', 'Path=/', 'HttpOnly', 'Secure', 'SameSite=Strict']) assert.match(cookie, new RegExp(attribute));
