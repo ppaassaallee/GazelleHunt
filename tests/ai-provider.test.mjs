@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+import { webcrypto } from 'node:crypto';
+
+const source = (await readFile(new URL('../server-worker.js', import.meta.url), 'utf8'))
+  .replace('export default {', 'globalThis.__worker = {');
+const context = {
+  globalThis: null,
+  crypto: webcrypto,
+  TextEncoder,
+  TextDecoder,
+  Uint8Array,
+  Date,
+  Math,
+  Number,
+  String,
+  Object,
+  Array,
+  Set,
+  Map,
+  JSON,
+  URL,
+  Response,
+  FormData,
+  btoa,
+  atob,
+};
+context.globalThis = context;
+vm.runInNewContext(`${source}\n;globalThis.__aiProviderTest = { openAiSupportsReasoning, openAiJsonResult, isRetryableAiError };`, context);
+
+const api = context.__aiProviderTest;
+assert.equal(api.openAiSupportsReasoning('gpt-4.1-mini'), false);
+assert.equal(api.openAiSupportsReasoning('gpt-5-mini'), true);
+assert.deepEqual(JSON.parse(JSON.stringify(api.openAiJsonResult({ id: 'resp_123', status: 'in_progress', model: 'gpt-4.1-mini' }, { model: 'gpt-4.1-mini' }))), {
+  pending: true,
+  responseId: 'resp_123',
+  model: 'gpt-4.1-mini',
+});
+const completed = api.openAiJsonResult({
+  id: 'resp_456', status: 'completed', model: 'gpt-4.1-mini',
+  output: [{ type: 'message', content: [{ type: 'output_text', text: '{"status":"ok"}' }] }],
+}, { model: 'gpt-4.1-mini' });
+assert.equal(completed.data.status, 'ok');
+assert.equal(api.isRetryableAiError({ message: 'provider_timeout' }), true);
+assert.equal(api.isRetryableAiError({ message: 'ai_invalid_analysis' }), false);
+assert.match(source, /background: config\.providerKey === 'openai'/);
+assert.match(source, /retrieveOpenAiJson/);
+
+console.log('AI provider queue tests passed.');

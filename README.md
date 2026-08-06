@@ -126,7 +126,7 @@ Implementation references: [send transactional email](https://developers.brevo.c
 
 The app supports either OpenAI or Google Gemini. Set `AI_PROVIDER` to `openai` or `gemini`.
 
-For OpenAI, store `OPENAI_API_KEY` as a hosted secret. `OPENAI_MODEL` is optional and defaults to `gpt-5-mini`, which supports the Responses API, reasoning, and strict Structured Outputs at substantially lower cost than the flagship model. Scenario generation uses low reasoning effort; the evidence synthesis report uses medium effort.
+For OpenAI, store `OPENAI_API_KEY` as a hosted secret. `OPENAI_MODEL` is optional and defaults to `gpt-4.1-mini`, which supports the Responses API and strict Structured Outputs with lower latency and cost for this non-reasoning extraction and synthesis workload. Analysis requests are queued, retried safely up to three times, and recovered by the scheduled Worker handler.
 
 For a Google AI Studio project, create an API key and store it as the hosted secret `GEMINI_API_KEY`. `GEMINI_MODEL` is optional and defaults to the stable `gemini-3.5-flash` model. The app calls the Gemini Generate Content API with a JSON response schema. `GOOGLE_API_KEY` is also accepted, but `GEMINI_API_KEY` is preferred so the deployment contract is explicit.
 

@@ -1,4 +1,4 @@
-export const schemaVersion = '0005_candidate_portal_pipeline';
+export const schemaVersion = '0011_async_recovery_and_exports';
 
 export type CandidateRecord = {
   id: string;
@@ -75,6 +75,9 @@ export type AiAnalysisRecord = {
   prompt_version: string;
   evidence_hash: string | null;
   output_hash: string | null;
+  attempt_count: number;
+  last_started_at: string | null;
+  next_retry_at: string | null;
 };
 
 export type CandidateAccountRecord = {

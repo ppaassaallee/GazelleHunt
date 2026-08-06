@@ -72,7 +72,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, renderCandidates, renderSend, renderProgress, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderReport, renderAudit, renderMethod, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, normalizeCandidateEmail, buildExcelWorkbook, renderCandidates, renderSend, renderProgress, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderReport, renderAudit, renderMethod, state, render };`, context);
 await Promise.resolve();
 
 const csvApi = context.__gazelleWorkflowTest;
@@ -92,6 +92,16 @@ const excelCsv = csvApi.parseCsv('sep=;\nNombre;Correo;Puesto\nMaria Lopez;maria
 assert.equal(excelCsv.delimiter, ';');
 excelCsv.mapping = excelCsv.headers.map(csvApi.guessedMapping);
 assert.equal(csvApi.csvMappedCandidates(excelCsv)[0].errors.length, 0);
+
+const repairedEmail = csvApi.normalizeCandidateEmail('?Esteban.Raigoza28@gmail.com');
+assert.equal(repairedEmail.email, 'esteban.raigoza28@gmail.com');
+assert.equal(repairedEmail.corrected, true);
+assert.equal(csvApi.normalizeCandidateEmail('bad@@example.com').valid, false);
+const repairedCsv = { headers: ['Name', 'Email', 'Role'], rows: [['Esteban', '?esteban.raigoza28@gmail.com', 'Care']], mapping: ['name', 'email', 'role'] };
+const repairedRow = csvApi.csvMappedCandidates(repairedCsv)[0];
+assert.equal(repairedRow.errors.length, 0);
+assert.equal(repairedRow.candidate.email, 'esteban.raigoza28@gmail.com');
+assert.equal(repairedRow.emailCorrection.to, 'esteban.raigoza28@gmail.com');
 
 csvApi.state.user = { role: 'admin', companyName: 'Allied Global' };
 csvApi.state.health.email.configured = true;
@@ -138,6 +148,11 @@ csvApi.state.results = [
 csvApi.state.reportSearch = 'sales';
 assert.equal(csvApi.filteredReportResults().length, 1);
 assert.equal(csvApi.filteredReportResults()[0].assessment_id, 'assessment-sales');
+const excel = csvApi.buildExcelWorkbook(csvApi.filteredReportResults(), 'en');
+assert.match(excel, /Excel\.Sheet/);
+assert.match(excel, /Luis Sales/);
+assert.doesNotMatch(excel, /Ana Care/);
+assert.match(excel, /Tenure Potential/);
 csvApi.state.reportSearch = '';
 csvApi.state.reportTestId = 'test_tenure_potential';
 assert.equal(csvApi.filteredReportResults()[0].assessment_id, 'assessment-care');
@@ -158,7 +173,7 @@ const recruiterReadableHtml = csvApi.renderReport({
   subscales: { fit: { score: 70 }, intent: { score: 65 }, reliability: { score: 75 }, context: { score: 60 } },
   supportProfile: [], scenarioResponses: [],
   aiAnalysis: {
-    status: 'completed', provider: 'OpenAI', model: 'gpt-5-mini', prompt_version: 'analysis-v2.1.0',
+    status: 'completed', provider: 'OpenAI', model: 'gpt-4.1-mini', prompt_version: 'analysis-v2.1.0',
     output: {
       es: {
         title: 'Análisis integrado',
@@ -215,12 +230,12 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /styles\.css\?v=20260723\.4/);
-assert.match(indexSource, /app\.js\?v=20260723\.4/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260723\.4/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260723\.4/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260723\.4/);
-assert.match(indexSource, /pdf-report\.js\?v=20260723\.4/);
+assert.match(indexSource, /styles\.css\?v=20260806\.1/);
+assert.match(indexSource, /app\.js\?v=20260806\.1/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260806\.1/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260806\.1/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260806\.1/);
+assert.match(indexSource, /pdf-report\.js\?v=20260806\.1/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
@@ -230,6 +245,9 @@ assert.match(serverSource, /A bulk resend can contain at most 500 candidates/);
 assert.match(serverSource, /\/api\/assessment\/scenarios/);
 assert.match(serverSource, /aiAnalysisMatch/);
 assert.match(serverSource, /ai-analysis/);
+assert.match(serverSource, /candidateContactMatch/);
+assert.match(serverSource, /recoverAsyncWork/);
+assert.match(appSource, /Export Excel/);
 assert.match(serverSource, /scenarioId: GazelleAiAssessment\.stableScenarioId\(row\.question_order\)/);
 assert.match(serverSource, /database_scenario_id: scenario\.scenario_id/);
 assert.match(serverSource, /initialAiStatus = ai\.configured \? 'not_generated'/);

@@ -477,6 +477,13 @@ const runtimeColumnMigrations = [
   ['invitations', 'created_by_user_id', `ALTER TABLE invitations ADD COLUMN created_by_user_id TEXT REFERENCES users(id)`],
   ['assessments', 'test_id', `ALTER TABLE assessments ADD COLUMN test_id TEXT REFERENCES assessment_tests(id)`],
   ['ai_analyses', 'provider', `ALTER TABLE ai_analyses ADD COLUMN provider TEXT`],
+  ['send_batch_items', 'attempt_count', `ALTER TABLE send_batch_items ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`],
+  ['send_batch_items', 'last_attempt_at', `ALTER TABLE send_batch_items ADD COLUMN last_attempt_at TEXT`],
+  ['send_batch_items', 'next_attempt_at', `ALTER TABLE send_batch_items ADD COLUMN next_attempt_at TEXT`],
+  ['ai_analyses', 'attempt_count', `ALTER TABLE ai_analyses ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`],
+  ['ai_analyses', 'last_started_at', `ALTER TABLE ai_analyses ADD COLUMN last_started_at TEXT`],
+  ['ai_analyses', 'next_retry_at', `ALTER TABLE ai_analyses ADD COLUMN next_retry_at TEXT`],
+  ['ai_analyses', 'requested_by_email', `ALTER TABLE ai_analyses ADD COLUMN requested_by_email TEXT`],
 ];
 
 const postMigrationStatements = [
@@ -485,6 +492,8 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS invitations_company_test_idx ON invitations(company_id, test_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS invitations_batch_idx ON invitations(batch_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessments_test_idx ON assessments(test_id, completed_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS send_batch_items_retry_idx ON send_batch_items(status, next_attempt_at, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS ai_analyses_retry_idx ON ai_analyses(status, next_retry_at, updated_at)`,
 ];
 
 let schemaReady = false;
@@ -523,9 +532,39 @@ function cleanText(value, max = 200) {
   return String(value || '').trim().slice(0, max);
 }
 
+function validEmailAddress(value) {
+  const email = String(value || '');
+  if (!email || email.length > 254 || /[^\x21-\x7E]/.test(email)) return false;
+  const parts = email.split('@');
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  if (!local || local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) return false;
+  if (!/^[a-z0-9](?:[a-z0-9!#$%&'*+/=?^_`{|}~.-]{0,62}[a-z0-9])?$/i.test(local)) return false;
+  const labels = domain.split('.');
+  if (labels.length < 2 || labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) return false;
+  return labels.at(-1).length >= 2;
+}
+
+function normalizeCandidateEmail(value) {
+  const original = String(value || '').slice(0, 500);
+  let email = original.normalize('NFKC')
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060\uFEFF]/g, '')
+    .trim()
+    .toLowerCase();
+  if (email.startsWith('mailto:')) email = email.slice(7).trim();
+  const angleMatch = email.match(/^<([^<>]+)>$/);
+  if (angleMatch) email = angleMatch[1].trim();
+  if (!validEmailAddress(email)) {
+    const withoutLeadingPunctuation = email.replace(/^[?¿:;,]+/, '').trim();
+    if (validEmailAddress(withoutLeadingPunctuation)) email = withoutLeadingPunctuation;
+  }
+  const valid = validEmailAddress(email);
+  return { email: valid ? email : '', valid, corrected: valid && email !== original.trim().toLowerCase(), original };
+}
+
 function cleanEmail(value) {
   const email = cleanText(value, 254).toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '';
+  return validEmailAddress(email) ? email : '';
 }
 
 const sensitiveEvidencePattern = /\b(age|aged|race|racial|ethnicity|ethnic|nationality|religion|religious|sex|gender|sexual orientation|pregnan\w*|disab\w*|health|medical|diagnos\w*|mental health|family|familia(?:s|r(?:es)?)?|childcare|caregiv\w*|financial|finanzas|politic\w*|union|edad|raza|etnia|nacionalidad|religión|religion|sexo|género|genero|orientación sexual|embaraz\w*|discap\w*|salud(?: mental)?|médic\w*|diagnóstic\w*|diagnostic\w*|cuidador(?:a|es|as)?|responsabilidades? de cuidado|polític\w*|politic\w*|sindicat\w*)\b/iu;
@@ -1503,26 +1542,30 @@ function responseOutputText(body) {
   return '';
 }
 
-async function callOpenAiJson(config, { instructions, input, schema, schemaName, safetyIdentifier, maxOutputTokens, reasoningEffort = 'medium' }) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: config.model,
-      instructions,
-      input: [{ role: 'user', content: [{ type: 'input_text', text: JSON.stringify(input) }] }],
-      reasoning: { effort: reasoningEffort },
-      text: { format: { type: 'json_schema', name: schemaName, strict: true, schema } },
-      max_output_tokens: maxOutputTokens,
-      store: false,
-      safety_identifier: safetyIdentifier,
-    }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new Error('openai_rejected');
-    error.providerStatus = response.status;
-    error.providerMessage = cleanText(body?.error?.message || 'OpenAI rejected the request.', 400);
+async function fetchWithTimeout(url, options, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort('provider_timeout'), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError' || controller.signal.aborted) throw new Error('provider_timeout');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function openAiSupportsReasoning(model) {
+  return /^(?:gpt-5|o[134](?:-|$))/i.test(String(model || ''));
+}
+
+function openAiJsonResult(body, config) {
+  if (['queued', 'in_progress'].includes(body?.status)) {
+    return { pending: true, responseId: cleanText(body.id, 200), model: cleanText(body.model, 120) || config.model };
+  }
+  if (['failed', 'cancelled', 'incomplete'].includes(body?.status)) {
+    const error = new Error(body?.status === 'incomplete' ? 'openai_incomplete' : 'openai_background_failed');
+    error.providerMessage = cleanText(body?.error?.message || body?.incomplete_details?.reason || 'OpenAI could not complete the response.', 400);
     throw error;
   }
   const text = responseOutputText(body);
@@ -1534,9 +1577,51 @@ async function callOpenAiJson(config, { instructions, input, schema, schemaName,
   }
 }
 
+async function retrieveOpenAiJson(config, responseId) {
+  const response = await fetchWithTimeout(`https://api.openai.com/v1/responses/${encodeURIComponent(responseId)}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${config.apiKey}` },
+  }, 10000);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error('openai_retrieve_failed');
+    error.providerStatus = response.status;
+    error.providerMessage = cleanText(body?.error?.message || 'OpenAI rejected the status request.', 400);
+    throw error;
+  }
+  return openAiJsonResult(body, config);
+}
+
+async function callOpenAiJson(config, { instructions, input, schema, schemaName, safetyIdentifier, maxOutputTokens, reasoningEffort = 'medium', background = false }) {
+  const payload = {
+    model: config.model,
+    instructions,
+    input: [{ role: 'user', content: [{ type: 'input_text', text: JSON.stringify(input) }] }],
+    text: { format: { type: 'json_schema', name: schemaName, strict: true, schema } },
+    max_output_tokens: maxOutputTokens,
+    safety_identifier: safetyIdentifier,
+  };
+  if (background) payload.background = true;
+  else payload.store = false;
+  if (openAiSupportsReasoning(config.model)) payload.reasoning = { effort: reasoningEffort };
+  const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, background ? 10000 : 25000);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error('openai_rejected');
+    error.providerStatus = response.status;
+    error.providerMessage = cleanText(body?.error?.message || 'OpenAI rejected the request.', 400);
+    throw error;
+  }
+  return openAiJsonResult(body, config);
+}
+
 async function callGeminiJson(config, { instructions, input, schema, maxOutputTokens }) {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`;
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: { 'x-goog-api-key': config.apiKey, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -1549,7 +1634,7 @@ async function callGeminiJson(config, { instructions, input, schema, maxOutputTo
         temperature: 0.2,
       },
     }),
-  });
+  }, 25000);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error('gemini_rejected');
@@ -1582,8 +1667,9 @@ async function callAiJson(env, request) {
 
 async function sendBrevoApi(config, message) {
   const invitationId = cleanText(message.invitationId, 100);
+  const idempotencyKey = cleanText(message.idempotencyKey, 100) || invitationId || crypto.randomUUID();
   const tag = cleanText(message.tag, 80).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'gazelle-assessment';
-  const headers = { idempotencyKey: invitationId || crypto.randomUUID() };
+  const headers = { idempotencyKey };
   if (invitationId) headers['X-Mailin-custom'] = `invitation_id:${invitationId}`;
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -1735,6 +1821,12 @@ async function sendBrevoSmtp(config, message) {
 async function sendBrevo(env, message) {
   const config = emailConfig(env);
   if (!config.sendingConfigured) throw new Error('email_not_configured');
+  if (!cleanEmail(message.to)) {
+    const error = new Error('invalid_email');
+    error.providerStatus = 422;
+    error.providerMessage = 'The candidate email address is invalid. Correct it before sending.';
+    throw error;
+  }
   return config.transport === 'smtp' ? sendBrevoSmtp(config, message) : sendBrevoApi(config, message);
 }
 
@@ -2194,6 +2286,37 @@ async function updateCandidateReferral(request, env, user, referralId) {
   return json({ referrals: await listCandidateReferrals(env, user) });
 }
 
+async function updateCandidateContact(request, env, user, candidateId) {
+  const candidate = await staffCandidate(env, user, candidateId);
+  if (!candidate) return json({ error: 'Candidate not found.' }, 404);
+  const body = await request.json().catch(() => ({}));
+  const normalized = normalizeCandidateEmail(body.email);
+  if (!normalized.valid) return json({ error: 'Enter a valid email address, for example name@company.com.', code: 'invalid_email' }, 422);
+  if (normalized.email === candidate.email.toLowerCase()) return json({ candidateId, email: candidate.email, changed: false, candidates: await listCandidates(env, user) });
+  const conflict = await env.DB.prepare(`SELECT id FROM candidates WHERE company_id = ? AND email = ? COLLATE NOCASE AND id <> ?`)
+    .bind(candidate.company_id, normalized.email, candidate.id).first();
+  if (conflict) return json({ error: 'Another candidate in this company already uses that email address.', code: 'candidate_email_conflict' }, 409);
+  const linkedAccount = await env.DB.prepare(`
+    SELECT account.email FROM candidate_account_links link
+    JOIN candidate_accounts account ON account.id = link.account_id
+    WHERE link.candidate_id = ? LIMIT 1
+  `).bind(candidate.id).first();
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE candidates SET email = ?, updated_at = ? WHERE id = ?`).bind(normalized.email, now, candidate.id).run();
+  await audit(env, user.email, 'candidate_email_updated', 'candidate', candidate.id, {
+    previousEmailHash: await sha256(candidate.email.toLowerCase()),
+    newEmailHash: await sha256(normalized.email),
+    linkedAccountEmailUnchanged: Boolean(linkedAccount && linkedAccount.email.toLowerCase() !== normalized.email),
+  });
+  return json({
+    candidateId: candidate.id,
+    email: normalized.email,
+    changed: true,
+    linkedAccountEmailUnchanged: Boolean(linkedAccount && linkedAccount.email.toLowerCase() !== normalized.email),
+    candidates: await listCandidates(env, user),
+  });
+}
+
 async function listCandidates(env, user) {
   const scope = candidateScope(user);
   const scopedCandidates = await env.DB.prepare(`SELECT c.id, c.company_id FROM candidates c WHERE ${scope.sql}`).bind(...scope.bindings).all();
@@ -2202,6 +2325,12 @@ async function listCandidates(env, user) {
     WITH latest_invitation AS (
       SELECT *, ROW_NUMBER() OVER (PARTITION BY candidate_id ORDER BY created_at DESC) AS row_number
       FROM invitations
+    ), latest_batch_item AS (
+      SELECT bi.*, b.created_at AS assignment_created_at, t.name_en AS assignment_test_name,
+        ROW_NUMBER() OVER (PARTITION BY bi.candidate_id ORDER BY bi.created_at DESC, bi.rowid DESC) AS row_number
+      FROM send_batch_items bi
+      JOIN send_batches b ON b.id = bi.batch_id
+      JOIN assessment_tests t ON t.id = bi.test_id
     ), latest_assessment AS (
       SELECT *, ROW_NUMBER() OVER (PARTITION BY candidate_id ORDER BY completed_at DESC) AS row_number
       FROM assessments
@@ -2213,6 +2342,8 @@ async function listCandidates(env, user) {
       (SELECT COUNT(*) FROM candidate_list_members clm WHERE clm.candidate_id = c.id) AS list_count,
       i.id AS invitation_id, i.locale AS invitation_locale, i.status AS invitation_status, i.provider_message_id,
       i.test_id AS invitation_test_id, invitation_test.name_en AS invitation_test_name,
+      batch_item.status AS assignment_status, batch_item.error_code AS assignment_error_code,
+      batch_item.test_id AS assignment_test_id, batch_item.assignment_test_name, batch_item.assignment_created_at,
       COALESCE(access.attempt_limit, 3) AS attempt_limit,
       CASE WHEN i.test_id IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = i.test_id AND used.status NOT IN ('failed', 'provider_unconfirmed')) END AS attempts_used,
       i.created_at AS invitation_created_at, i.delivered_at, i.completed_at AS invitation_completed_at,
@@ -2231,6 +2362,7 @@ async function listCandidates(env, user) {
     LEFT JOIN candidate_pipeline pipeline ON pipeline.candidate_id = c.id
     LEFT JOIN recruitment_stages stage ON stage.id = pipeline.stage_id
     LEFT JOIN latest_invitation i ON i.candidate_id = c.id AND i.row_number = 1
+    LEFT JOIN latest_batch_item batch_item ON batch_item.candidate_id = c.id AND batch_item.row_number = 1
     LEFT JOIN assessment_tests invitation_test ON invitation_test.id = i.test_id
     LEFT JOIN candidate_test_access access ON access.candidate_id = c.id AND access.test_id = i.test_id
     LEFT JOIN latest_assessment a ON a.candidate_id = c.id AND a.row_number = 1
@@ -2238,8 +2370,14 @@ async function listCandidates(env, user) {
     WHERE ${scope.sql}
     ORDER BY c.created_at DESC
   `).bind(...scope.bindings).all();
-  const rows = (result.results || []).map((row) => ({
+  const rows = (result.results || []).map((row) => {
+    const assignmentIsCurrent = row.assignment_status && (!row.invitation_created_at || row.assignment_created_at > row.invitation_created_at)
+      && ['queued', 'sending', 'failed'].includes(row.assignment_status);
+    return {
     ...row,
+    invitation_status: assignmentIsCurrent ? row.assignment_status : row.invitation_status,
+    invitation_test_id: assignmentIsCurrent ? row.assignment_test_id : row.invitation_test_id,
+    invitation_test_name: assignmentIsCurrent ? row.assignment_test_name : row.invitation_test_name,
     attempt_limit: Number(row.attempt_limit || 3),
     attempts_used: Number(row.attempts_used || 0),
     attempts_remaining: Math.max(0, Number(row.attempt_limit || 3) - Number(row.attempts_used || 0)),
@@ -2261,7 +2399,8 @@ async function listCandidates(env, user) {
       error_code: row.ai_error_code,
       updated_at: row.ai_analysis_updated_at,
     } : null,
-  }));
+  };
+  });
   const assessmentIds = rows.map((row) => row.assessment_id).filter(Boolean);
   if (!assessmentIds.length) return rows;
   const placeholders = assessmentIds.map(() => '?').join(',');
@@ -2382,15 +2521,18 @@ async function importCandidates(request, env, user) {
   const statements = [];
   const acceptedEmails = [];
   const invalidRows = [];
+  const correctedRows = [];
   let accepted = 0;
   for (let index = 0; index < candidates.length; index += 1) {
     const input = candidates[index];
-    const email = cleanEmail(input.email);
+    const normalizedEmail = normalizeCandidateEmail(input.email);
+    const email = normalizedEmail.email;
     const name = cleanText(input.name, 140);
     const role = cleanText(input.role, 140) || defaultRole;
     const site = cleanText(input.site, 120) || defaultSite;
     const missing = [!name && 'name', !email && 'valid email', !role && 'role'].filter(Boolean);
     if (missing.length) { invalidRows.push({ row: index + 2, missing }); continue; }
+    if (normalizedEmail.corrected) correctedRows.push({ row: index + 2, from: normalizedEmail.original, to: email });
     accepted += 1;
     acceptedEmails.push(email);
     statements.push(env.DB.prepare(`
@@ -2412,11 +2554,18 @@ async function importCandidates(request, env, user) {
     addedToList = results.reduce((sum, result) => sum + Number(result.meta?.changes || 0), 0);
     await env.DB.prepare(`UPDATE candidate_lists SET updated_at = ? WHERE id = ?`).bind(now, list.id).run();
   }
-  await audit(env, user.email, 'candidates_imported', 'candidate_batch', crypto.randomUUID(), { accepted, skipped: invalidRows.length, companyId, listId: list?.id || null, addedToList });
-  return json({ accepted, skipped: invalidRows.length, invalidRows, addedToList, candidates: await listCandidates(env, user), lists: await listCandidateLists(env, user) }, 201);
+  await audit(env, user.email, 'candidates_imported', 'candidate_batch', crypto.randomUUID(), { accepted, skipped: invalidRows.length, corrected: correctedRows.length, companyId, listId: list?.id || null, addedToList });
+  return json({ accepted, skipped: invalidRows.length, invalidRows, correctedRows, addedToList, candidates: await listCandidates(env, user), lists: await listCandidateLists(env, user) }, 201);
 }
 
-async function sendInvitationForCandidate({ env, user, candidate, test, locale, origin, listId = null, batchId = null }) {
+async function sendInvitationForCandidate({ env, user, candidate, test, locale, origin, listId = null, batchId = null, idempotencyKey = null }) {
+  const recipientEmail = cleanEmail(candidate.email);
+  if (!recipientEmail) {
+    const error = new Error('invalid_email');
+    error.providerStatus = 422;
+    error.providerMessage = 'The candidate email address is invalid. Correct it before sending.';
+    throw error;
+  }
   const attempts = await testAttemptStatus(env, candidate.id, test.id, user.id);
   await ensureCandidatePipeline(env, candidate.id, candidate.company_id);
   const company = await env.DB.prepare(`SELECT COALESCE(candidate_brand_name, name) AS candidate_brand_name FROM companies WHERE id = ?`).bind(candidate.company_id).first();
@@ -2442,7 +2591,7 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
   const link = `${origin}/candidate?invite=${encodeURIComponent(token)}`;
   const copy = invitationCopy(candidate, locale, link);
   try {
-    const provider = await sendBrevo(env, { to: candidate.email, toName: candidate.name, ...copy, invitationId, tag: test.slug });
+    const provider = await sendBrevo(env, { to: recipientEmail, toName: candidate.name, ...copy, invitationId, idempotencyKey, tag: test.slug });
     await env.DB.prepare(`UPDATE invitations SET status = ?, provider_message_id = ? WHERE id = ?`).bind('accepted', provider.id, invitationId).run();
     await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, testId: test.id, listId, batchId });
     return { invitationId, status: 'accepted', providerMessageId: provider.id, transport: provider.transport, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
@@ -2472,11 +2621,12 @@ async function createInvitation(request, env, user) {
     if (!candidate) return json({ error: 'Candidate not found.' }, 404);
   } else {
     const input = body.candidate || {};
-    const email = cleanEmail(input.email);
+    const normalizedEmail = normalizeCandidateEmail(input.email);
+    const email = normalizedEmail.email;
     const name = cleanText(input.name, 140);
     const role = cleanText(input.role, 140);
     const companyId = isSuperAdmin(user) ? cleanText(body.companyId, 100) || user.companyId : user.companyId;
-    if (!email || !name || !role || !companyId) return json({ error: 'A valid candidate name, email, role, and company are required.' }, 422);
+    if (!email || !name || !role || !companyId) return json({ error: 'A valid candidate name, email, role, and company are required.', code: !email ? 'invalid_email' : 'invalid_candidate' }, 422);
     const now = new Date().toISOString();
     await env.DB.prepare(`
       INSERT INTO candidates (id, company_id, owner_user_id, email, name, phone, role, site, created_at, updated_at)
@@ -2765,6 +2915,35 @@ function recruiterModelEvidence(evidence) {
   return { ...evidence, scoringTrace, supportProfile };
 }
 
+const AI_MAX_ATTEMPTS = 3;
+
+function isRetryableAiError(error) {
+  const status = Number(error?.providerStatus || 0);
+  const code = cleanText(error?.message, 120);
+  if (['provider_timeout', 'openai_empty_output', 'gemini_empty_output'].includes(code)) return true;
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500 || (!status && !['ai_invalid_analysis', 'scenario_evidence_incomplete', 'assessment_not_found', 'ai_not_configured'].includes(code));
+}
+
+async function queueAiAnalysis(env, assessmentId, actorEmail = null) {
+  const config = aiConfig(env);
+  if (!config.configured) return { status: 'not_configured' };
+  const evidence = await aiEvidenceForAssessment(env, assessmentId);
+  if (!evidence) return { status: 'not_found' };
+  if (evidence.scenarios.length !== 3) return { status: 'scenario_evidence_incomplete' };
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, attempt_count, requested_by_email, created_at, updated_at)
+    VALUES (?, 'queued', ?, ?, ?, 0, ?, ?, ?)
+    ON CONFLICT(assessment_id) DO UPDATE SET status = 'queued', provider = excluded.provider, model = excluded.model,
+      prompt_version = excluded.prompt_version, attempt_count = 0, last_started_at = NULL, next_retry_at = NULL,
+      requested_by_email = excluded.requested_by_email, provider_response_id = NULL, output_hash = NULL,
+      output_en_json = NULL, output_es_json = NULL, evidence_claims_json = NULL, limitations_json = NULL,
+      error_code = NULL, updated_at = excluded.updated_at
+  `).bind(assessmentId, config.provider, config.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, actorEmail, now, now).run();
+  await audit(env, actorEmail, 'ai_analysis_queued', 'assessment', assessmentId, { provider: config.provider, model: config.model, promptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION });
+  return { status: 'queued' };
+}
+
 async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) {
   const config = aiConfig(env);
   const now = new Date().toISOString();
@@ -2777,28 +2956,50 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
     return { status: 'not_configured' };
   }
 
-  const evidence = await aiEvidenceForAssessment(env, assessmentId);
-  if (!evidence) throw new Error('assessment_not_found');
-  if (evidence.scenarios.length !== 3) throw new Error('scenario_evidence_incomplete');
-  const { assessmentId: omittedAssessmentId, ...storedEvidence } = evidence;
-  const modelEvidence = recruiterModelEvidence(storedEvidence);
-  const evidenceHash = await sha256(GazelleAssessmentEngine.stableStringify(modelEvidence));
-  await env.DB.prepare(`
-    INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, evidence_hash, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(assessment_id) DO UPDATE SET status = excluded.status, provider = excluded.provider, model = excluded.model, prompt_version = excluded.prompt_version,
-      evidence_hash = excluded.evidence_hash, error_code = NULL, updated_at = excluded.updated_at
-  `).bind(assessmentId, 'processing', config.provider, config.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, evidenceHash, now, now).run();
-
+  const staleCutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const analysisRow = await env.DB.prepare(`SELECT status, provider_response_id, attempt_count, requested_by_email, next_retry_at, updated_at FROM ai_analyses WHERE assessment_id = ?`).bind(assessmentId).first();
+  if (!analysisRow || (!['queued', 'processing'].includes(analysisRow.status))) return { status: analysisRow?.status || 'not_generated' };
+  const backgroundPoll = analysisRow.status === 'processing' && config.providerKey === 'openai' && Boolean(analysisRow.provider_response_id);
+  if (analysisRow.status === 'processing' && !backgroundPoll && analysisRow.updated_at >= staleCutoff) return { status: 'processing' };
+  if (analysisRow.status === 'queued') {
+    const nextRetry = Date.parse(analysisRow.next_retry_at || '');
+    if (Number.isFinite(nextRetry) && nextRetry > Date.now()) return { status: 'queued' };
+  }
+  if (!backgroundPoll) {
+    const claimed = await env.DB.prepare(`
+      UPDATE ai_analyses SET status = 'processing', attempt_count = attempt_count + 1, last_started_at = ?, next_retry_at = NULL, error_code = NULL, updated_at = ?
+      WHERE assessment_id = ? AND (status = 'queued' OR (status = 'processing' AND updated_at < ?))
+    `).bind(now, now, assessmentId, staleCutoff).run();
+    if (!Number(claimed.meta?.changes || 0)) return { status: 'processing' };
+  }
+  const attemptNumber = Number(analysisRow.attempt_count || 0) + (backgroundPoll ? 0 : 1);
+  const auditActor = actorEmail || analysisRow.requested_by_email || null;
+  let evidenceHash = null;
   try {
-    const ai = await callAiJson(env, {
-      instructions: GazelleAiAssessment.ANALYSIS_INSTRUCTIONS,
-      input: modelEvidence,
-      schema: GazelleAiAssessment.analysisSchema,
-      schemaName: 'tenure_potential_recruiter_analysis',
-      safetyIdentifier: `assessment_${assessmentId}`,
-      maxOutputTokens: 9000,
-    });
+    const evidence = await aiEvidenceForAssessment(env, assessmentId);
+    if (!evidence) throw new Error('assessment_not_found');
+    if (evidence.scenarios.length !== 3) throw new Error('scenario_evidence_incomplete');
+    const { assessmentId: omittedAssessmentId, ...storedEvidence } = evidence;
+    const modelEvidence = recruiterModelEvidence(storedEvidence);
+    evidenceHash = await sha256(GazelleAssessmentEngine.stableStringify(modelEvidence));
+    await env.DB.prepare(`UPDATE ai_analyses SET provider = ?, model = ?, prompt_version = ?, evidence_hash = ?, updated_at = ? WHERE assessment_id = ?`)
+      .bind(config.provider, config.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, evidenceHash, now, assessmentId).run();
+    const ai = backgroundPoll
+      ? { ...(await retrieveOpenAiJson(config, analysisRow.provider_response_id)), provider: config.provider }
+      : await callAiJson(env, {
+        instructions: GazelleAiAssessment.ANALYSIS_INSTRUCTIONS,
+        input: modelEvidence,
+        schema: GazelleAiAssessment.analysisSchema,
+        schemaName: 'tenure_potential_recruiter_analysis',
+        safetyIdentifier: `assessment_${assessmentId}`,
+        maxOutputTokens: 5000,
+        background: config.providerKey === 'openai',
+      });
+    if (ai.pending) {
+      await env.DB.prepare(`UPDATE ai_analyses SET status = 'processing', provider = ?, model = ?, provider_response_id = ?, error_code = NULL, updated_at = ? WHERE assessment_id = ?`)
+        .bind(config.provider, ai.model || config.model, ai.responseId, new Date().toISOString(), assessmentId).run();
+      return { status: 'processing', provider: config.provider, model: ai.model || config.model, providerResponseId: ai.responseId };
+    }
     const analysisData = normalizeRecruiterAnalysisOutput(ai.data);
     if (!validateAnalysisOutput(analysisData, modelEvidence)) throw new Error('ai_invalid_analysis');
     const outputHash = await sha256(GazelleAssessmentEngine.stableStringify(analysisData));
@@ -2810,7 +3011,7 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
       'completed', ai.provider, ai.model, ai.responseId, outputHash, JSON.stringify(localizedAnalysisOutput(analysisData, 'en')), JSON.stringify(localizedAnalysisOutput(analysisData, 'es')),
       JSON.stringify(analysisData.evidence_claims || []), JSON.stringify(analysisData.limitations || []), updatedAt, assessmentId,
     ).run();
-    await audit(env, actorEmail, 'ai_analysis_completed', 'assessment', assessmentId, {
+    await audit(env, auditActor, 'ai_analysis_completed', 'assessment', assessmentId, {
       provider: ai.provider, model: ai.model,
       promptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION,
       providerResponseId: ai.responseId,
@@ -2820,10 +3021,11 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
     return { status: 'completed', provider: ai.provider, model: ai.model, evidenceHash, outputHash };
   } catch (error) {
     const errorCode = cleanText(error.message, 120) || 'ai_analysis_failed';
-    await env.DB.prepare(`UPDATE ai_analyses SET status = ?, error_code = ?, updated_at = ? WHERE assessment_id = ?`)
-      .bind('failed', errorCode, new Date().toISOString(), assessmentId).run();
-    await audit(env, actorEmail, 'ai_analysis_failed', 'assessment', assessmentId, { errorCode, evidenceHash });
-    return { status: 'failed', errorCode };
+    const retry = isRetryableAiError(error) && attemptNumber < AI_MAX_ATTEMPTS;
+    await env.DB.prepare(`UPDATE ai_analyses SET status = ?, provider_response_id = NULL, error_code = ?, next_retry_at = ?, updated_at = ? WHERE assessment_id = ?`)
+      .bind(retry ? 'queued' : 'failed', errorCode, retry ? retryAt(attemptNumber) : null, new Date().toISOString(), assessmentId).run();
+    await audit(env, auditActor, retry ? 'ai_analysis_retry_queued' : 'ai_analysis_failed', 'assessment', assessmentId, { errorCode, attemptNumber, evidenceHash });
+    return { status: retry ? 'queued' : 'failed', errorCode };
   }
 }
 
@@ -2980,14 +3182,17 @@ async function configureBrevoWebhook(request, env, user) {
   }
 }
 
-async function regenerateAiAnalysis(env, user, assessmentId) {
+async function regenerateAiAnalysis(env, user, assessmentId, context) {
   if (!aiConfig(env).configured) return json({ error: 'An AI analysis provider is not configured.', code: 'ai_not_configured' }, 503);
   const scope = candidateScope(user, 'c');
   const assessment = await env.DB.prepare(`SELECT a.id FROM assessments a JOIN candidates c ON c.id = a.candidate_id WHERE a.id = ? AND ${scope.sql}`).bind(assessmentId, ...scope.bindings).first();
   if (!assessment) return json({ error: 'Assessment not found.' }, 404);
-  const result = await generateAndStoreAiAnalysis(env, assessmentId, user.email);
-  if (result.status !== 'completed') return json({ error: 'The AI analysis could not be completed.', code: result.errorCode || result.status }, 502);
-  return json(result);
+  const queued = await queueAiAnalysis(env, assessmentId, user.email);
+  if (queued.status === 'scenario_evidence_incomplete') return json({ error: 'All three scenario responses are required before generating the analysis.', code: queued.status }, 422);
+  const work = generateAndStoreAiAnalysis(env, assessmentId, user.email);
+  if (context?.waitUntil) context.waitUntil(work);
+  else work.catch(() => {});
+  return json({ status: 'queued', assessmentId }, 202);
 }
 
 async function analyzePreview(request, env, admin) {
@@ -3217,36 +3422,97 @@ async function updateCandidateList(request, env, user, listId) {
   return json({ lists: await listCandidateLists(env, user) });
 }
 
+const BATCH_MAX_ATTEMPTS = 3;
+const BATCH_ITEMS_PER_RUN = 50;
+const BATCH_CONCURRENCY = 5;
+
+function isRetryableProviderError(error) {
+  const status = Number(error?.providerStatus || 0);
+  const code = cleanText(error?.message, 120);
+  if (['provider_timeout', 'brevo_smtp_timeout', 'brevo_smtp_disconnected', 'brevo_missing_message_id'].includes(code)) return true;
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500 || (!status && !['invalid_email', 'email_not_configured', 'attempt_limit_reached'].includes(code));
+}
+
+function retryAt(attemptNumber) {
+  const delayMs = attemptNumber <= 1 ? 30000 : attemptNumber === 2 ? 120000 : 300000;
+  return new Date(Date.now() + delayMs).toISOString();
+}
+
+async function updateBatchCounts(env, batchId, actorEmail = null) {
+  const counts = await env.DB.prepare(`
+    SELECT COUNT(*) AS total_count,
+      SUM(CASE WHEN status IN ('queued', 'sending') THEN 1 ELSE 0 END) AS pending_count,
+      SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+    FROM send_batch_items WHERE batch_id = ?
+  `).bind(batchId).first();
+  const pendingCount = Number(counts.pending_count || 0);
+  const failedCount = Number(counts.failed_count || 0);
+  const acceptedCount = Number(counts.accepted_count || 0);
+  const status = pendingCount ? 'processing' : failedCount === 0 ? 'api_accepted' : acceptedCount > 0 ? 'api_accepted_with_errors' : 'failed';
+  const completedAt = pendingCount ? null : new Date().toISOString();
+  await env.DB.prepare(`UPDATE send_batches SET status = ?, total_count = ?, queued_count = ?, accepted_count = ?, failed_count = ?, completed_at = ? WHERE id = ?`)
+    .bind(status, Number(counts.total_count || 0), pendingCount, acceptedCount, failedCount, completedAt, batchId).run();
+  if (!pendingCount) await audit(env, actorEmail, 'send_batch_api_processing_finished', 'send_batch', batchId, { status, acceptedCount, failedCount });
+  return { status, pendingCount, acceptedCount, failedCount };
+}
+
+async function processBatchItem(env, user, row, batchId, origin) {
+  const existing = await env.DB.prepare(`
+    SELECT id, provider_message_id FROM invitations
+    WHERE batch_id = ? AND candidate_id = ? AND test_id = ? AND status IN ('accepted', 'delivered', 'completed')
+    ORDER BY created_at DESC LIMIT 1
+  `).bind(batchId, row.id, row.test_record_id).first();
+  if (existing) {
+    await env.DB.prepare(`UPDATE send_batch_items SET status = 'accepted', invitation_id = ?, provider_message_id = ?, error_code = NULL, next_attempt_at = NULL, updated_at = ? WHERE id = ?`)
+      .bind(existing.id, existing.provider_message_id, new Date().toISOString(), row.item_id).run();
+    return;
+  }
+  const startedAt = new Date().toISOString();
+  const claimed = await env.DB.prepare(`
+    UPDATE send_batch_items SET status = 'sending', attempt_count = attempt_count + 1, last_attempt_at = ?, next_attempt_at = NULL, updated_at = ?
+    WHERE id = ? AND status = 'queued'
+  `).bind(startedAt, startedAt, row.item_id).run();
+  if (!Number(claimed.meta?.changes || 0)) return;
+  const attemptNumber = Number(row.attempt_count || 0) + 1;
+  const test = { id: row.test_record_id, slug: row.test_slug, name_en: row.name_en, name_es: row.name_es, engine_key: row.engine_key, status: row.test_status };
+  try {
+    const sent = await sendInvitationForCandidate({
+      env, user, candidate: row, test, locale: row.locale, origin, listId: row.list_id, batchId,
+      idempotencyKey: row.item_id,
+    });
+    await env.DB.prepare(`UPDATE send_batch_items SET status = 'accepted', invitation_id = ?, provider_message_id = ?, error_code = NULL, next_attempt_at = NULL, updated_at = ? WHERE id = ?`)
+      .bind(sent.invitationId, sent.providerMessageId, new Date().toISOString(), row.item_id).run();
+  } catch (error) {
+    const retry = isRetryableProviderError(error) && attemptNumber < BATCH_MAX_ATTEMPTS;
+    await env.DB.prepare(`UPDATE send_batch_items SET status = ?, invitation_id = ?, error_code = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(retry ? 'queued' : 'failed', error.invitationId || null, cleanText(error.message, 120) || 'delivery_failed', retry ? retryAt(attemptNumber) : null, new Date().toISOString(), row.item_id).run();
+  }
+}
+
 async function processSendBatch(env, user, batchId, origin) {
   const startedAt = new Date().toISOString();
-  await env.DB.prepare(`UPDATE send_batches SET status = 'processing', started_at = ? WHERE id = ?`).bind(startedAt, batchId).run();
+  const staleCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE send_batches SET status = 'processing', started_at = COALESCE(started_at, ?) WHERE id = ?`).bind(startedAt, batchId),
+    env.DB.prepare(`UPDATE send_batch_items SET status = 'queued', next_attempt_at = ?, error_code = 'worker_interrupted', updated_at = ? WHERE batch_id = ? AND status = 'sending' AND attempt_count < ${BATCH_MAX_ATTEMPTS} AND updated_at < ?`)
+      .bind(startedAt, startedAt, batchId, staleCutoff),
+    env.DB.prepare(`UPDATE send_batch_items SET status = 'failed', next_attempt_at = NULL, error_code = 'retry_limit_reached', updated_at = ? WHERE batch_id = ? AND status IN ('queued', 'sending') AND attempt_count >= ${BATCH_MAX_ATTEMPTS} AND updated_at < ?`)
+      .bind(startedAt, batchId, staleCutoff),
+  ]);
   const result = await env.DB.prepare(`
-    SELECT bi.id AS item_id, c.*, t.id AS test_record_id, t.slug AS test_slug, t.name_en, t.name_es, t.engine_key, t.status AS test_status,
+    SELECT bi.id AS item_id, bi.attempt_count, c.*, t.id AS test_record_id, t.slug AS test_slug, t.name_en, t.name_es, t.engine_key, t.status AS test_status,
       b.locale, b.list_id
     FROM send_batch_items bi JOIN send_batches b ON b.id = bi.batch_id
     JOIN candidates c ON c.id = bi.candidate_id JOIN assessment_tests t ON t.id = bi.test_id
-    WHERE bi.batch_id = ? AND bi.status = 'queued' ORDER BY c.name, t.name_en
-  `).bind(batchId).all();
-  for (const row of result.results || []) {
-    await env.DB.prepare(`UPDATE send_batch_items SET status = 'sending', updated_at = ? WHERE id = ?`).bind(new Date().toISOString(), row.item_id).run();
-    const test = { id: row.test_record_id, slug: row.test_slug, name_en: row.name_en, name_es: row.name_es, engine_key: row.engine_key, status: row.test_status };
-    try {
-      const sent = await sendInvitationForCandidate({ env, user, candidate: row, test, locale: row.locale, origin, listId: row.list_id, batchId });
-      await env.DB.prepare(`UPDATE send_batch_items SET status = 'accepted', invitation_id = ?, provider_message_id = ?, updated_at = ? WHERE id = ?`)
-        .bind(sent.invitationId, sent.providerMessageId, new Date().toISOString(), row.item_id).run();
-    } catch (error) {
-      await env.DB.prepare(`UPDATE send_batch_items SET status = 'failed', invitation_id = ?, error_code = ?, updated_at = ? WHERE id = ?`)
-        .bind(error.invitationId || null, cleanText(error.message, 120), new Date().toISOString(), row.item_id).run();
-    }
+    WHERE bi.batch_id = ? AND bi.status = 'queued' AND (bi.next_attempt_at IS NULL OR bi.next_attempt_at <= ?)
+    ORDER BY bi.created_at LIMIT ?
+  `).bind(batchId, startedAt, BATCH_ITEMS_PER_RUN).all();
+  const rows = result.results || [];
+  for (let index = 0; index < rows.length; index += BATCH_CONCURRENCY) {
+    await Promise.all(rows.slice(index, index + BATCH_CONCURRENCY).map((row) => processBatchItem(env, user, row, batchId, origin)));
   }
-  const counts = await env.DB.prepare(`SELECT COUNT(*) AS total_count, SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued_count, SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted_count, SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count FROM send_batch_items WHERE batch_id = ?`).bind(batchId).first();
-  const failedCount = Number(counts.failed_count || 0);
-  const acceptedCount = Number(counts.accepted_count || 0);
-  const status = failedCount === 0 ? 'api_accepted' : acceptedCount > 0 ? 'api_accepted_with_errors' : 'failed';
-  const completedAt = new Date().toISOString();
-  await env.DB.prepare(`UPDATE send_batches SET status = ?, total_count = ?, queued_count = ?, accepted_count = ?, failed_count = ?, completed_at = ? WHERE id = ?`)
-    .bind(status, Number(counts.total_count || 0), Number(counts.queued_count || 0), acceptedCount, failedCount, completedAt, batchId).run();
-  await audit(env, user.email, 'send_batch_api_processing_finished', 'send_batch', batchId, { status, acceptedCount, failedCount });
+  return updateBatchCounts(env, batchId, user.email);
 }
 
 async function createSendBatch(request, env, user, context) {
@@ -3302,6 +3568,8 @@ async function listSendBatches(env, user) {
   const scope = listScope(user, 'l');
   const result = await env.DB.prepare(`
     SELECT b.*, l.name AS list_name, c.name AS company_name, u.name AS created_by_name,
+      (SELECT COUNT(*) FROM send_batch_items pending WHERE pending.batch_id = b.id AND pending.status IN ('queued', 'sending')) AS pending_count,
+      (SELECT MAX(error_code) FROM send_batch_items failed_item WHERE failed_item.batch_id = b.id AND failed_item.status = 'failed') AS last_error_code,
       (SELECT COUNT(*) FROM send_batch_items bi JOIN invitations i ON i.id = bi.invitation_id WHERE bi.batch_id = b.id AND i.status = 'completed') AS completed_assessments,
       (SELECT COUNT(DISTINCT bi.invitation_id) FROM send_batch_items bi
         WHERE bi.batch_id = b.id AND bi.status = 'accepted' AND EXISTS (
@@ -3313,6 +3581,34 @@ async function listSendBatches(env, user) {
     WHERE ${scope.sql} ORDER BY b.created_at DESC LIMIT 100
   `).bind(...scope.bindings).all();
   return (result.results || []).map((batch) => ({ ...batch, status: batchDeliveryStatus(batch) }));
+}
+
+async function recoverAsyncWork(env) {
+  await ensureSchema(env);
+  const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '');
+  const batches = await env.DB.prepare(`
+    SELECT b.id, u.id AS user_id, u.email, u.name, u.role, u.company_id
+    FROM send_batches b JOIN users u ON u.id = b.created_by_user_id
+    WHERE b.status IN ('queued', 'processing') ORDER BY b.created_at LIMIT 5
+  `).all();
+  for (const row of batches.results || []) {
+    const user = { id: row.user_id, email: row.email, name: row.name, role: row.role, companyId: row.company_id };
+    await processSendBatch(env, user, row.id, origin);
+  }
+
+  const staleCutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    UPDATE ai_analyses SET status = 'failed', error_code = 'retry_limit_reached', next_retry_at = NULL, updated_at = ?
+    WHERE status IN ('queued', 'processing') AND provider_response_id IS NULL AND attempt_count >= ? AND updated_at < ?
+  `).bind(now, AI_MAX_ATTEMPTS, staleCutoff).run();
+  const analyses = await env.DB.prepare(`
+    SELECT assessment_id, requested_by_email FROM ai_analyses
+    WHERE (status = 'processing' AND provider_response_id IS NOT NULL)
+      OR (attempt_count < ? AND ((status = 'queued' AND (next_retry_at IS NULL OR next_retry_at <= ?)) OR (status = 'processing' AND updated_at < ?)))
+    ORDER BY updated_at LIMIT 2
+  `).bind(AI_MAX_ATTEMPTS, now, staleCutoff).all();
+  await Promise.all((analyses.results || []).map((row) => generateAndStoreAiAnalysis(env, row.assessment_id, row.requested_by_email)));
 }
 
 async function listCompanies(env, user) {
@@ -3520,6 +3816,8 @@ async function handleApi(request, env, context) {
   if (referralMatch && request.method === 'PATCH') return updateCandidateReferral(request, env, user, cleanText(referralMatch[1], 100));
   const candidateStageMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/stage$/);
   if (candidateStageMatch && request.method === 'PATCH') return updateCandidateStage(request, env, user, cleanText(candidateStageMatch[1], 100));
+  const candidateContactMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/contact$/);
+  if (candidateContactMatch && request.method === 'PATCH') return updateCandidateContact(request, env, user, cleanText(candidateContactMatch[1], 100));
   const candidateCommunicationMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/communications$/);
   if (candidateCommunicationMatch && request.method === 'POST') return createCandidateCommunication(request, env, user, cleanText(candidateCommunicationMatch[1], 100));
   const candidateAttemptsMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/attempts\/release$/);
@@ -3542,7 +3840,7 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/email/test' && request.method === 'POST') return sendTestEmail(request, env, user);
   if (url.pathname === '/api/preview/ai-analysis' && request.method === 'POST') return analyzePreview(request, env, user);
   const aiAnalysisMatch = url.pathname.match(/^\/api\/assessments\/([^/]+)\/ai-analysis$/);
-  if (aiAnalysisMatch && request.method === 'POST') return regenerateAiAnalysis(env, user, cleanText(aiAnalysisMatch[1], 100));
+  if (aiAnalysisMatch && request.method === 'POST') return regenerateAiAnalysis(env, user, cleanText(aiAnalysisMatch[1], 100), context);
   return json({ error: 'API route not found.' }, 404);
 }
 
@@ -3565,5 +3863,8 @@ export default {
       const code = error?.message === 'database_unavailable' ? 'database_unavailable' : 'server_error';
       return json({ error: code === 'database_unavailable' ? 'Persistent storage is not available.' : 'The request could not be completed.', code }, code === 'database_unavailable' ? 503 : 500);
     }
+  },
+  async scheduled(controller, env, context) {
+    context.waitUntil(recoverAsyncWork(env));
   },
 };

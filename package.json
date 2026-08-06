@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs",
     "deploy:cloudflare": "node build.mjs && wrangler deploy",
-    "test": "node tests/engine.test.mjs && node tests/ai-report.test.mjs && node tests/workflows.test.mjs && node tests/platform-model.test.mjs && node tests/auth-security.test.mjs && node tests/brevo-integration.test.mjs && node tests/candidate-portal.test.mjs"
+    "test": "node tests/engine.test.mjs && node tests/ai-report.test.mjs && node tests/ai-provider.test.mjs && node tests/workflows.test.mjs && node tests/platform-model.test.mjs && node tests/auth-security.test.mjs && node tests/brevo-integration.test.mjs && node tests/candidate-portal.test.mjs"
   },
   "devDependencies": {
     "wrangler": "4.112.0"

@@ -6,7 +6,7 @@ import '../pdf-report.js';
 const ai = globalThis.GazelleAiAssessment;
 const pdf = globalThis.GazellePdfReport;
 
-assert.equal(ai.DEFAULT_MODEL, 'gpt-5-mini');
+assert.equal(ai.DEFAULT_MODEL, 'gpt-4.1-mini');
 assert.equal(ai.DEFAULT_GEMINI_MODEL, 'gemini-3.5-flash');
 assert.equal(ai.scenarioSchema.properties.questions.minItems, 3);
 assert.equal(ai.scenarioSchema.properties.questions.maxItems, 3);
@@ -95,7 +95,7 @@ for (const locale of ['en', 'es']) {
   assert.ok(bytes.length > 5000);
   assert.ok(binary.startsWith('%PDF-1.4'));
   assert.ok(binary.endsWith('%%EOF'));
-  assert.match(binary, /gpt-5-mini/);
+  assert.match(binary, /gpt-4\.1-mini/);
   assert.match(binary, /Page 1 of/);
   assert.doesNotMatch(binary, /Uncalibrated pilot|Piloto sin calibrar|Human review is required/);
 }

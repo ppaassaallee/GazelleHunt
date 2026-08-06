@@ -32,7 +32,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, smtpMessage, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -74,6 +74,7 @@ assert.match(mime, /multipart\/alternative/);
 
 const sent = await brevo.sendBrevo(env, {
   invitationId: 'invitation-123',
+  idempotencyKey: 'batch-item-stable-123',
   tag: 'Tenure Potential',
   to: 'candidate@example.com',
   toName: 'Candidate Name',
@@ -88,7 +89,7 @@ assert.equal(fetchCalls[0].options.headers['api-key'], env.BREVO_API_KEY);
 const requestBody = JSON.parse(fetchCalls[0].options.body);
 assert.deepEqual(requestBody.sender, { email: 'assessments@example.com', name: 'Gazelle Assessment' });
 assert.deepEqual(requestBody.to, [{ email: 'candidate@example.com', name: 'Candidate Name' }]);
-assert.equal(requestBody.headers.idempotencyKey, 'invitation-123');
+assert.equal(requestBody.headers.idempotencyKey, 'batch-item-stable-123');
 assert.equal(requestBody.headers['X-Mailin-custom'], 'invitation_id:invitation-123');
 assert.equal(requestBody.headers['X-Sib-Sandbox'], undefined);
 assert.deepEqual(requestBody.tags, ['tenure-potential']);
@@ -114,6 +115,12 @@ assert.equal(brevo.batchDeliveryStatus({ status: 'completed', accepted_count: 25
 assert.equal(brevo.batchDeliveryStatus({ status: 'api_accepted', accepted_count: 25, failed_count: 0, provider_confirmed_count: 25, delivered_count: 3 }), 'provider_confirmed');
 assert.equal(brevo.batchDeliveryStatus({ status: 'api_accepted', accepted_count: 25, failed_count: 0, provider_confirmed_count: 25, delivered_count: 25 }), 'delivered');
 assert.equal(brevo.batchDeliveryStatus({ status: 'processing', accepted_count: 0, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0 }), 'processing');
+assert.equal(brevo.normalizeCandidateEmail('?candidate@example.com').email, 'candidate@example.com');
+assert.equal(brevo.normalizeCandidateEmail('candidate@@example.com').valid, false);
+assert.equal(brevo.isRetryableProviderError({ message: 'provider_timeout' }), true);
+assert.equal(brevo.isRetryableProviderError({ message: 'invalid_email', providerStatus: 422 }), false);
+assert.match(source, /async scheduled\(/);
+assert.match(source, /idempotencyKey: row\.item_id/);
 assert.match(source, /\/api\/admin\/email-diagnostics/);
 assert.match(source, /\/smtp\/statistics\/events\?days=2/);
 assert.match(source, /\/smtp\/blockedContacts\?limit=100/);
