@@ -2319,8 +2319,13 @@ async function updateCandidateContact(request, env, user, candidateId) {
 
 async function listCandidates(env, user) {
   const scope = candidateScope(user);
-  const scopedCandidates = await env.DB.prepare(`SELECT c.id, c.company_id FROM candidates c WHERE ${scope.sql}`).bind(...scope.bindings).all();
-  for (const candidate of scopedCandidates.results || []) await ensureCandidatePipeline(env, candidate.id, candidate.company_id);
+  const candidatesMissingPipeline = await env.DB.prepare(`
+    SELECT c.id, c.company_id
+    FROM candidates c
+    LEFT JOIN candidate_pipeline pipeline ON pipeline.candidate_id = c.id
+    WHERE ${scope.sql} AND pipeline.candidate_id IS NULL
+  `).bind(...scope.bindings).all();
+  for (const candidate of candidatesMissingPipeline.results || []) await ensureCandidatePipeline(env, candidate.id, candidate.company_id);
   const result = await env.DB.prepare(`
     WITH latest_invitation AS (
       SELECT *, ROW_NUMBER() OVER (PARTITION BY candidate_id ORDER BY created_at DESC) AS row_number
