@@ -32,7 +32,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -105,11 +105,20 @@ assert.equal(brevo.normalizedBrevoEvent('softBounce'), 'soft_bounce');
 assert.equal(brevo.normalizedBrevoEvent('uniqueOpened'), 'unique_opened');
 assert.equal(brevo.brevoInvitationId({ 'X-Mailin-custom': 'source:gazelle|invitation_id:invitation-123|test:tp' }), 'invitation-123');
 assert.equal(brevo.brevoInvitationStatus('request'), 'accepted');
+assert.equal(brevo.brevoInvitationStatus('requests'), 'accepted');
 assert.equal(brevo.brevoInvitationStatus('delivered'), 'delivered');
 assert.equal(brevo.brevoInvitationStatus('soft_bounce'), 'deferred');
+assert.equal(brevo.brevoInvitationStatus('soft_bounces'), 'deferred');
 assert.equal(brevo.brevoInvitationStatus('hard_bounce'), 'hard_bounce');
+assert.equal(brevo.brevoInvitationStatus('hard_bounces'), 'hard_bounce');
+assert.equal(brevo.brevoInvitationStatus('invalid'), 'invalid_email');
 assert.equal(brevo.brevoInvitationStatus('spam'), 'complained');
+assert.equal(brevo.brevoInvitationStatus('spam_reports'), 'complained');
 assert.equal(brevo.brevoInvitationStatus('opened'), null);
+assert.equal(brevo.brevoDeliverySummary([{ event: 'request', date: '2026-08-11T16:03:24Z' }], { blocked: false }, true).status, 'pending');
+assert.equal(brevo.brevoDeliverySummary([{ event: 'delivered', date: '2026-08-11T16:04:24Z' }], { blocked: false }, true).status, 'delivered');
+assert.equal(brevo.brevoDeliverySummary([{ event: 'hardBounce', reason: 'Mailbox unavailable' }], { blocked: false }, true).status, 'hard_bounce');
+assert.equal(brevo.brevoDeliverySummary([], { blocked: true, reason: 'Unsubscribed' }, true).status, 'blocked');
 assert.equal(brevo.normalizedProviderMessageId('<brevo-message-123@example.com>'), 'brevo-message-123@example.com');
 assert.equal(brevo.batchDeliveryStatus({ status: 'completed', accepted_count: 25, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0 }), 'provider_unconfirmed');
 assert.equal(brevo.batchDeliveryStatus({ status: 'api_accepted', accepted_count: 25, failed_count: 0, provider_confirmed_count: 25, delivered_count: 3 }), 'provider_confirmed');
@@ -122,6 +131,9 @@ assert.equal(brevo.isRetryableProviderError({ message: 'invalid_email', provider
 assert.match(source, /async scheduled\(/);
 assert.match(source, /idempotencyKey: row\.item_id/);
 assert.match(source, /\/api\/admin\/email-diagnostics/);
+assert.match(source, /email-delivery\\\/check/);
+assert.match(source, /reconcilePendingEmailDelivery/);
+assert.match(source, /status NOT IN \('completed', 'delivered', 'deferred'/);
 assert.match(source, /\/smtp\/statistics\/events\?days=2/);
 assert.match(source, /\/smtp\/blockedContacts\?limit=100/);
 assert.match(source, /\/smtp\/emails\?email=/);

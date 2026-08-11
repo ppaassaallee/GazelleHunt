@@ -111,6 +111,7 @@ csvApi.state.bulkResendTestId = 'test_tenure_potential';
 csvApi.state.candidates = [
   { id: 'candidate-ready', name: 'Ready Candidate', email: 'ready@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_status: 'delivered', attempts_used: 1, attempt_limit: 3, attempts_remaining: 2 },
   { id: 'candidate-blocked', name: 'Blocked Candidate', email: 'blocked@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_status: 'completed', attempts_used: 3, attempt_limit: 3, attempts_remaining: 0 },
+  { id: 'candidate-pending', name: 'Pending Candidate', email: 'pending@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_id: 'invite-pending', invitation_status: 'accepted', attempts_used: 1, attempt_limit: 3, attempts_remaining: 2 },
 ];
 csvApi.state.selectedCandidateIds = ['candidate-ready'];
 const candidateBulkHtml = csvApi.renderCandidates();
@@ -119,6 +120,7 @@ assert.match(candidateBulkHtml, /Resend to 1/);
 assert.match(candidateBulkHtml, /Previous language/);
 assert.match(candidateBulkHtml, /candidate-ready[^>]*aria-label="Select Ready Candidate"[^>]*checked/);
 assert.match(candidateBulkHtml, /candidate-blocked[^>]*aria-label="Select Blocked Candidate"[^>]*disabled/);
+assert.match(candidateBulkHtml, /Awaiting delivery/);
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[0], 'test_tenure_potential'), true);
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[1], 'test_tenure_potential'), false);
 
@@ -230,12 +232,12 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /styles\.css\?v=20260806\.1/);
-assert.match(indexSource, /app\.js\?v=20260806\.1/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260806\.1/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260806\.1/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260806\.1/);
-assert.match(indexSource, /pdf-report\.js\?v=20260806\.1/);
+assert.match(indexSource, /styles\.css\?v=20260811\.1/);
+assert.match(indexSource, /app\.js\?v=20260811\.1/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260811\.1/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260811\.1/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260811\.1/);
+assert.match(indexSource, /pdf-report\.js\?v=20260811\.1/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
@@ -273,12 +275,15 @@ assert.doesNotMatch(appSource, /Preview mode does not send responses to OpenAI/)
 assert.doesNotMatch(appSource, /signin-with-chatgpt/);
 assert.match(appSource, /SMTP relay with STARTTLS/);
 assert.match(appSource, /Check Brevo activity/);
+assert.match(appSource, /Check Brevo delivery/);
+assert.match(appSource, /API acceptance is not inbox delivery/);
 assert.match(appSource, /Forgot password\?/);
 assert.match(appSource, /data-reset-user/);
 assert.match(appSource, /data-save-user/);
 assert.match(serverSource, /recentEvents/);
 assert.match(serverSource, /senderRecord/);
 assert.match(serverSource, /domainRecord/);
+assert.match(serverSource, /email-delivery\\\/check/);
 
 for (const route of [
   '/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me',

@@ -1949,6 +1949,22 @@ async function brevoApiRequest(config, path, options = {}) {
   return body;
 }
 
+async function brevoDiagnosticRequest(config, path) {
+  try {
+    return { ok: true, body: await brevoApiRequest(config, path), error: null };
+  } catch (error) {
+    return {
+      ok: false,
+      body: null,
+      error: {
+        code: cleanText(error.message, 100) || 'brevo_request_failed',
+        message: cleanText(error.providerMessage, 300) || 'Brevo could not complete the diagnostic request.',
+        status: Number(error.providerStatus || 0) || null,
+      },
+    };
+  }
+}
+
 function normalizedProviderMessageId(value) {
   return cleanText(value, 400).replace(/^</, '').replace(/>$/, '').trim();
 }
@@ -1989,7 +2005,11 @@ async function emailDeliveryDiagnostics(request, env, user) {
   if (!isSuperAdmin(user)) return json({ error: 'Super administrator access is required.', code: 'super_admin_required' }, 403);
   const config = emailConfig(env);
   if (!config.apiConfigured) return json({ error: 'The Brevo API key is required for delivery diagnostics.', code: 'brevo_api_not_configured' }, 503);
-  const batchId = cleanText(new URL(request.url).searchParams.get('batchId'), 100);
+  const requestUrl = new URL(request.url);
+  const batchId = cleanText(requestUrl.searchParams.get('batchId'), 100);
+  const requestedRecipient = cleanText(requestUrl.searchParams.get('email'), 320);
+  const normalizedRecipient = requestedRecipient ? normalizeCandidateEmail(requestedRecipient) : null;
+  if (requestedRecipient && !normalizedRecipient?.valid) return json({ error: 'Enter a valid recipient email address.', code: 'invalid_email' }, 422);
   const batch = batchId ? await env.DB.prepare(`SELECT id, total_count, accepted_count, failed_count, created_at FROM send_batches WHERE id = ?`).bind(batchId).first() : null;
   if (batchId && !batch) return json({ error: 'Batch not found.', code: 'batch_not_found' }, 404);
   const invitationResult = batch
@@ -1997,7 +2017,6 @@ async function emailDeliveryDiagnostics(request, env, user) {
     : await env.DB.prepare(`SELECT id AS invitation_id, provider_message_id FROM invitations WHERE provider_message_id IS NOT NULL ORDER BY created_at DESC LIMIT 500`).all();
   const invitations = invitationResult.results || [];
   const providerIds = new Set(invitations.map((entry) => normalizedProviderMessageId(entry.provider_message_id)).filter(Boolean));
-  const invitationIds = invitations.map((entry) => entry.invitation_id).filter(Boolean);
   const latestTest = await env.DB.prepare(`
     SELECT json_extract(payload_json, '$.providerMessageId') AS provider_message_id,
       json_extract(payload_json, '$.to') AS recipient
@@ -2005,18 +2024,31 @@ async function emailDeliveryDiagnostics(request, env, user) {
     ORDER BY created_at DESC LIMIT 1
   `).first();
   const sampleMessageId = latestTest?.provider_message_id || invitations[0]?.provider_message_id || null;
-  const sampleRecipient = cleanEmail(latestTest?.recipient);
-  const [account, activity, sampleLookup, sampleEvents, recipientLookup, recipientEvents, blockedRecipient, senders, domains] = await Promise.all([
-    brevoApiRequest(config, '/account'),
-    brevoApiRequest(config, '/smtp/statistics/events?days=2&limit=5000&sort=desc'),
-    sampleMessageId ? brevoApiRequest(config, `/smtp/emails?messageId=${encodeURIComponent(sampleMessageId)}&limit=10`) : Promise.resolve({ count: 0, transactionalEmails: [] }),
-    sampleMessageId ? brevoApiRequest(config, `/smtp/statistics/events?messageId=${encodeURIComponent(sampleMessageId)}&limit=100&sort=desc`) : Promise.resolve({ events: [] }),
-    sampleRecipient ? brevoApiRequest(config, `/smtp/emails?email=${encodeURIComponent(sampleRecipient)}&limit=50&sort=desc`) : Promise.resolve({ count: 0, transactionalEmails: [] }),
-    sampleRecipient ? brevoApiRequest(config, `/smtp/statistics/events?email=${encodeURIComponent(sampleRecipient)}&days=2&limit=100&sort=desc`) : Promise.resolve({ events: [] }),
-    brevoBlockedRecipient(config, sampleRecipient),
-    brevoApiRequest(config, '/senders').catch(() => ({ senders: [] })),
-    brevoApiRequest(config, '/senders/domains').catch(() => ({ domains: [] })),
+  const sampleRecipient = normalizedRecipient?.email || cleanEmail(latestTest?.recipient);
+  const empty = (body) => ({ ok: true, body, error: null });
+  const [accountResult, activityResult, sampleLookupResult, sampleEventsResult, recipientLookupResult, recipientEventsResult, blockedRecipientResult, sendersResult, domainsResult] = await Promise.all([
+    brevoDiagnosticRequest(config, '/account'),
+    brevoDiagnosticRequest(config, '/smtp/statistics/events?days=2&limit=5000&sort=desc'),
+    sampleMessageId ? brevoDiagnosticRequest(config, `/smtp/emails?messageId=${encodeURIComponent(sampleMessageId)}&limit=10`) : Promise.resolve(empty({ count: 0, transactionalEmails: [] })),
+    sampleMessageId ? brevoDiagnosticRequest(config, `/smtp/statistics/events?messageId=${encodeURIComponent(sampleMessageId)}&limit=100&sort=desc`) : Promise.resolve(empty({ events: [] })),
+    sampleRecipient ? brevoDiagnosticRequest(config, `/smtp/emails?email=${encodeURIComponent(sampleRecipient)}&limit=50&sort=desc`) : Promise.resolve(empty({ count: 0, transactionalEmails: [] })),
+    sampleRecipient ? brevoDiagnosticRequest(config, `/smtp/statistics/events?email=${encodeURIComponent(sampleRecipient)}&days=2&limit=100&sort=desc`) : Promise.resolve(empty({ events: [] })),
+    sampleRecipient ? brevoBlockedRecipient(config, sampleRecipient).then((body) => empty(body)).catch((error) => ({ ok: false, body: { checked: false, blocked: false }, error: { code: cleanText(error.message, 100), message: cleanText(error.providerMessage, 300), status: Number(error.providerStatus || 0) || null } })) : Promise.resolve(empty({ checked: false, blocked: false })),
+    brevoDiagnosticRequest(config, '/senders'),
+    brevoDiagnosticRequest(config, '/senders/domains'),
   ]);
+  const account = accountResult.body || {};
+  const activity = activityResult.body || { events: [] };
+  const sampleLookup = sampleLookupResult.body || { count: 0, transactionalEmails: [] };
+  const sampleEvents = sampleEventsResult.body || { events: [] };
+  const recipientLookup = recipientLookupResult.body || { count: 0, transactionalEmails: [] };
+  const recipientEvents = recipientEventsResult.body || { events: [] };
+  const blockedRecipient = blockedRecipientResult.body || { checked: false, blocked: false };
+  const senders = sendersResult.body || { senders: [] };
+  const domains = domainsResult.body || { domains: [] };
+  const diagnosticErrors = [accountResult, activityResult, sampleLookupResult, sampleEventsResult, recipientLookupResult, recipientEventsResult, blockedRecipientResult, sendersResult, domainsResult]
+    .filter((result) => !result.ok && result.error)
+    .map((result) => result.error);
   const matchedEvents = (activity.events || []).filter((event) => providerIds.has(normalizedProviderMessageId(event.messageId)));
   const eventCounts = {};
   matchedEvents.forEach((event) => { eventCounts[event.event || 'unknown'] = (eventCounts[event.event || 'unknown'] || 0) + 1; });
@@ -2036,12 +2068,19 @@ async function emailDeliveryDiagnostics(request, env, user) {
   const senderDomain = config.senderEmail.split('@')[1] || '';
   const domainRecord = (domains.domains || []).find((domain) => cleanText(domain.domain_name, 180).toLowerCase() === senderDomain);
   let webhookCounts = [];
-  if (invitationIds.length) {
-    const webhookResult = await env.DB.prepare(`
-      SELECT event_type, COUNT(*) AS count FROM email_events
-      WHERE invitation_id IN (${invitationIds.map(() => '?').join(',')})
-      GROUP BY event_type ORDER BY event_type
-    `).bind(...invitationIds).all();
+  if (invitations.length) {
+    const webhookResult = batch
+      ? await env.DB.prepare(`
+        SELECT e.event_type, COUNT(*) AS count FROM email_events e
+        JOIN send_batch_items bi ON bi.invitation_id = e.invitation_id
+        WHERE bi.batch_id = ? GROUP BY e.event_type ORDER BY e.event_type
+      `).bind(batch.id).all()
+      : await env.DB.prepare(`
+        SELECT e.event_type, COUNT(*) AS count FROM email_events e
+        JOIN (SELECT id FROM invitations WHERE provider_message_id IS NOT NULL ORDER BY created_at DESC LIMIT 500) recent
+          ON recent.id = e.invitation_id
+        GROUP BY e.event_type ORDER BY e.event_type
+      `).all();
     webhookCounts = webhookResult.results || [];
   }
   return json({
@@ -2056,6 +2095,7 @@ async function emailDeliveryDiagnostics(request, env, user) {
     sender: { email: config.senderEmail, exists: Boolean(senderRecord), active: Boolean(senderRecord?.active) },
     domain: { name: senderDomain, exists: Boolean(domainRecord), verified: Boolean(domainRecord?.verified), authenticated: Boolean(domainRecord?.authenticated) },
     recipient: {
+      email: sampleRecipient || null,
       checked: blockedRecipient.checked,
       blocked: blockedRecipient.blocked,
       reason: blockedRecipient.reason,
@@ -2065,6 +2105,12 @@ async function emailDeliveryDiagnostics(request, env, user) {
       transactionalEmailCount: Number(recipientLookup.count || 0),
       latestMessageMatchedByRecipient: recipientMessageMatch,
       eventCounts: recipientEventCounts,
+      events: (recipientEvents.events || []).slice(0, 20).map((event) => ({
+        event: normalizedBrevoEvent(event.event),
+        date: cleanText(event.date, 80) || null,
+        reason: cleanText(event.reason, 240) || null,
+        messageId: normalizedProviderMessageId(event.messageId),
+      })),
     },
     batch: batch ? {
       id: batch.id,
@@ -2095,6 +2141,7 @@ async function emailDeliveryDiagnostics(request, env, user) {
       })),
     },
     webhook: { eventCounts: webhookCounts.map((entry) => ({ event: entry.event_type, count: Number(entry.count || 0) })) },
+    errors: diagnosticErrors,
   });
 }
 
@@ -3694,14 +3741,184 @@ function brevoInvitationId(eventData) {
 }
 
 function brevoInvitationStatus(eventType) {
-  if (['request', 'sent'].includes(eventType)) return 'accepted';
+  if (['request', 'requests', 'sent'].includes(eventType)) return 'accepted';
   if (eventType === 'delivered') return 'delivered';
-  if (['deferred', 'soft_bounce'].includes(eventType)) return 'deferred';
-  if (eventType === 'hard_bounce') return 'hard_bounce';
-  if (eventType === 'invalid_email') return 'invalid_email';
-  if (eventType === 'spam') return 'complained';
+  if (['deferred', 'soft_bounce', 'soft_bounces'].includes(eventType)) return 'deferred';
+  if (['hard_bounce', 'hard_bounces'].includes(eventType)) return 'hard_bounce';
+  if (['invalid', 'invalid_email'].includes(eventType)) return 'invalid_email';
+  if (['spam', 'spam_reports'].includes(eventType)) return 'complained';
   if (['blocked', 'unsubscribed', 'error'].includes(eventType)) return eventType;
   return null;
+}
+
+async function storeBrevoEvent(env, eventData, invitationIdHint = null) {
+  if (!eventData || typeof eventData !== 'object') return { stored: false, invitationId: null, status: null };
+  const eventType = normalizedBrevoEvent(eventData.event);
+  const rawMessageId = cleanText(eventData['message-id'] || eventData.messageId, 300);
+  const normalizedMessageId = normalizedProviderMessageId(rawMessageId);
+  let invitationId = cleanText(invitationIdHint, 100) || brevoInvitationId(eventData);
+  if (!invitationId && normalizedMessageId) {
+    const invitation = await env.DB.prepare(`
+      SELECT id FROM invitations
+      WHERE replace(replace(provider_message_id, '<', ''), '>', '') = ?
+      ORDER BY created_at DESC LIMIT 1
+    `).bind(normalizedMessageId).first();
+    invitationId = invitation?.id || null;
+  }
+  const severity = cleanText(eventData.reason || eventData.code, 160) || null;
+  const providerTimestamp = String(eventData.ts_event || eventData.ts_epoch || eventData.ts || eventData.date || '');
+  const eventDate = Date.parse(String(eventData.date || ''));
+  const createdAt = Number.isFinite(eventDate) ? new Date(eventDate).toISOString() : new Date().toISOString();
+  const existing = await env.DB.prepare(`
+    SELECT id FROM email_events
+    WHERE COALESCE(invitation_id, '') = COALESCE(?, '') AND event_type = ? AND provider_timestamp = ?
+      AND replace(replace(COALESCE(provider_message_id, ''), '<', ''), '>', '') = ?
+    LIMIT 1
+  `).bind(invitationId, eventType, providerTimestamp, normalizedMessageId).first();
+  if (!existing) {
+    await env.DB.prepare(`INSERT INTO email_events (id, invitation_id, provider_message_id, event_type, severity, provider_timestamp, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), invitationId, rawMessageId || null, eventType, severity, providerTimestamp, JSON.stringify(eventData), createdAt).run();
+  }
+  const invitationStatus = brevoInvitationStatus(eventType);
+  if (invitationId && invitationStatus === 'delivered') {
+    await env.DB.prepare(`UPDATE invitations SET status = 'delivered', delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND status <> 'completed'`)
+      .bind(createdAt, invitationId).run();
+  } else if (invitationId && invitationStatus === 'accepted') {
+    await env.DB.prepare(`UPDATE invitations SET status = 'accepted' WHERE id = ? AND status NOT IN ('completed', 'delivered', 'deferred', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'unsubscribed')`)
+      .bind(invitationId).run();
+  } else if (invitationId && invitationStatus === 'deferred') {
+    await env.DB.prepare(`UPDATE invitations SET status = 'deferred' WHERE id = ? AND status NOT IN ('completed', 'delivered', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'unsubscribed')`)
+      .bind(invitationId).run();
+  } else if (invitationId && invitationStatus) {
+    await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ? AND status NOT IN ('completed', 'delivered')`)
+      .bind(invitationStatus, invitationId).run();
+  }
+  return { stored: !existing, invitationId, status: invitationStatus, eventType };
+}
+
+function brevoDeliverySummary(events, blockedRecipient, messageFound) {
+  const normalizedEvents = (events || []).map((event) => ({
+    event: normalizedBrevoEvent(event.event),
+    date: cleanText(event.date, 80) || null,
+    reason: cleanText(event.reason || event.code, 240) || null,
+  }));
+  const latest = [...normalizedEvents].sort((left, right) => Date.parse(right.date || 0) - Date.parse(left.date || 0))[0] || null;
+  const delivered = normalizedEvents.find((event) => event.event === 'delivered');
+  const failure = normalizedEvents.find((event) => ['hard_bounce', 'hard_bounces', 'invalid', 'invalid_email', 'blocked', 'spam', 'spam_reports', 'unsubscribed', 'error'].includes(event.event));
+  const deferred = normalizedEvents.find((event) => ['deferred', 'soft_bounce', 'soft_bounces'].includes(event.event));
+  if (blockedRecipient?.blocked) return { status: 'blocked', reason: blockedRecipient.reason || failure?.reason || 'Recipient is blocklisted in Brevo.' };
+  if (delivered) return { status: 'delivered', reason: null };
+  if (failure) return { status: brevoInvitationStatus(failure.event) || 'failed', reason: failure.reason || 'Brevo reported a delivery failure.' };
+  if (deferred) return { status: 'deferred', reason: deferred.reason || 'The recipient server temporarily delayed the message.' };
+  if (messageFound || normalizedEvents.some((event) => ['request', 'requests', 'sent'].includes(event.event))) return { status: 'pending', reason: latest?.reason || null };
+  return { status: 'not_found', reason: null };
+}
+
+async function checkCandidateEmailDelivery(request, env, user, candidateId) {
+  const config = emailConfig(env);
+  if (!config.apiConfigured) return json({ error: 'Brevo API access is required to check delivery.', code: 'brevo_api_not_configured' }, 503);
+  const scope = candidateScope(user, 'c');
+  const invitation = await env.DB.prepare(`
+    SELECT i.id, i.status, i.provider_message_id, i.created_at, i.delivered_at, c.id AS candidate_id, c.name, c.email
+    FROM candidates c JOIN invitations i ON i.candidate_id = c.id
+    WHERE c.id = ? AND ${scope.sql}
+    ORDER BY i.created_at DESC LIMIT 1
+  `).bind(candidateId, ...scope.bindings).first();
+  if (!invitation) return json({ error: 'No invitation was found for this candidate.', code: 'invitation_not_found' }, 404);
+  if (!invitation.provider_message_id) return json({ error: 'The latest invitation has no Brevo message ID.', code: 'provider_message_missing' }, 409);
+  const messageId = cleanText(invitation.provider_message_id, 300);
+  const normalizedMessageId = normalizedProviderMessageId(messageId);
+  let [messageResult, eventsResult, recipientMessagesResult, recipientEventsResult, blockedResult] = await Promise.all([
+    brevoDiagnosticRequest(config, `/smtp/emails?messageId=${encodeURIComponent(messageId)}&limit=10`),
+    brevoDiagnosticRequest(config, `/smtp/statistics/events?messageId=${encodeURIComponent(messageId)}&limit=100&sort=desc`),
+    brevoDiagnosticRequest(config, `/smtp/emails?email=${encodeURIComponent(invitation.email)}&limit=50&sort=desc`),
+    brevoDiagnosticRequest(config, `/smtp/statistics/events?email=${encodeURIComponent(invitation.email)}&days=7&limit=100&sort=desc`),
+    brevoBlockedRecipient(config, invitation.email)
+      .then((body) => ({ ok: true, body, error: null }))
+      .catch((error) => ({ ok: false, body: { checked: false, blocked: false }, error: { code: cleanText(error.message, 100), message: cleanText(error.providerMessage, 300), status: Number(error.providerStatus || 0) || null } })),
+  ]);
+  if (normalizedMessageId !== messageId && Number(messageResult.body?.count || 0) === 0 && !(eventsResult.body?.events || []).length) {
+    const [normalizedMessages, normalizedEvents] = await Promise.all([
+      brevoDiagnosticRequest(config, `/smtp/emails?messageId=${encodeURIComponent(normalizedMessageId)}&limit=10`),
+      brevoDiagnosticRequest(config, `/smtp/statistics/events?messageId=${encodeURIComponent(normalizedMessageId)}&limit=100&sort=desc`),
+    ]);
+    if (normalizedMessages.ok && Number(normalizedMessages.body?.count || 0) > 0) messageResult = normalizedMessages;
+    if (normalizedEvents.ok && (normalizedEvents.body?.events || []).length) eventsResult = normalizedEvents;
+  }
+  if (!messageResult.ok && !eventsResult.ok) {
+    const providerError = eventsResult.error || messageResult.error;
+    return json({ error: providerError?.message || 'Brevo delivery status could not be checked.', code: providerError?.code || 'brevo_diagnostics_failed' }, providerError?.status || 502);
+  }
+  const recipientMessages = (recipientMessagesResult.body?.transactionalEmails || []).filter((entry) => normalizedProviderMessageId(entry.messageId) === normalizedMessageId);
+  const recipientEvents = (recipientEventsResult.body?.events || []).filter((event) => normalizedProviderMessageId(event.messageId) === normalizedMessageId);
+  const localEventResult = await env.DB.prepare(`
+    SELECT event_type AS event, created_at AS date, severity AS reason
+    FROM email_events WHERE invitation_id = ? ORDER BY created_at DESC LIMIT 100
+  `).bind(invitation.id).all();
+  const localEvents = localEventResult.results || [];
+  const remoteProviderEvents = (eventsResult.body?.events || []).length ? eventsResult.body.events : recipientEvents;
+  const providerEvents = remoteProviderEvents.length ? remoteProviderEvents : localEvents;
+  for (const event of remoteProviderEvents) await storeBrevoEvent(env, event, invitation.id);
+  const refreshed = await env.DB.prepare(`SELECT status, delivered_at FROM invitations WHERE id = ?`).bind(invitation.id).first();
+  const messageFound = Number(messageResult.body?.count || 0) > 0 || recipientMessages.length > 0 || localEvents.length > 0;
+  const summary = brevoDeliverySummary(providerEvents, blockedResult.body, messageFound);
+  const ageMinutes = Math.max(0, Math.round((Date.now() - Date.parse(invitation.created_at)) / 60000));
+  const messages = {
+    delivered: 'Brevo confirmed delivery to the recipient mail server.',
+    pending: ageMinutes >= 15
+      ? 'Brevo accepted the email but has not confirmed delivery. Ask the candidate to check Junk and the Outlook Other tab before resending or using an alternate verified address.'
+      : 'Brevo accepted the email and delivery confirmation is still pending.',
+    deferred: 'The recipient mail server temporarily delayed the email. Gazelle will continue reconciling Brevo events.',
+    blocked: 'Brevo has this recipient on a blocklist. Resolve the block in Brevo or use a verified alternate address before resending.',
+    hard_bounce: 'The recipient server permanently rejected this address. Correct the email or use a verified alternate address.',
+    invalid_email: 'Brevo marked the recipient address as invalid. Correct it before resending.',
+    complained: 'The recipient reported a previous message as spam. Do not resend without confirming consent.',
+    unsubscribed: 'The recipient is unsubscribed in Brevo. Resolve the recipient status before resending.',
+    not_found: 'Brevo did not return a transaction for this message ID. Review the provider configuration before resending.',
+  };
+  await audit(env, user.email, 'candidate_email_delivery_checked', 'invitation', invitation.id, { candidateId, providerStatus: summary.status, messageFound, eventCount: providerEvents.length });
+  return json({
+    candidateId,
+    invitationId: invitation.id,
+    recipient: invitation.email,
+    provider: 'Brevo',
+    status: summary.status,
+    invitationStatus: refreshed?.status || invitation.status,
+    message: messages[summary.status] || 'Brevo returned a delivery status that requires review.',
+    reason: summary.reason,
+    messageFound,
+    ageMinutes,
+    deliveredAt: refreshed?.delivered_at || invitation.delivered_at || null,
+    blocked: Boolean(blockedResult.body?.blocked),
+    events: providerEvents.slice(0, 20).map((event) => ({ event: normalizedBrevoEvent(event.event), date: cleanText(event.date, 80) || null, reason: cleanText(event.reason, 240) || null })),
+    errors: [messageResult, eventsResult, recipientMessagesResult, recipientEventsResult, blockedResult].filter((result) => !result.ok && result.error).map((result) => result.error),
+  });
+}
+
+async function reconcilePendingEmailDelivery(env) {
+  const config = emailConfig(env);
+  if (!config.apiConfigured) return { checked: 0, matched: 0, stored: 0 };
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const pending = await env.DB.prepare(`
+    SELECT id, provider_message_id FROM invitations
+    WHERE provider_message_id IS NOT NULL AND status IN ('accepted', 'deferred') AND created_at >= ?
+    ORDER BY created_at DESC LIMIT 500
+  `).bind(cutoff).all();
+  const rows = pending.results || [];
+  if (!rows.length) return { checked: 0, matched: 0, stored: 0 };
+  const activity = await brevoDiagnosticRequest(config, '/smtp/statistics/events?days=7&limit=5000&sort=desc');
+  if (!activity.ok) return { checked: rows.length, matched: 0, stored: 0, error: activity.error };
+  const invitationByMessageId = new Map(rows.map((row) => [normalizedProviderMessageId(row.provider_message_id), row.id]));
+  let matched = 0;
+  let stored = 0;
+  for (const event of activity.body?.events || []) {
+    const invitationId = invitationByMessageId.get(normalizedProviderMessageId(event.messageId));
+    if (!invitationId) continue;
+    matched += 1;
+    const result = await storeBrevoEvent(env, event, invitationId);
+    if (result.stored) stored += 1;
+  }
+  return { checked: rows.length, matched, stored };
 }
 
 async function handleBrevoWebhook(request, env) {
@@ -3720,25 +3937,7 @@ async function handleBrevoWebhook(request, env) {
   let received = 0;
   for (const eventData of events) {
     if (!eventData || typeof eventData !== 'object') continue;
-    const eventType = normalizedBrevoEvent(eventData.event);
-    const rawMessageId = cleanText(eventData['message-id'] || eventData.messageId, 300);
-    const normalizedMessageId = rawMessageId.replace(/^<|>$/g, '');
-    let invitationId = brevoInvitationId(eventData);
-    if (!invitationId && normalizedMessageId) {
-      const invitation = await env.DB.prepare(`SELECT id FROM invitations WHERE replace(replace(provider_message_id, '<', ''), '>', '') = ? ORDER BY created_at DESC LIMIT 1`).bind(normalizedMessageId).first();
-      invitationId = invitation?.id || null;
-    }
-    const severity = cleanText(eventData.reason || eventData.code, 160) || null;
-    const providerTimestamp = String(eventData.ts_event || eventData.ts_epoch || eventData.ts || eventData.date || '');
-    const createdAt = new Date().toISOString();
-    await env.DB.prepare(`INSERT INTO email_events (id, invitation_id, provider_message_id, event_type, severity, provider_timestamp, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), invitationId, rawMessageId || null, eventType, severity, providerTimestamp, JSON.stringify(eventData), createdAt).run();
-    const invitationStatus = brevoInvitationStatus(eventType);
-    if (invitationId && invitationStatus === 'delivered') {
-      await env.DB.prepare(`UPDATE invitations SET status = ?, delivered_at = ? WHERE id = ?`).bind(invitationStatus, createdAt, invitationId).run();
-    } else if (invitationId && invitationStatus) {
-      await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind(invitationStatus, invitationId).run();
-    }
+    await storeBrevoEvent(env, eventData);
     received += 1;
   }
   return json({ received: true, eventCount: received });
@@ -3823,6 +4022,8 @@ async function handleApi(request, env, context) {
   if (candidateStageMatch && request.method === 'PATCH') return updateCandidateStage(request, env, user, cleanText(candidateStageMatch[1], 100));
   const candidateContactMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/contact$/);
   if (candidateContactMatch && request.method === 'PATCH') return updateCandidateContact(request, env, user, cleanText(candidateContactMatch[1], 100));
+  const candidateDeliveryMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/email-delivery\/check$/);
+  if (candidateDeliveryMatch && request.method === 'POST') return checkCandidateEmailDelivery(request, env, user, cleanText(candidateDeliveryMatch[1], 100));
   const candidateCommunicationMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/communications$/);
   if (candidateCommunicationMatch && request.method === 'POST') return createCandidateCommunication(request, env, user, cleanText(candidateCommunicationMatch[1], 100));
   const candidateAttemptsMatch = url.pathname.match(/^\/api\/candidates\/([^/]+)\/attempts\/release$/);
@@ -3865,11 +4066,14 @@ export default {
       if (url.pathname === '/' || !url.pathname.includes('.')) return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
       return new Response('Not found', { status: 404 });
     } catch (error) {
+      console.error('gazelle_request_failed', { path: url.pathname, message: cleanText(error?.message, 160), stack: cleanText(error?.stack, 1200) });
       const code = error?.message === 'database_unavailable' ? 'database_unavailable' : 'server_error';
       return json({ error: code === 'database_unavailable' ? 'Persistent storage is not available.' : 'The request could not be completed.', code }, code === 'database_unavailable' ? 503 : 500);
     }
   },
   async scheduled(controller, env, context) {
-    context.waitUntil(recoverAsyncWork(env));
+    const work = [recoverAsyncWork(env)];
+    if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
+    context.waitUntil(Promise.all(work));
   },
 };

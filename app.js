@@ -58,6 +58,7 @@ const state = {
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
   tests: [], lists: [], batches: [], users: [], companies: [], selectedListId: null,
   stages: [], referrals: [], journeyCandidateId: null,
+  deliveryChecks: {},
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
   csv: null, reportResultId: null, reportSearch: '', reportTestId: 'all', reportScope: 'all', reportRole: 'all', reportListId: 'all', previewReport: null, runner: null,
   directSendReceipt: null, emailDiagnostics: null,
@@ -169,12 +170,13 @@ function toast(message) {
 function statusBadge(status) {
   const value = status || 'Not invited';
   const labels = {
+    accepted: 'Awaiting delivery', deferred: 'Delivery delayed', invalid_email: 'Invalid email', hard_bounce: 'Hard bounce', complained: 'Spam complaint',
     api_accepted: 'API accepted', api_accepted_with_errors: 'API accepted with errors',
     provider_unconfirmed: 'Brevo unconfirmed', provider_confirmed: 'Brevo confirmed',
     provider_confirmed_with_errors: 'Brevo confirmed with errors', partially_confirmed: 'Partially confirmed',
     delivered_with_errors: 'Delivered with errors', smtp_ready: 'SMTP ready', api_ready: 'API ready', queued: 'Queued', sending: 'Sending',
   };
-  const tone = ['completed', 'delivered', 'active', 'smtp_ready', 'api_ready'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'queued', 'sending', 'deferred', 'pending', 'processing', 'api_accepted', 'api_accepted_with_errors', 'provider_unconfirmed', 'provider_confirmed', 'provider_confirmed_with_errors', 'partially_confirmed', 'delivered_with_errors'].includes(value) ? 'orange' : 'neutral';
+  const tone = ['completed', 'delivered', 'active', 'smtp_ready', 'api_ready'].includes(value) ? 'teal' : ['failed', 'hard_bounce', 'invalid_email', 'blocked', 'complained', 'unsubscribed', 'error', 'rejected', 'suspended'].includes(value) ? 'red' : ['accepted', 'queued', 'sending', 'deferred', 'pending', 'processing', 'api_accepted', 'api_accepted_with_errors', 'provider_unconfirmed', 'provider_confirmed', 'provider_confirmed_with_errors', 'partially_confirmed', 'delivered_with_errors'].includes(value) ? 'orange' : 'neutral';
   return `<span class="badge badge-${tone}">${esc(labels[value] || value.replaceAll('_', ' '))}</span>`;
 }
 
@@ -309,8 +311,12 @@ function renderJourneyModal() {
   const candidate = state.candidates.find((entry) => entry.id === state.journeyCandidateId);
   const legacy = renderJourneyModalLegacy();
   if (!candidate || !legacy) return legacy;
+  const delivery = state.deliveryChecks[candidate.id];
+  const deliveryTone = delivery?.status === 'delivered' ? 'info' : ['blocked', 'hard_bounce', 'invalid_email', 'complained', 'unsubscribed', 'not_found', 'error'].includes(delivery?.status) ? 'error' : 'info';
+  const deliveryResult = delivery ? `<div class="notice notice-${deliveryTone}" role="status"><strong>${esc(delivery.status.replaceAll('_', ' '))}</strong><span>${esc(delivery.message)}</span>${delivery.reason ? `<span>Brevo reason: ${esc(delivery.reason)}</span>` : ''}<span>${Number(delivery.events?.length || 0)} provider event${Number(delivery.events?.length || 0) === 1 ? '' : 's'} found · checked just now</span></div>` : '';
+  const deliverySection = `<section><div class="journey-section-title"><div><h3>Email delivery</h3><p>Query Brevo directly and reconcile any delivery event missed by the webhook.</p></div>${icon('mail')}</div><div class="attempt-control"><div>${statusBadge(candidate.invitation_status)}<span>API acceptance is not inbox delivery.</span></div><button class="button button-secondary" data-check-delivery="${candidate.id}" ${!candidate.invitation_id || state.busy ? 'disabled' : ''}>${icon('refresh')}${state.busy ? 'Checking...' : 'Check Brevo delivery'}</button></div>${deliveryResult}</section>`;
   const contactSection = `<section><div class="journey-section-title"><div><h3>Candidate contact</h3><p>Correct the delivery address without recreating the candidate. Previous invitations remain in the audit history.</p></div>${icon('mail')}</div><form id="candidate-contact-form" class="form-grid"><label class="field form-wide"><span>Email address</span><input class="input" id="journey-candidate-email" type="email" required maxlength="254" value="${esc(candidate.email)}"></label><div class="form-span"><button class="button button-secondary" ${state.busy ? 'disabled' : ''}>${icon('check')}Save email</button><p class="field-help">After a correction, resend the test to create a new invitation for this address.</p></div></form></section>`;
-  return legacy.replace('<div class="modal-body journey-body">', `<div class="modal-body journey-body">${contactSection}`);
+  return legacy.replace('<div class="modal-body journey-body">', `<div class="modal-body journey-body">${deliverySection}${contactSection}`);
 }
 
 function renderReferrals() {
@@ -1034,6 +1040,24 @@ async function updateCandidateContact(event) {
   finally { state.busy = false; render(); }
 }
 
+async function checkCandidateDelivery(candidateId) {
+  state.busy = true;
+  render();
+  try {
+    const result = await fetchJson(`/api/candidates/${encodeURIComponent(candidateId)}/email-delivery/check`, { method: 'POST' });
+    state.deliveryChecks = { ...state.deliveryChecks, [candidateId]: result };
+    const candidates = await fetchJson('/api/candidates');
+    state.candidates = candidates.candidates || state.candidates;
+    toast(result.status === 'delivered' ? 'Brevo confirmed delivery.' : 'Brevo delivery status updated. Review the details before resending.');
+  } catch (error) {
+    state.deliveryChecks = { ...state.deliveryChecks, [candidateId]: { status: 'error', message: error.message, reason: null, events: [] } };
+    toast(error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function createJourneyStage(event) {
   event.preventDefault();
   state.busy = true;
@@ -1429,6 +1453,7 @@ function bindEvents() {
   document.querySelectorAll('[data-send-candidate]').forEach((button) => button.addEventListener('click', () => { const candidate = state.candidates.find((item) => item.id === button.dataset.sendCandidate); state.view = 'send'; document.getElementById('app').innerHTML = shell(renderSend(candidate)); bindEvents(); }));
   document.querySelectorAll('[data-journey]').forEach((button) => button.addEventListener('click', () => { state.journeyCandidateId = button.dataset.journey; render(); }));
   document.querySelector?.('[data-close-journey]')?.addEventListener('click', () => { state.journeyCandidateId = null; render(); });
+  document.querySelectorAll('[data-check-delivery]').forEach((button) => button.addEventListener('click', () => checkCandidateDelivery(button.dataset.checkDelivery)));
   document.querySelectorAll('[data-resend-test]').forEach((button) => button.addEventListener('click', () => resendCandidateTest(button.dataset.resendTest)));
   document.querySelectorAll('[data-release-attempts]').forEach((button) => button.addEventListener('click', () => releaseCandidateAttempts(button.dataset.releaseAttempts)));
   document.querySelectorAll('[data-referral-status]').forEach((select) => select.addEventListener('change', () => updateReferralStatus(select.dataset.referralStatus, select.value)));
