@@ -27,6 +27,7 @@
     "BREVO_SMTP_HOST": "smtp-relay.brevo.com",
     "BREVO_SMTP_LOGIN": "your-brevo-smtp-login",
     "BREVO_SMTP_PORT": "587",
+    "DEFAULT_PHONE_COUNTRY_CODE": "502",
     "OPENAI_MODEL": "gpt-4.1-mini",
     "SUPER_ADMIN_EMAIL": "david.alejandro.pa@gmail.com"
   }
