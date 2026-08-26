@@ -1,4 +1,4 @@
-export const schemaVersion = '0011_async_recovery_and_exports';
+export const schemaVersion = '0012_contactability_journeys';
 
 export type CandidateRecord = {
   id: string;
@@ -44,6 +44,39 @@ export type CandidateListRecord = {
   name: string;
   description: string | null;
   status: 'active' | 'archived';
+};
+
+export type ContactChannel = 'email' | 'whatsapp' | 'sms';
+export type ContactJourneyStatus = 'draft' | 'active' | 'paused' | 'archived';
+export type ContactJourneyEventStatus = 'queued' | 'sending' | 'accepted' | 'failed' | 'skipped';
+
+export type ContactJourneyRecord = {
+  id: string;
+  company_id: string;
+  list_id: string;
+  test_id: string;
+  created_by_user_id: string;
+  name: string;
+  status: ContactJourneyStatus;
+  locale: 'en' | 'es';
+  goal_event: 'assessment_completed';
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContactJourneyStepRecord = {
+  id: string;
+  journey_id: string;
+  step_order: number;
+  delay_minutes: number;
+  channel: ContactChannel;
+  template_name: string | null;
+  brevo_template_id: string | null;
+  subject_en: string | null;
+  subject_es: string | null;
+  message_en: string;
+  message_es: string;
+  created_at: string;
 };
 
 export type AssessmentRecord = {

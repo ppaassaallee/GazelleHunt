@@ -414,6 +414,73 @@ const schemaStatements = [
     FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
     FOREIGN KEY (created_by_user_id) REFERENCES users(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS contact_journeys (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    list_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    created_by_user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    locale TEXT NOT NULL DEFAULT 'en',
+    goal_event TEXT NOT NULL DEFAULT 'assessment_completed',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (list_id) REFERENCES candidate_lists(id),
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id),
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS contact_journey_steps (
+    id TEXT PRIMARY KEY,
+    journey_id TEXT NOT NULL,
+    step_order INTEGER NOT NULL,
+    delay_minutes INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    template_name TEXT,
+    brevo_template_id TEXT,
+    subject_en TEXT,
+    subject_es TEXT,
+    message_en TEXT NOT NULL,
+    message_es TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (journey_id, step_order),
+    FOREIGN KEY (journey_id) REFERENCES contact_journeys(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS contact_journey_enrollments (
+    id TEXT PRIMARY KEY,
+    journey_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    enrolled_at TEXT NOT NULL,
+    completed_at TEXT,
+    stopped_reason TEXT,
+    UNIQUE (journey_id, candidate_id, test_id),
+    FOREIGN KEY (journey_id) REFERENCES contact_journeys(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS contact_journey_events (
+    id TEXT PRIMARY KEY,
+    enrollment_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    invitation_id TEXT,
+    channel TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    scheduled_at TEXT NOT NULL,
+    sent_at TEXT,
+    provider_message_id TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (enrollment_id) REFERENCES contact_journey_enrollments(id) ON DELETE CASCADE,
+    FOREIGN KEY (step_id) REFERENCES contact_journey_steps(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (invitation_id) REFERENCES invitations(id)
+  )`,
   `CREATE TABLE IF NOT EXISTS candidate_test_access (
     candidate_id TEXT NOT NULL,
     test_id TEXT NOT NULL,
@@ -494,6 +561,9 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS assessments_test_idx ON assessments(test_id, completed_at DESC)`,
   `CREATE INDEX IF NOT EXISTS send_batch_items_retry_idx ON send_batch_items(status, next_attempt_at, updated_at)`,
   `CREATE INDEX IF NOT EXISTS ai_analyses_retry_idx ON ai_analyses(status, next_retry_at, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS contact_journeys_scope_idx ON contact_journeys(company_id, list_id, status, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS contact_journey_events_due_idx ON contact_journey_events(status, scheduled_at, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS contact_journey_enrollments_status_idx ON contact_journey_enrollments(journey_id, status)`,
 ];
 
 let schemaReady = false;
@@ -1512,6 +1582,50 @@ function emailConfig(env) {
   };
 }
 
+function contactabilityConfig(env) {
+  const email = emailConfig(env);
+  const whatsappSenderNumber = cleanText(env.BREVO_WHATSAPP_SENDER_NUMBER, 40).replace(/[^\d+]/g, '');
+  const whatsappTemplateId = cleanText(env.BREVO_WHATSAPP_TEMPLATE_ID, 80);
+  const smsSender = cleanText(env.BREVO_SMS_SENDER, 40);
+  const defaultCountryCode = cleanText(env.DEFAULT_PHONE_COUNTRY_CODE, 8).replace(/[^\d]/g, '') || '502';
+  return {
+    defaultCountryCode,
+    email: {
+      configured: email.configured,
+      sendingConfigured: email.sendingConfigured,
+      provider: 'Brevo',
+      transport: email.transport,
+    },
+    whatsapp: {
+      configured: Boolean(email.apiKey && whatsappSenderNumber),
+      apiConfigured: Boolean(email.apiKey),
+      senderNumber: whatsappSenderNumber || null,
+      templateId: whatsappTemplateId || null,
+      provider: 'Brevo WhatsApp',
+      missing: [!email.apiKey ? 'BREVO_API_KEY' : '', !whatsappSenderNumber ? 'BREVO_WHATSAPP_SENDER_NUMBER' : ''].filter(Boolean),
+    },
+    sms: {
+      configured: Boolean(email.apiKey && smsSender),
+      apiConfigured: Boolean(email.apiKey),
+      sender: smsSender || null,
+      provider: 'Brevo Transactional SMS',
+      missing: [!email.apiKey ? 'BREVO_API_KEY' : '', !smsSender ? 'BREVO_SMS_SENDER' : ''].filter(Boolean),
+    },
+  };
+}
+
+function normalizeContactPhone(value, defaultCountryCode = '502') {
+  const original = String(value || '').slice(0, 80);
+  let digits = original.normalize('NFKC').replace(/[^\d+]/g, '');
+  if (digits.startsWith('+')) digits = digits.slice(1);
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  digits = digits.replace(/\D/g, '');
+  const countryCode = String(defaultCountryCode || '502').replace(/\D/g, '') || '502';
+  if (digits.length === 8 && countryCode) digits = `${countryCode}${digits}`;
+  const valid = digits.length >= 8 && digits.length <= 15;
+  return { phone: valid ? digits : '', valid, corrected: valid && digits !== original.replace(/\D/g, ''), original };
+}
+
 function aiConfig(env) {
   const openAiKey = String(env.OPENAI_API_KEY || '');
   const geminiKey = String(env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '');
@@ -1947,6 +2061,74 @@ async function brevoApiRequest(config, path, options = {}) {
     throw error;
   }
   return body;
+}
+
+function compactMessage(value, max = 420) {
+  return cleanText(value, max).replace(/\s+/g, ' ').trim();
+}
+
+function textInvitationCopy(candidate, locale, link) {
+  const brand = candidate.candidate_brand_name || 'Allied Global';
+  const name = candidate.name || (locale === 'es' ? 'candidato' : 'candidate');
+  const role = candidate.role || (locale === 'es' ? 'la posición' : 'the role');
+  if (locale === 'es') {
+    return compactMessage(`Hola ${name}, ${brand} te invita a completar tu evaluación para ${role}. Toma unos 10 minutos. Entra aquí: ${link}`, 320);
+  }
+  return compactMessage(`Hi ${name}, ${brand} invited you to complete your assessment for ${role}. It takes about 10 minutes. Open it here: ${link}`, 320);
+}
+
+function templateInvitationMessage(candidate, locale, link, step = {}) {
+  const template = cleanText(locale === 'es' ? step.message_es : step.message_en, 800);
+  if (!template) return textInvitationCopy(candidate, locale, link);
+  return compactMessage(template
+    .replaceAll('{{name}}', candidate.name || '')
+    .replaceAll('{{brand}}', candidate.candidate_brand_name || 'Allied Global')
+    .replaceAll('{{role}}', candidate.role || '')
+    .replaceAll('{{link}}', link), 800);
+}
+
+async function sendBrevoSms(env, message) {
+  const config = emailConfig(env);
+  const contact = contactabilityConfig(env);
+  if (!contact.sms.configured) {
+    const error = new Error('sms_not_configured');
+    error.providerStatus = 503;
+    error.providerMessage = `Configure ${contact.sms.missing.join(', ') || 'Brevo SMS'} before SMS journeys can send.`;
+    throw error;
+  }
+  const body = await brevoApiRequest(config, '/transactionalSMS/send', {
+    method: 'POST',
+    body: {
+      sender: contact.sms.sender,
+      recipient: message.toPhone,
+      content: compactMessage(message.text, 640),
+      type: 'transactional',
+      tag: cleanText(message.tag, 80).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'gazelle-assessment',
+    },
+  });
+  const messageId = cleanText(body.messageId || body.reference || body.id, 300) || `brevo-sms-${crypto.randomUUID()}`;
+  return { id: messageId, transport: 'sms', message: 'Brevo accepted the transactional SMS request.' };
+}
+
+async function sendBrevoWhatsApp(env, message) {
+  const config = emailConfig(env);
+  const contact = contactabilityConfig(env);
+  if (!contact.whatsapp.configured) {
+    const error = new Error('whatsapp_not_configured');
+    error.providerStatus = 503;
+    error.providerMessage = `Configure ${contact.whatsapp.missing.join(', ') || 'Brevo WhatsApp'} before WhatsApp journeys can send.`;
+    throw error;
+  }
+  const payload = {
+    senderNumber: contact.whatsapp.senderNumber,
+    contactNumbers: [message.toPhone],
+  };
+  const templateId = cleanText(message.templateId, 80) || contact.whatsapp.templateId;
+  if (templateId) payload.templateId = Number.isFinite(Number(templateId)) ? Number(templateId) : templateId;
+  else payload.text = compactMessage(message.text, 900);
+  const body = await brevoApiRequest(config, '/whatsapp/sendMessage', { method: 'POST', body: payload });
+  const messageId = cleanText(body.messageId || body.reference || body.id, 300) || `brevo-whatsapp-${crypto.randomUUID()}`;
+  return { id: messageId, transport: 'whatsapp', message: 'Brevo accepted the WhatsApp request.' };
 }
 
 async function brevoDiagnosticRequest(config, path) {
@@ -2610,12 +2792,21 @@ async function importCandidates(request, env, user) {
   return json({ accepted, skipped: invalidRows.length, invalidRows, correctedRows, addedToList, candidates: await listCandidates(env, user), lists: await listCandidateLists(env, user) }, 201);
 }
 
-async function sendInvitationForCandidate({ env, user, candidate, test, locale, origin, listId = null, batchId = null, idempotencyKey = null }) {
+async function sendInvitationForCandidate({ env, user, candidate, test, locale, origin, listId = null, batchId = null, idempotencyKey = null, channel = 'email', step = null }) {
+  const deliveryChannel = ['email', 'whatsapp', 'sms'].includes(channel) ? channel : 'email';
   const recipientEmail = cleanEmail(candidate.email);
-  if (!recipientEmail) {
+  const contact = contactabilityConfig(env);
+  const recipientPhone = normalizeContactPhone(candidate.phone, contact.defaultCountryCode);
+  if (deliveryChannel === 'email' && !recipientEmail) {
     const error = new Error('invalid_email');
     error.providerStatus = 422;
     error.providerMessage = 'The candidate email address is invalid. Correct it before sending.';
+    throw error;
+  }
+  if (deliveryChannel !== 'email' && !recipientPhone.valid) {
+    const error = new Error('invalid_phone');
+    error.providerStatus = 422;
+    error.providerMessage = 'The candidate phone number is invalid or missing. Add a country code or a valid local mobile number before sending.';
     throw error;
   }
   const attempts = await testAttemptStatus(env, candidate.id, test.id, user.id);
@@ -2643,13 +2834,17 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
   const link = `${origin}/candidate?invite=${encodeURIComponent(token)}`;
   const copy = invitationCopy(candidate, locale, link);
   try {
-    const provider = await sendBrevo(env, { to: recipientEmail, toName: candidate.name, ...copy, invitationId, idempotencyKey, tag: test.slug });
+    const provider = deliveryChannel === 'email'
+      ? await sendBrevo(env, { to: recipientEmail, toName: candidate.name, ...copy, invitationId, idempotencyKey, tag: test.slug })
+      : deliveryChannel === 'sms'
+        ? await sendBrevoSms(env, { toPhone: recipientPhone.phone, text: templateInvitationMessage(candidate, locale, link, step), invitationId, idempotencyKey, tag: test.slug })
+        : await sendBrevoWhatsApp(env, { toPhone: recipientPhone.phone, text: templateInvitationMessage(candidate, locale, link, step), templateId: step?.brevo_template_id, invitationId, idempotencyKey, tag: test.slug });
     await env.DB.prepare(`UPDATE invitations SET status = ?, provider_message_id = ? WHERE id = ?`).bind('accepted', provider.id, invitationId).run();
-    await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, testId: test.id, listId, batchId });
-    return { invitationId, status: 'accepted', providerMessageId: provider.id, transport: provider.transport, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
+    await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, channel: deliveryChannel, testId: test.id, listId, batchId });
+    return { invitationId, status: 'accepted', providerMessageId: provider.id, transport: provider.transport, channel: deliveryChannel, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
   } catch (error) {
     await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('failed', invitationId).run();
-    await audit(env, user.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null, testId: test.id, listId, batchId });
+    await audit(env, user.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null, channel: deliveryChannel, testId: test.id, listId, batchId });
     error.invitationId = invitationId;
     throw error;
   }
@@ -3635,6 +3830,208 @@ async function listSendBatches(env, user) {
   return (result.results || []).map((batch) => ({ ...batch, status: batchDeliveryStatus(batch) }));
 }
 
+function normalizedJourneySteps(inputSteps) {
+  const fallback = [
+    { delayHours: 0, channel: 'email' },
+    { delayHours: 3, channel: 'whatsapp' },
+    { delayHours: 24, channel: 'email' },
+    { delayHours: 48, channel: 'sms' },
+  ];
+  const rows = (Array.isArray(inputSteps) && inputSteps.length ? inputSteps : fallback).slice(0, 8);
+  return rows.map((step, index) => {
+    const channel = ['email', 'whatsapp', 'sms'].includes(step.channel) ? step.channel : 'email';
+    const delayHours = Math.max(0, Math.min(720, Number(step.delayHours ?? step.delay_hours ?? 0) || 0));
+    const delayMinutes = Math.round(delayHours * 60);
+    const order = index + 1;
+    const defaultEn = channel === 'email'
+      ? `Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here: {{link}}`
+      : `Hi {{name}}, {{brand}} here. Your assessment for {{role}} is ready: {{link}}`;
+    const defaultEs = channel === 'email'
+      ? `Hola {{name}}, tu evaluación de {{brand}} para {{role}} está lista. Complétala aquí: {{link}}`
+      : `Hola {{name}}, somos {{brand}}. Tu evaluación para {{role}} está lista: {{link}}`;
+    return {
+      id: crypto.randomUUID(),
+      step_order: order,
+      delay_minutes: delayMinutes,
+      channel,
+      template_name: cleanText(step.templateName || step.template_name || `Step ${order}`, 120) || `Step ${order}`,
+      brevo_template_id: cleanText(step.brevoTemplateId || step.brevo_template_id, 80) || null,
+      subject_en: cleanText(step.subjectEn || step.subject_en || 'Your assessment is ready', 180),
+      subject_es: cleanText(step.subjectEs || step.subject_es || 'Tu evaluación está lista', 180),
+      message_en: cleanText(step.messageEn || step.message_en || defaultEn, 800) || defaultEn,
+      message_es: cleanText(step.messageEs || step.message_es || defaultEs, 800) || defaultEs,
+    };
+  });
+}
+
+async function listContactJourneys(env, user) {
+  const scope = listScope(user, 'l');
+  const rows = await env.DB.prepare(`
+    SELECT j.*, l.name AS list_name, c.name AS company_name, t.name_en AS test_name_en, t.name_es AS test_name_es, u.name AS created_by_name,
+      (SELECT COUNT(*) FROM contact_journey_steps s WHERE s.journey_id = j.id) AS step_count,
+      (SELECT COUNT(*) FROM contact_journey_enrollments e WHERE e.journey_id = j.id) AS enrollment_count,
+      (SELECT COUNT(*) FROM contact_journey_enrollments e WHERE e.journey_id = j.id AND e.status = 'completed') AS completed_count,
+      (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'queued') AS queued_event_count,
+      (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'accepted') AS accepted_event_count,
+      (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'failed') AS failed_event_count
+    FROM contact_journeys j
+    JOIN candidate_lists l ON l.id = j.list_id
+    JOIN companies c ON c.id = j.company_id
+    JOIN assessment_tests t ON t.id = j.test_id
+    JOIN users u ON u.id = j.created_by_user_id
+    WHERE ${scope.sql}
+    ORDER BY j.updated_at DESC
+  `).bind(...scope.bindings).all();
+  const journeys = [];
+  for (const row of rows.results || []) {
+    const steps = await env.DB.prepare(`SELECT * FROM contact_journey_steps WHERE journey_id = ? ORDER BY step_order`).bind(row.id).all();
+    journeys.push({ ...row, steps: steps.results || [] });
+  }
+  return journeys;
+}
+
+async function createContactJourney(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const name = cleanText(body.name, 140);
+  const listId = cleanText(body.listId, 100);
+  const test = await executableTest(env, cleanText(body.testId, 100));
+  const list = await visibleList(env, user, listId);
+  if (!name || !list) return json({ error: 'Journey name and a valid candidate list are required.', code: 'invalid_journey' }, 422);
+  if (!test) return json({ error: 'Select an active executable test for this journey.', code: 'test_not_executable' }, 422);
+  const steps = normalizedJourneySteps(body.steps);
+  if (!steps.length) return json({ error: 'Add at least one journey step.', code: 'journey_steps_required' }, 422);
+  const journeyId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const locale = body.locale === 'es' ? 'es' : 'en';
+  const status = body.status === 'active' ? 'active' : 'draft';
+  const statements = [env.DB.prepare(`
+    INSERT INTO contact_journeys (id, company_id, list_id, test_id, created_by_user_id, name, status, locale, goal_event, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assessment_completed', ?, ?)
+  `).bind(journeyId, list.company_id, list.id, test.id, user.id, name, status, locale, now, now)];
+  steps.forEach((step) => statements.push(env.DB.prepare(`
+    INSERT INTO contact_journey_steps (id, journey_id, step_order, delay_minutes, channel, template_name, brevo_template_id, subject_en, subject_es, message_en, message_es, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(step.id, journeyId, step.step_order, step.delay_minutes, step.channel, step.template_name, step.brevo_template_id, step.subject_en, step.subject_es, step.message_en, step.message_es, now)));
+  await env.DB.batch(statements);
+  await audit(env, user.email, 'contact_journey_created', 'contact_journey', journeyId, { listId: list.id, testId: test.id, stepCount: steps.length, status });
+  return json({ journeyId, journeys: await listContactJourneys(env, user) }, 201);
+}
+
+async function updateContactJourney(request, env, user, journeyId) {
+  const body = await request.json().catch(() => ({}));
+  const visible = (await listContactJourneys(env, user)).find((journey) => journey.id === journeyId);
+  if (!visible) return json({ error: 'Journey not found.', code: 'journey_not_found' }, 404);
+  const status = cleanText(body.status, 30);
+  if (!['draft', 'active', 'paused', 'archived'].includes(status)) return json({ error: 'Invalid journey status.', code: 'invalid_journey_status' }, 422);
+  await env.DB.prepare(`UPDATE contact_journeys SET status = ?, updated_at = ? WHERE id = ?`).bind(status, new Date().toISOString(), journeyId).run();
+  await audit(env, user.email, 'contact_journey_status_updated', 'contact_journey', journeyId, { status });
+  return json({ journeys: await listContactJourneys(env, user) });
+}
+
+async function enrollContactJourney(request, env, user, journeyId, context) {
+  const journey = (await listContactJourneys(env, user)).find((entry) => entry.id === journeyId);
+  if (!journey) return json({ error: 'Journey not found.', code: 'journey_not_found' }, 404);
+  if (journey.status !== 'active') return json({ error: 'Activate the journey before enrollment.', code: 'journey_not_active' }, 422);
+  if (!journey.steps.length) return json({ error: 'This journey has no steps.', code: 'journey_steps_required' }, 422);
+  const scope = candidateScope(user);
+  const members = await env.DB.prepare(`
+    SELECT c.* FROM candidate_list_members m JOIN candidates c ON c.id = m.candidate_id
+    WHERE m.list_id = ? AND c.company_id = ? AND ${scope.sql}
+      AND NOT EXISTS (SELECT 1 FROM assessments a WHERE a.candidate_id = c.id AND a.test_id = ?)
+    ORDER BY c.name LIMIT 500
+  `).bind(journey.list_id, journey.company_id, ...scope.bindings, journey.test_id).all();
+  const now = new Date();
+  const statements = [];
+  let enrolled = 0;
+  for (const candidate of members.results || []) {
+    const enrollmentId = crypto.randomUUID();
+    statements.push(env.DB.prepare(`
+      INSERT OR IGNORE INTO contact_journey_enrollments (id, journey_id, candidate_id, test_id, status, enrolled_at)
+      VALUES (?, ?, ?, ?, 'active', ?)
+    `).bind(enrollmentId, journey.id, candidate.id, journey.test_id, now.toISOString()));
+    for (const step of journey.steps) {
+      const scheduledAt = new Date(now.getTime() + Number(step.delay_minutes || 0) * 60 * 1000).toISOString();
+      statements.push(env.DB.prepare(`
+        INSERT OR IGNORE INTO contact_journey_events (id, enrollment_id, step_id, candidate_id, channel, status, scheduled_at, created_at, updated_at)
+        SELECT ?, e.id, ?, ?, ?, 'queued', ?, ?, ? FROM contact_journey_enrollments e
+        WHERE e.journey_id = ? AND e.candidate_id = ? AND e.test_id = ?
+      `).bind(crypto.randomUUID(), step.id, candidate.id, step.channel, scheduledAt, now.toISOString(), now.toISOString(), journey.id, candidate.id, journey.test_id));
+    }
+    enrolled += 1;
+  }
+  if (statements.length) await env.DB.batch(statements);
+  await audit(env, user.email, 'contact_journey_enrolled', 'contact_journey', journey.id, { enrolled, listId: journey.list_id, testId: journey.test_id });
+  const work = processDueJourneyEvents(env);
+  if (context?.waitUntil) context.waitUntil(work);
+  else work.catch(() => {});
+  return json({ journeyId: journey.id, enrolled, journeys: await listContactJourneys(env, user) }, 202);
+}
+
+async function processDueJourneyEvent(env, row, origin) {
+  const claimedAt = new Date().toISOString();
+  const claimed = await env.DB.prepare(`
+    UPDATE contact_journey_events SET status = 'sending', attempt_count = attempt_count + 1, error_code = NULL, updated_at = ?
+    WHERE id = ? AND status = 'queued'
+  `).bind(claimedAt, row.event_id).run();
+  if (!Number(claimed.meta?.changes || 0)) return;
+  const user = { id: row.user_id, email: row.user_email, name: row.user_name, role: row.user_role, companyId: row.user_company_id, status: 'active' };
+  const candidate = {
+    id: row.candidate_id, company_id: row.company_id, owner_user_id: row.owner_user_id, email: row.email, name: row.name,
+    phone: row.phone, role: row.role, site: row.site, candidate_brand_name: row.candidate_brand_name,
+  };
+  const test = { id: row.test_id, slug: row.test_slug, name_en: row.test_name_en, name_es: row.test_name_es, engine_key: row.engine_key, status: row.test_status };
+  const step = {
+    brevo_template_id: row.brevo_template_id, message_en: row.message_en, message_es: row.message_es,
+    subject_en: row.subject_en, subject_es: row.subject_es,
+  };
+  const completed = await env.DB.prepare(`SELECT id FROM assessments WHERE candidate_id = ? AND test_id = ? LIMIT 1`).bind(candidate.id, test.id).first();
+  if (completed) {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE contact_journey_events SET status = 'skipped', error_code = 'assessment_completed', updated_at = ? WHERE id = ?`).bind(claimedAt, row.event_id),
+      env.DB.prepare(`UPDATE contact_journey_enrollments SET status = 'completed', completed_at = ?, stopped_reason = 'assessment_completed' WHERE id = ?`).bind(claimedAt, row.enrollment_id),
+    ]);
+    return;
+  }
+  try {
+    const sent = await sendInvitationForCandidate({
+      env, user, candidate, test, locale: row.locale, origin, listId: row.list_id, idempotencyKey: row.event_id, channel: row.channel, step,
+    });
+    await env.DB.prepare(`
+      UPDATE contact_journey_events SET status = 'accepted', invitation_id = ?, provider_message_id = ?, sent_at = ?, error_code = NULL, updated_at = ? WHERE id = ?
+    `).bind(sent.invitationId, sent.providerMessageId, claimedAt, claimedAt, row.event_id).run();
+  } catch (error) {
+    await env.DB.prepare(`
+      UPDATE contact_journey_events SET status = 'failed', invitation_id = ?, error_code = ?, updated_at = ? WHERE id = ?
+    `).bind(error.invitationId || null, cleanText(error.message, 120) || 'delivery_failed', new Date().toISOString(), row.event_id).run();
+  }
+}
+
+async function processDueJourneyEvents(env) {
+  await ensureSchema(env);
+  const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '');
+  const now = new Date().toISOString();
+  const rows = await env.DB.prepare(`
+    SELECT ev.id AS event_id, ev.enrollment_id, ev.channel, e.journey_id,
+      j.list_id, j.locale, j.company_id, COALESCE(co.candidate_brand_name, co.name) AS candidate_brand_name,
+      s.brevo_template_id, s.subject_en, s.subject_es, s.message_en, s.message_es,
+      c.id AS candidate_id, c.owner_user_id, c.email, c.name, c.phone, c.role, c.site,
+      t.id AS test_id, t.slug AS test_slug, t.name_en AS test_name_en, t.name_es AS test_name_es, t.engine_key, t.status AS test_status,
+      u.id AS user_id, u.email AS user_email, u.name AS user_name, u.role AS user_role, u.company_id AS user_company_id
+    FROM contact_journey_events ev
+    JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id
+    JOIN contact_journeys j ON j.id = e.journey_id
+    JOIN contact_journey_steps s ON s.id = ev.step_id
+    JOIN candidates c ON c.id = ev.candidate_id
+    JOIN companies co ON co.id = j.company_id
+    JOIN assessment_tests t ON t.id = j.test_id
+    JOIN users u ON u.id = j.created_by_user_id
+    WHERE ev.status = 'queued' AND ev.scheduled_at <= ? AND e.status = 'active' AND j.status = 'active'
+    ORDER BY ev.scheduled_at LIMIT 25
+  `).bind(now).all();
+  for (const row of rows.results || []) await processDueJourneyEvent(env, row, origin);
+  return { processed: (rows.results || []).length };
+}
+
 async function recoverAsyncWork(env) {
   await ensureSchema(env);
   const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '');
@@ -3990,6 +4387,7 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/health' && request.method === 'GET') {
     const email = emailConfig(env);
     const ai = aiConfig(env);
+    const messaging = contactabilityConfig(env);
     return json({
       database: true,
       publicBaseUrl: cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || url.origin,
@@ -4003,6 +4401,22 @@ async function handleApi(request, env, context) {
         smtpConfigured: email.smtpConfigured,
         senderEmail: email.senderEmail || null,
         senderName: email.senderName,
+      },
+      messaging: {
+        defaultCountryCode: messaging.defaultCountryCode,
+        whatsapp: {
+          configured: messaging.whatsapp.configured,
+          provider: messaging.whatsapp.provider,
+          senderNumber: messaging.whatsapp.senderNumber,
+          templateId: messaging.whatsapp.templateId,
+          missing: messaging.whatsapp.missing,
+        },
+        sms: {
+          configured: messaging.sms.configured,
+          provider: messaging.sms.provider,
+          sender: messaging.sms.sender,
+          missing: messaging.sms.missing,
+        },
       },
       ai: { configured: ai.configured, provider: ai.provider, providerKey: ai.providerKey, model: ai.model, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
       candidatePortal: { enabled: true, googleConfigured: googleOAuthConfig(env).configured },
@@ -4036,6 +4450,12 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/lists' && request.method === 'POST') return createCandidateList(request, env, user);
   const listMatch = url.pathname.match(/^\/api\/lists\/([^/]+)$/);
   if (listMatch && request.method === 'PATCH') return updateCandidateList(request, env, user, cleanText(listMatch[1], 100));
+  if (url.pathname === '/api/journeys' && request.method === 'GET') return json({ journeys: await listContactJourneys(env, user) });
+  if (url.pathname === '/api/journeys' && request.method === 'POST') return createContactJourney(request, env, user);
+  const journeyEnrollMatch = url.pathname.match(/^\/api\/journeys\/([^/]+)\/enroll$/);
+  if (journeyEnrollMatch && request.method === 'POST') return enrollContactJourney(request, env, user, cleanText(journeyEnrollMatch[1], 100), context);
+  const journeyMatch = url.pathname.match(/^\/api\/journeys\/([^/]+)$/);
+  if (journeyMatch && request.method === 'PATCH') return updateContactJourney(request, env, user, cleanText(journeyMatch[1], 100));
   if (url.pathname === '/api/batches' && request.method === 'GET') return json({ batches: await listSendBatches(env, user) });
   if (url.pathname === '/api/batches' && request.method === 'POST') return createSendBatch(request, env, user, context);
   if (url.pathname === '/api/admin/users' && request.method === 'GET') return listUsers(env, user);
@@ -4072,7 +4492,7 @@ export default {
     }
   },
   async scheduled(controller, env, context) {
-    const work = [recoverAsyncWork(env)];
+    const work = [recoverAsyncWork(env), processDueJourneyEvents(env)];
     if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
     context.waitUntil(Promise.all(work));
   },

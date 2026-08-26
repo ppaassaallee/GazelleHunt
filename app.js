@@ -34,12 +34,13 @@ const icons = {
   logout: '<path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m11 12 9-9M15 8l3 3M17 6l3 3"/>',
   gift: '<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M7.5 8C5 8 4 4 6.5 4 9 4 12 8 12 8M16.5 8C19 8 20 4 17.5 4 15 4 12 8 12 8"/>',
+  workflow: '<path d="M5 7h5"/><path d="M14 7h5"/><path d="M5 17h5"/><path d="M14 17h5"/><circle cx="3" cy="7" r="2"/><circle cx="12" cy="7" r="2"/><circle cx="21" cy="7" r="2"/><circle cx="12" cy="17" r="2"/><circle cx="21" cy="17" r="2"/><path d="M12 9v6"/><path d="M14 17h5"/>',
 };
 
 const baseNavItems = [
   ['home', 'Overview', 'home'], ['tests', 'Test catalog', 'layers'], ['lists', 'Candidate lists', 'list'],
   ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'], ['send', 'Direct send', 'send'],
-  ['progress', 'Send progress', 'clock'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
+  ['progress', 'Send progress', 'clock'], ['journeys', 'Contactability', 'workflow'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
 ];
 
 function navItems() {
@@ -51,12 +52,13 @@ const state = {
   health: {
     database: false, publicBaseUrl: '',
     email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', transport: 'api', senderEmail: null, senderName: 'Gazelle Assessment' },
+    messaging: { defaultCountryCode: '502', whatsapp: { configured: false, missing: ['BREVO_WHATSAPP_SENDER_NUMBER'] }, sms: { configured: false, missing: ['BREVO_SMS_SENDER'] } },
     ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-4.1-mini' },
   },
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
   resetToken: '', passwordResetSent: false, passwordResetComplete: false,
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
-  tests: [], lists: [], batches: [], users: [], companies: [], selectedListId: null,
+  tests: [], lists: [], batches: [], journeys: [], users: [], companies: [], selectedListId: null,
   stages: [], referrals: [], journeyCandidateId: null,
   deliveryChecks: {},
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
@@ -124,15 +126,16 @@ async function loadWorkspace({ silent = false } = {}) {
     const auth = await fetchJson('/api/auth/me');
     state.user = auth.user;
     state.adminAuthenticated = true;
-    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/stages'), fetchJson('/api/referrals')];
+    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/journeys'), fetchJson('/api/stages'), fetchJson('/api/referrals')];
     if (state.user.role === 'super_admin') requests.push(fetchJson('/api/admin/users'));
-    const [health, candidates, results, tests, lists, batches, stages, referrals, team] = await Promise.all(requests);
+    const [health, candidates, results, tests, lists, batches, journeys, stages, referrals, team] = await Promise.all(requests);
     state.health = health;
     state.candidates = candidates.candidates || [];
     state.results = results.results || [];
     state.tests = tests.tests || [];
     state.lists = lists.lists || [];
     state.batches = batches.batches || [];
+    state.journeys = journeys.journeys || [];
     state.stages = stages.stages || [];
     state.referrals = referrals.referrals || [];
     const visibleCandidateIds = new Set(state.candidates.map((candidate) => candidate.id));
@@ -445,6 +448,66 @@ function renderProgress() {
   const failures = state.batches.filter((batch) => Number(batch.failed_count || 0) > 0);
   const notices = `${active.length ? `<div class="notice notice-info" role="status"><strong>${active.length} batch${active.length === 1 ? '' : 'es'} still processing.</strong> This page refreshes automatically. Temporary provider failures are retried safely up to three times.</div>` : ''}${failures.length ? `<div class="notice notice-error"><strong>${failures.reduce((sum, batch) => sum + Number(batch.failed_count || 0), 0)} send${failures.length === 1 ? '' : 's'} need attention.</strong> ${esc(failures.map((batch) => batch.last_error_code).filter(Boolean)[0] || 'Review the candidate email and retry after correcting the cause.')}</div>` : ''}`;
   return `${notices}${renderProgressLegacy()}`;
+}
+
+function channelStatusCard(channel, config = {}) {
+  const ready = Boolean(config.configured);
+  const missing = (config.missing || []).join(', ');
+  return `<article class="card channel-card"><div class="channel-card-head"><span class="channel-pill ${channel}">${channel}</span>${statusBadge(ready ? 'active' : 'setup required')}</div><strong>${esc(config.provider || (channel === 'email' ? 'Brevo Email' : channel))}</strong><p>${ready ? 'Ready for journey execution.' : `Missing ${esc(missing || 'provider configuration')}. Steps can be designed, but sends will fail clearly until configured.`}</p></article>`;
+}
+
+function journeyStepInputs() {
+  const defaults = [
+    { delay: 0, channel: 'email', en: 'Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here: {{link}}', es: 'Hola {{name}}, tu evaluación de {{brand}} para {{role}} está lista. Complétala aquí: {{link}}' },
+    { delay: 3, channel: 'whatsapp', en: 'Hi {{name}}, quick reminder from {{brand}}. Your assessment link is {{link}}', es: 'Hola {{name}}, recordatorio de {{brand}}. Tu enlace de evaluación es {{link}}' },
+    { delay: 24, channel: 'email', en: 'Hi {{name}}, we still have your assessment open for {{role}}. You can continue here: {{link}}', es: 'Hola {{name}}, aún tenemos abierta tu evaluación para {{role}}. Puedes continuar aquí: {{link}}' },
+    { delay: 48, channel: 'sms', en: '{{brand}} reminder: please complete your assessment for {{role}} here {{link}}', es: 'Recordatorio de {{brand}}: completa tu evaluación para {{role}} aquí {{link}}' },
+  ];
+  return defaults.map((step, index) => `<fieldset class="journey-step-card">
+    <legend>Step ${index + 1}</legend>
+    <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${step.delay}"></label>
+    <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option></select></label>
+    <label class="field"><span>Brevo template ID</span><input class="input journey-template" placeholder="Optional for WhatsApp" maxlength="80"></label>
+    <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
+    <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
+  </fieldset>`).join('');
+}
+
+function renderContactability() {
+  const messaging = state.health.messaging || {};
+  const activeTests = state.tests.filter((test) => test.status === 'active' && test.engine_key === 'tenure_potential');
+  const activeJourneys = state.journeys.filter((journey) => journey.status === 'active').length;
+  const queued = state.journeys.reduce((sum, journey) => sum + Number(journey.queued_event_count || 0), 0);
+  const accepted = state.journeys.reduce((sum, journey) => sum + Number(journey.accepted_event_count || 0), 0);
+  const failed = state.journeys.reduce((sum, journey) => sum + Number(journey.failed_event_count || 0), 0);
+  const listOptions = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} · ${esc(list.company_name)} · ${Number(list.member_count)} candidates</option>`).join('');
+  const testOptions = activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('');
+  return `<div class="stack">${pageIntro('Automation flows', 'Contactability journeys', 'Design persistence flows across email, WhatsApp, and SMS. Each step creates a real provider send or a clear failed event if that channel is not configured.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}
+    <section class="grid grid-4">${metric('Active journeys', activeJourneys, 'Running flows', 'workflow')}${metric('Scheduled events', queued, 'Waiting for trigger time', 'clock')}${metric('Provider accepted', accepted, 'Real sends accepted', 'send')}${metric('Needs attention', failed, 'Failed provider or config', 'alert')}</section>
+    <section class="grid grid-3">${channelStatusCard('email', { configured: state.health.email?.configured, provider: 'Brevo Transactional Email', missing: state.health.email?.configured ? [] : ['BREVO_API_KEY', 'BREVO_SENDER_EMAIL', 'BREVO_WEBHOOK_TOKEN'] })}${channelStatusCard('whatsapp', messaging.whatsapp)}${channelStatusCard('sms', messaging.sms)}</section>
+    <section class="card journey-builder"><div class="card-header"><div><h3>Create a contactability flow</h3><p>Use <code>{{name}}</code>, <code>{{brand}}</code>, <code>{{role}}</code>, and <code>{{link}}</code> in messages. Delays are counted from enrollment time.</p></div>${icon('workflow')}</div>
+      <form class="card-body stack" id="journey-form">
+        <div class="form-grid">
+          <label class="field"><span>Journey name</span><input class="input" id="journey-name" required value="Email + WhatsApp persistence"></label>
+          <label class="field"><span>Candidate list</span><select class="select" id="journey-list" required>${listOptions}</select></label>
+          <label class="field"><span>Test</span><select class="select" id="journey-test" required>${testOptions}</select></label>
+          <label class="field"><span>Default language</span><select class="select" id="journey-locale"><option value="es">Español</option><option value="en">English</option></select></label>
+        </div>
+        <div class="journey-step-grid">${journeyStepInputs()}</div>
+        <div class="notice notice-info"><strong>Execution rule:</strong> a candidate is skipped automatically once they complete the selected test. Every sent step uses one released attempt, exactly like manual resend.</div>
+        <button class="button button-primary" type="submit" ${!state.lists.length || !activeTests.length || state.busy ? 'disabled' : ''}>${icon('plus')}Create journey</button>
+      </form>
+    </section>
+    <section class="card"><div class="card-header"><div><h3>Saved journeys</h3><p>Enroll a list when the flow is ready. The scheduled Worker checks due events every minute.</p></div></div>
+      <div class="table-scroll"><table><thead><tr><th>Journey</th><th>List</th><th>Steps</th><th>Progress</th><th>Status</th><th>Actions</th></tr></thead><tbody>${state.journeys.map((journey) => `<tr>
+        <td><strong>${esc(journey.name)}</strong><br><span class="empty-value">${esc(journey.company_name)} · ${esc(journey.test_name_en)}</span></td>
+        <td>${esc(journey.list_name)}</td>
+        <td>${(journey.steps || []).map((step) => `<span class="channel-pill ${esc(step.channel)}">${esc(step.channel)} +${Math.round(Number(step.delay_minutes || 0) / 60)}h</span>`).join(' ')}</td>
+        <td><span class="empty-value">${Number(journey.enrollment_count || 0)} enrolled · ${Number(journey.queued_event_count || 0)} queued · ${Number(journey.accepted_event_count || 0)} accepted · ${Number(journey.failed_event_count || 0)} failed</span></td>
+        <td>${statusBadge(journey.status)}</td>
+        <td class="table-actions"><button class="button button-secondary" data-journey-status="${journey.id}" data-status="${journey.status === 'active' ? 'paused' : 'active'}">${journey.status === 'active' ? 'Pause' : 'Activate'}</button><button class="button button-primary" data-enroll-journey="${journey.id}" ${journey.status !== 'active' || state.busy ? 'disabled' : ''}>Enroll list</button></td>
+      </tr>`).join('') || '<tr><td colspan="6"><div class="empty-panel"><h3>No contactability journeys yet</h3><p>Create the first flow before enrolling candidates.</p></div></td></tr>'}</tbody></table></div>
+    </section></div>`;
 }
 
 function reportRecord(records = state.results) {
@@ -1228,6 +1291,57 @@ async function sendBatch(listId) {
   finally { state.busy = false; render(); }
 }
 
+function journeyFormSteps() {
+  return [...document.querySelectorAll('.journey-step-card')].map((card) => ({
+    delayHours: Number(card.querySelector('.journey-delay')?.value || 0),
+    channel: card.querySelector('.journey-channel')?.value || 'email',
+    brevoTemplateId: card.querySelector('.journey-template')?.value || '',
+    messageEn: card.querySelector('.journey-message-en')?.value || '',
+    messageEs: card.querySelector('.journey-message-es')?.value || '',
+  })).filter((step) => step.messageEn.trim() && step.messageEs.trim());
+}
+
+async function createContactabilityJourney(event) {
+  event.preventDefault();
+  const payload = {
+    name: document.getElementById('journey-name')?.value,
+    listId: document.getElementById('journey-list')?.value,
+    testId: document.getElementById('journey-test')?.value,
+    locale: document.getElementById('journey-locale')?.value || 'es',
+    status: 'active',
+    steps: journeyFormSteps(),
+  };
+  if (!payload.steps.length) { toast('Add at least one message step.'); return; }
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/journeys', { method: 'POST', body: JSON.stringify(payload) });
+    state.journeys = response.journeys || [];
+    toast('Contactability journey created and activated.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function enrollContactabilityJourney(journeyId) {
+  state.busy = true; render();
+  try {
+    const response = await fetchJson(`/api/journeys/${encodeURIComponent(journeyId)}/enroll`, { method: 'POST', body: '{}' });
+    state.journeys = response.journeys || state.journeys;
+    toast(`${response.enrolled || 0} candidates enrolled. Due steps will send automatically.`);
+    await loadWorkspace({ silent: true });
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function updateContactabilityJourneyStatus(journeyId, status) {
+  state.busy = true; render();
+  try {
+    const response = await fetchJson(`/api/journeys/${encodeURIComponent(journeyId)}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    state.journeys = response.journeys || [];
+    toast(`Journey ${status}.`);
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
 async function createTest(event) {
   event.preventDefault();
   const payload = {
@@ -1359,7 +1473,7 @@ function render() {
     bindEvents();
     return;
   }
-  const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, referrals: renderReferrals, reports: renderReports, team: renderTeam, settings: renderSettings };
+  const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, journeys: renderContactability, referrals: renderReferrals, reports: renderReports, team: renderTeam, settings: renderSettings };
   document.getElementById('app').innerHTML = shell(state.loading ? '<div class="loading-panel"><div class="spinner"></div><p>Loading secure workspace…</p></div>' : (views[state.view] || renderHome)());
   bindEvents();
   scheduleAiReportRefresh();
@@ -1401,12 +1515,15 @@ function bindEvents() {
   document.getElementById('candidate-contact-form')?.addEventListener('submit', updateCandidateContact);
   document.getElementById('candidate-stage-create-form')?.addEventListener('submit', createJourneyStage);
   document.getElementById('candidate-communication-form')?.addEventListener('submit', publishCandidateCommunication);
+  document.getElementById('journey-form')?.addEventListener('submit', createContactabilityJourney);
   document.getElementById('list-form')?.addEventListener('submit', createList);
   document.getElementById('list-editor-form')?.addEventListener('submit', updateList);
   document.getElementById('test-form')?.addEventListener('submit', createTest);
   document.getElementById('password-form')?.addEventListener('submit', changePassword);
   document.querySelectorAll('[data-list-id]').forEach((button) => button.addEventListener('click', () => { state.selectedListId = button.dataset.listId; render(); }));
   document.querySelectorAll('[data-batch-list]').forEach((button) => button.addEventListener('click', () => sendBatch(button.dataset.batchList)));
+  document.querySelectorAll('[data-enroll-journey]').forEach((button) => button.addEventListener('click', () => enrollContactabilityJourney(button.dataset.enrollJourney)));
+  document.querySelectorAll('[data-journey-status]').forEach((button) => button.addEventListener('click', () => updateContactabilityJourneyStatus(button.dataset.journeyStatus, button.dataset.status)));
   document.querySelectorAll('[data-approve-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.approveUser, 'active')));
   document.querySelectorAll('[data-reject-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.rejectUser, 'rejected')));
   document.querySelectorAll('[data-save-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.saveUser, 'managed')));

@@ -52,8 +52,9 @@ const context = {
       if (url === '/api/tests') return { tests: [{ id: 'test_tenure_potential', code: 'TP-001', name_en: 'Tenure Potential', name_es: 'Potencial de Permanencia', description_en: 'Transparent assessment.', description_es: 'Evaluacion transparente.', engine_key: 'tenure_potential', status: 'active', version: '2.0.1-pilot', estimated_minutes: 15, item_count: 27 }] };
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
+      if (url === '/api/journeys') return { journeys: [] };
       if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
-      return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, ai: { configured: true, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.5' } };
+      return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, messaging: { defaultCountryCode: '502', whatsapp: { configured: false, missing: ['BREVO_WHATSAPP_SENDER_NUMBER'] }, sms: { configured: false, missing: ['BREVO_SMS_SENDER'] } }, ai: { configured: true, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.5' } };
     },
   };
   },
@@ -72,7 +73,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, normalizeCandidateEmail, buildExcelWorkbook, renderCandidates, renderSend, renderProgress, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderReport, renderAudit, renderMethod, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, normalizeCandidateEmail, buildExcelWorkbook, renderCandidates, renderSend, renderProgress, renderContactability, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderReport, renderAudit, renderMethod, state, render };`, context);
 await Promise.resolve();
 
 const csvApi = context.__gazelleWorkflowTest;
@@ -130,6 +131,21 @@ assert.match(progressHtml, /API acceptance is not delivery/);
 assert.match(progressHtml, /Brevo unconfirmed/);
 assert.match(progressHtml, /0 \/ 25 confirmed/);
 assert.match(progressHtml, /0 delivered/);
+
+csvApi.state.health.messaging = { defaultCountryCode: '502', whatsapp: { configured: false, provider: 'Brevo WhatsApp', missing: ['BREVO_WHATSAPP_SENDER_NUMBER'] }, sms: { configured: true, provider: 'Brevo Transactional SMS', sender: 'Gazelle', missing: [] } };
+csvApi.state.lists = [{ id: 'list-care', name: 'Customer Care', company_name: 'Allied Global', member_count: 25 }];
+csvApi.state.journeys = [{
+  id: 'journey-1', name: 'Email WhatsApp SMS', status: 'active', list_id: 'list-care', list_name: 'Customer Care', company_name: 'Allied Global',
+  test_name_en: 'Tenure Potential', enrollment_count: 25, queued_event_count: 50, accepted_event_count: 20, failed_event_count: 1,
+  steps: [{ channel: 'email', delay_minutes: 0 }, { channel: 'whatsapp', delay_minutes: 180 }, { channel: 'sms', delay_minutes: 2880 }],
+}];
+const journeyHtml = csvApi.renderContactability();
+assert.match(journeyHtml, /Contactability journeys/);
+assert.match(journeyHtml, /WhatsApp/);
+assert.match(journeyHtml, /BREVO_WHATSAPP_SENDER_NUMBER/);
+assert.match(journeyHtml, /Enroll list/);
+assert.match(appSource, /\/api\/journeys/);
+assert.match(appSource, /journey-step-card/);
 
 csvApi.state.directSendReceipt = { invitationId: 'invite-direct', providerMessageId: 'message-direct', transport: 'api', status: 'accepted', candidateName: 'Direct Candidate', candidateEmail: 'direct@example.com', locale: 'es', testId: 'test_tenure_potential', submittedAt: '2026-07-22T14:49:40.427Z' };
 csvApi.state.candidates = [{ id: 'candidate-direct', invitation_id: 'invite-direct', invitation_status: 'delivered' }];
@@ -232,12 +248,12 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /styles\.css\?v=20260811\.1/);
-assert.match(indexSource, /app\.js\?v=20260811\.1/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260811\.1/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260811\.1/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260811\.1/);
-assert.match(indexSource, /pdf-report\.js\?v=20260811\.1/);
+assert.match(indexSource, /styles\.css\?v=20260826\.1/);
+assert.match(indexSource, /app\.js\?v=20260826\.1/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260826\.1/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260826\.1/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260826\.1/);
+assert.match(indexSource, /pdf-report\.js\?v=20260826\.1/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);

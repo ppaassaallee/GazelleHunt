@@ -32,7 +32,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -53,6 +53,18 @@ assert.equal(configured.webhookConfigured, true);
 assert.equal(configured.senderEmail, 'assessments@example.com');
 assert.equal(configured.transport, 'api');
 assert.equal(configured.apiConfigured, true);
+
+const contactability = brevo.contactabilityConfig({
+  ...env,
+  BREVO_WHATSAPP_SENDER_NUMBER: '+50255551212',
+  BREVO_WHATSAPP_TEMPLATE_ID: '123456',
+  BREVO_SMS_SENDER: 'Gazelle',
+});
+assert.equal(contactability.whatsapp.configured, true);
+assert.equal(contactability.whatsapp.templateId, '123456');
+assert.equal(contactability.sms.configured, true);
+assert.equal(brevo.normalizeContactPhone('?4804-8638', '502').phone, '50248048638');
+assert.equal(brevo.normalizeContactPhone('bad phone', '502').valid, false);
 
 const smtpConfigured = brevo.emailConfig({
   ...env,
@@ -94,6 +106,27 @@ assert.equal(requestBody.headers['X-Mailin-custom'], 'invitation_id:invitation-1
 assert.equal(requestBody.headers['X-Sib-Sandbox'], undefined);
 assert.deepEqual(requestBody.tags, ['tenure-potential']);
 
+const smsSent = await brevo.sendBrevoSms({ ...env, BREVO_SMS_SENDER: 'Gazelle' }, {
+  toPhone: '50248048638',
+  text: 'Complete your assessment: https://example.com/candidate?invite=abc',
+  tag: 'tenure-potential',
+});
+assert.equal(smsSent.transport, 'sms');
+assert.equal(fetchCalls.at(-1).url, 'https://api.brevo.com/v3/transactionalSMS/send');
+const smsBody = JSON.parse(fetchCalls.at(-1).options.body);
+assert.equal(smsBody.recipient, '50248048638');
+assert.equal(smsBody.sender, 'Gazelle');
+
+const whatsAppSent = await brevo.sendBrevoWhatsApp({ ...env, BREVO_WHATSAPP_SENDER_NUMBER: '+50255551212' }, {
+  toPhone: '50248048638',
+  text: 'Complete your assessment: https://example.com/candidate?invite=abc',
+});
+assert.equal(whatsAppSent.transport, 'whatsapp');
+assert.equal(fetchCalls.at(-1).url, 'https://api.brevo.com/v3/whatsapp/sendMessage');
+const whatsappBody = JSON.parse(fetchCalls.at(-1).options.body);
+assert.deepEqual(whatsappBody.contactNumbers, ['50248048638']);
+assert.equal(whatsappBody.senderNumber, '+50255551212');
+
 const webhook = brevo.brevoWebhookPayload(configured, 'https://assessment.example.com/api/brevo/webhook');
 assert.equal(webhook.type, 'transactional');
 assert.equal(webhook.batched, false);
@@ -129,6 +162,8 @@ assert.equal(brevo.normalizeCandidateEmail('candidate@@example.com').valid, fals
 assert.equal(brevo.isRetryableProviderError({ message: 'provider_timeout' }), true);
 assert.equal(brevo.isRetryableProviderError({ message: 'invalid_email', providerStatus: 422 }), false);
 assert.match(source, /async scheduled\(/);
+assert.match(source, /processDueJourneyEvents/);
+assert.match(source, /\/api\/journeys/);
 assert.match(source, /idempotencyKey: row\.item_id/);
 assert.match(source, /\/api\/admin\/email-diagnostics/);
 assert.match(source, /email-delivery\\\/check/);

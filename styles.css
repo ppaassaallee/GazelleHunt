@@ -1018,6 +1018,20 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .attempt-control strong { font-size: 13px; }
 .attempt-control span { margin-top: 4px; color: var(--muted); font-size: 11px; }
 .referral-status-select { min-width: 130px; }
+.channel-card { display: grid; gap: 10px; padding: 18px; }
+.channel-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.channel-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.channel-pill { display: inline-flex; align-items: center; min-height: 24px; margin: 2px 3px 2px 0; padding: 4px 8px; border-radius: 5px; color: #203033; background: #eef2f1; font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
+.channel-pill.email { color: #0f5d56; background: #dff4ef; }
+.channel-pill.whatsapp { color: #106236; background: #dcf7e7; }
+.channel-pill.sms { color: #6d4a08; background: #fff1cf; }
+.journey-builder code { padding: 2px 5px; border-radius: 4px; background: #eef3f2; font-size: 11px; }
+.journey-step-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.journey-step-card { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfc; }
+.journey-step-card legend { padding: 0 6px; color: var(--teal); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.journey-step-card .form-wide { grid-column: 1 / -1; }
+.table-actions { min-width: 210px; }
+.table-actions .button { margin: 2px; }
 
 @media (max-width: 900px) {
   .cp-hero { min-height: 420px; background-position: center, 62% center; }
@@ -1027,6 +1041,7 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
   .cp-sidebar { position: static; grid-row: 1; grid-template-columns: minmax(0, 1fr) 280px; }
   .cp-referral-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cp-referral-form .cp-button { grid-column: auto; }
+  .journey-step-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 620px) {
@@ -1064,4 +1079,6 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
   .journey-summary > div:last-child { border-bottom: 0; }
   .attempt-control { align-items: stretch; flex-direction: column; }
   .attempt-control > div { margin: 0 0 8px; }
+  .journey-step-card { grid-template-columns: 1fr; }
+  .table-actions { min-width: 0; }
 }

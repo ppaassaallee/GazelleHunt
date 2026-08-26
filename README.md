@@ -34,6 +34,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.1` 
 - Item-level scoring trace with raw response, transformation, timing, and inclusion rule
 - Persistent candidate, invitation, assessment, response, audit, and email-event records
 - Brevo Transactional Email API integration with idempotency keys and secret-header-authenticated delivery webhooks
+- Contactability journeys with scheduled email, WhatsApp, and SMS persistence steps
 - OpenAI Responses API integration with strict structured outputs and `store: false`
 - CSV import and authenticated user attribution
 
@@ -121,6 +122,30 @@ Recommended setup order:
 6. Refresh Settings, send a connection test, and confirm both Brevo acceptance and the delivered webhook event.
 
 Implementation references: [send transactional email](https://developers.brevo.com/docs/send-a-transactional-email), [transactional webhook events](https://developers.brevo.com/docs/transactional-webhooks), and [secure webhooks](https://developers.brevo.com/docs/secured-webhooks).
+
+## Contactability journeys
+
+The **Contactability** workspace lets recruiters and administrators design persistence flows for a candidate list. A journey has a list, a test, a default language, and ordered steps such as:
+
+```text
+0 hours: email invitation
+3 hours: WhatsApp reminder
+24 hours: email reminder
+48 hours: SMS reminder
+```
+
+Each enrolled candidate receives scheduled journey events. The Worker cron checks due events every minute. If the candidate completes the selected test, remaining queued events are skipped. If the provider is not configured or rejects a send, the event is marked failed with the exact error code; it is not displayed as delivered or silently ignored.
+
+Email steps use the existing Brevo Transactional Email configuration. WhatsApp and SMS steps use Brevo's API and require additional runtime values:
+
+- `BREVO_WHATSAPP_SENDER_NUMBER` for WhatsApp sends
+- `BREVO_WHATSAPP_TEMPLATE_ID` when using an approved WhatsApp Business template
+- `BREVO_SMS_SENDER` for Transactional SMS
+- `DEFAULT_PHONE_COUNTRY_CODE`, optional, defaults to `502`
+
+WhatsApp production sending requires a connected WhatsApp Business sender in Brevo and, for proactive outbound messages, Meta-approved templates. SMS requires Brevo transactional SMS credits and a sender name or number allowed by Brevo for the destination countries. Candidate phone numbers are normalized before sending; invalid or missing numbers fail the journey step with a clear message so the recruiter can correct the candidate record.
+
+Implementation references: [Brevo WhatsApp messages](https://developers.brevo.com/docs/whatsapp-messages), [Brevo Transactional SMS](https://developers.brevo.com/docs/transactional-sms-endpoints), and [Brevo send asynchronous transactional SMS](https://developers.brevo.com/reference/send-async-transactional-sms).
 
 ## AI provider configuration
 
