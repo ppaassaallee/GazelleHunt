@@ -3367,6 +3367,19 @@ async function submitAssessment(request, env, context) {
     INSERT INTO ai_analyses (assessment_id, status, provider, model, prompt_version, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).bind(assessmentId, initialAiStatus, ai.provider, ai.model, GazelleAiAssessment.ANALYSIS_PROMPT_VERSION, completedAt.toISOString(), completedAt.toISOString()));
+  statements.push(env.DB.prepare(`
+    UPDATE contact_journey_events
+    SET status = 'skipped', error_code = 'assessment_completed', updated_at = ?
+    WHERE candidate_id = ? AND status = 'queued'
+      AND enrollment_id IN (
+        SELECT e.id FROM contact_journey_enrollments e WHERE e.candidate_id = ? AND e.test_id = ?
+      )
+  `).bind(completedAt.toISOString(), invitation.candidate_id, invitation.candidate_id, invitation.test_id || 'test_tenure_potential'));
+  statements.push(env.DB.prepare(`
+    UPDATE contact_journey_enrollments
+    SET status = 'completed', completed_at = ?, stopped_reason = 'assessment_completed'
+    WHERE candidate_id = ? AND test_id = ? AND status = 'active'
+  `).bind(completedAt.toISOString(), invitation.candidate_id, invitation.test_id || 'test_tenure_potential'));
   await env.DB.batch(statements);
   return json({ assessmentId, auditHash, result, aiAnalysisStatus: initialAiStatus }, 201);
 }
@@ -3873,6 +3886,7 @@ async function listContactJourneys(env, user) {
       (SELECT COUNT(*) FROM contact_journey_enrollments e WHERE e.journey_id = j.id AND e.status = 'completed') AS completed_count,
       (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'queued') AS queued_event_count,
       (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'accepted') AS accepted_event_count,
+      (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'skipped') AS skipped_event_count,
       (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'failed') AS failed_event_count
     FROM contact_journeys j
     JOIN candidate_lists l ON l.id = j.list_id

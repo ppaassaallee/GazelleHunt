@@ -456,6 +456,19 @@ function channelStatusCard(channel, config = {}) {
   return `<article class="card channel-card"><div class="channel-card-head"><span class="channel-pill ${channel}">${channel}</span>${statusBadge(ready ? 'active' : 'setup required')}</div><strong>${esc(config.provider || (channel === 'email' ? 'Brevo Email' : channel))}</strong><p>${ready ? 'Ready for journey execution.' : `Missing ${esc(missing || 'provider configuration')}. Steps can be designed, but sends will fail clearly until configured.`}</p></article>`;
 }
 
+function channelIcon(channel) {
+  return channel === 'whatsapp' ? 'WA' : channel === 'sms' ? 'SMS' : 'EM';
+}
+
+function journeyNode({ type = 'action', number = '', title, subtitle, channel = '', meta = '', controls = '' }) {
+  return `<div class="flow-node flow-${type} ${channel ? `flow-${channel}` : ''}">
+    <span class="flow-number">${esc(number)}</span>
+    <div class="flow-icon">${esc(channel ? channelIcon(channel) : type === 'trigger' ? 'TR' : 'OK')}</div>
+    <div class="flow-node-copy"><strong>${esc(title)}</strong><span>${esc(subtitle)}</span>${meta ? `<small>${esc(meta)}</small>` : ''}</div>
+    ${controls}
+  </div>`;
+}
+
 function journeyStepInputs() {
   const defaults = [
     { delay: 0, channel: 'email', en: 'Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here: {{link}}', es: 'Hola {{name}}, tu evaluación de {{brand}} para {{role}} está lista. Complétala aquí: {{link}}' },
@@ -463,14 +476,33 @@ function journeyStepInputs() {
     { delay: 24, channel: 'email', en: 'Hi {{name}}, we still have your assessment open for {{role}}. You can continue here: {{link}}', es: 'Hola {{name}}, aún tenemos abierta tu evaluación para {{role}}. Puedes continuar aquí: {{link}}' },
     { delay: 48, channel: 'sms', en: '{{brand}} reminder: please complete your assessment for {{role}} here {{link}}', es: 'Recordatorio de {{brand}}: completa tu evaluación para {{role}} aquí {{link}}' },
   ];
-  return defaults.map((step, index) => `<fieldset class="journey-step-card">
-    <legend>Step ${index + 1}</legend>
-    <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${step.delay}"></label>
-    <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option></select></label>
-    <label class="field"><span>Brevo template ID</span><input class="input journey-template" placeholder="Optional for WhatsApp" maxlength="80"></label>
-    <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
-    <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
-  </fieldset>`).join('');
+  return `<div class="flow-canvas flow-builder-canvas">
+    ${journeyNode({ type: 'trigger', number: '1', title: 'List enrollment', subtitle: 'Recruiter enrolls candidates from one list', meta: 'Individual lifecycle starts per candidate' })}
+    ${defaults.map((step, index) => `<div class="flow-connector"><span>wait ${step.delay}h</span></div><fieldset class="journey-step-card flow-node flow-action flow-${step.channel}">
+      <span class="flow-number">${index + 2}</span>
+      <div class="flow-icon">${esc(channelIcon(step.channel))}</div>
+      <div class="flow-node-copy"><strong>${step.channel === 'email' ? 'Send email' : step.channel === 'whatsapp' ? 'Send WhatsApp' : 'Send SMS'}</strong><span>Only if this candidate has not completed the test</span><small>Provider acceptance is tracked per person</small></div>
+      <div class="flow-controls">
+        <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${step.delay}"></label>
+        <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option></select></label>
+        <label class="field"><span>Brevo template ID</span><input class="input journey-template" placeholder="Optional for WhatsApp" maxlength="80"></label>
+        <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
+        <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
+      </div>
+    </fieldset>`).join('')}
+    <div class="flow-connector"><span>candidate completes</span></div>
+    ${journeyNode({ type: 'goal', number: defaults.length + 2, title: 'Stop reminders', subtitle: 'Pending events close immediately when the assessment is completed', meta: 'Remaining steps become skipped, not sent' })}
+  </div>`;
+}
+
+function journeyFlowPreview(journey) {
+  const steps = journey.steps || [];
+  return `<div class="saved-flow">
+    ${journeyNode({ type: 'trigger', number: '1', title: 'Enroll list', subtitle: journey.list_name || 'Candidate list', meta: `${Number(journey.enrollment_count || 0)} candidates enrolled` })}
+    ${steps.map((step, index) => `<div class="flow-connector compact"><span>+${Math.round(Number(step.delay_minutes || 0) / 60)}h</span></div>${journeyNode({ type: 'action', number: index + 2, title: `Send ${step.channel}`, subtitle: 'Check candidate completion first', channel: step.channel, meta: 'Tracked independently per candidate' })}`).join('')}
+    <div class="flow-connector compact"><span>completion</span></div>
+    ${journeyNode({ type: 'goal', number: steps.length + 2, title: 'Stop', subtitle: 'No more reminders after completed test', meta: `${Number(journey.skipped_event_count || 0)} skipped reminders` })}
+  </div>`;
 }
 
 function renderContactability() {
@@ -499,14 +531,12 @@ function renderContactability() {
       </form>
     </section>
     <section class="card"><div class="card-header"><div><h3>Saved journeys</h3><p>Enroll a list when the flow is ready. The scheduled Worker checks due events every minute.</p></div></div>
-      <div class="table-scroll"><table><thead><tr><th>Journey</th><th>List</th><th>Steps</th><th>Progress</th><th>Status</th><th>Actions</th></tr></thead><tbody>${state.journeys.map((journey) => `<tr>
-        <td><strong>${esc(journey.name)}</strong><br><span class="empty-value">${esc(journey.company_name)} · ${esc(journey.test_name_en)}</span></td>
-        <td>${esc(journey.list_name)}</td>
-        <td>${(journey.steps || []).map((step) => `<span class="channel-pill ${esc(step.channel)}">${esc(step.channel)} +${Math.round(Number(step.delay_minutes || 0) / 60)}h</span>`).join(' ')}</td>
-        <td><span class="empty-value">${Number(journey.enrollment_count || 0)} enrolled · ${Number(journey.queued_event_count || 0)} queued · ${Number(journey.accepted_event_count || 0)} accepted · ${Number(journey.failed_event_count || 0)} failed</span></td>
-        <td>${statusBadge(journey.status)}</td>
-        <td class="table-actions"><button class="button button-secondary" data-journey-status="${journey.id}" data-status="${journey.status === 'active' ? 'paused' : 'active'}">${journey.status === 'active' ? 'Pause' : 'Activate'}</button><button class="button button-primary" data-enroll-journey="${journey.id}" ${journey.status !== 'active' || state.busy ? 'disabled' : ''}>Enroll list</button></td>
-      </tr>`).join('') || '<tr><td colspan="6"><div class="empty-panel"><h3>No contactability journeys yet</h3><p>Create the first flow before enrolling candidates.</p></div></td></tr>'}</tbody></table></div>
+      <div class="journey-flow-list">${state.journeys.map((journey) => `<article class="journey-flow-card">
+        <div class="journey-flow-head"><div><strong>${esc(journey.name)}</strong><span>${esc(journey.company_name)} · ${esc(journey.test_name_en)}</span></div>${statusBadge(journey.status)}</div>
+        ${journeyFlowPreview(journey)}
+        <div class="flow-stats"><span>${Number(journey.enrollment_count || 0)} enrolled</span><span>${Number(journey.completed_count || 0)} completed</span><span>${Number(journey.queued_event_count || 0)} queued</span><span>${Number(journey.accepted_event_count || 0)} accepted</span><span>${Number(journey.skipped_event_count || 0)} skipped</span><span>${Number(journey.failed_event_count || 0)} failed</span></div>
+        <div class="journey-flow-actions"><button class="button button-secondary" data-journey-status="${journey.id}" data-status="${journey.status === 'active' ? 'paused' : 'active'}">${journey.status === 'active' ? 'Pause' : 'Activate'}</button><button class="button button-primary" data-enroll-journey="${journey.id}" ${journey.status !== 'active' || state.busy ? 'disabled' : ''}>Enroll list</button></div>
+      </article>`).join('') || '<div class="empty-panel"><h3>No contactability journeys yet</h3><p>Create the first flow before enrolling candidates.</p></div>'}</div>
     </section></div>`;
 }
 

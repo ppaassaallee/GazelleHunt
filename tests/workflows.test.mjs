@@ -137,6 +137,7 @@ csvApi.state.lists = [{ id: 'list-care', name: 'Customer Care', company_name: 'A
 csvApi.state.journeys = [{
   id: 'journey-1', name: 'Email WhatsApp SMS', status: 'active', list_id: 'list-care', list_name: 'Customer Care', company_name: 'Allied Global',
   test_name_en: 'Tenure Potential', enrollment_count: 25, queued_event_count: 50, accepted_event_count: 20, failed_event_count: 1,
+  completed_count: 3, skipped_event_count: 6,
   steps: [{ channel: 'email', delay_minutes: 0 }, { channel: 'whatsapp', delay_minutes: 180 }, { channel: 'sms', delay_minutes: 2880 }],
 }];
 const journeyHtml = csvApi.renderContactability();
@@ -144,8 +145,13 @@ assert.match(journeyHtml, /Contactability journeys/);
 assert.match(journeyHtml, /WhatsApp/);
 assert.match(journeyHtml, /BREVO_WHATSAPP_SENDER_NUMBER/);
 assert.match(journeyHtml, /Enroll list/);
+assert.match(journeyHtml, /Stop reminders/);
+assert.match(journeyHtml, /No more reminders after completed test/);
+assert.match(journeyHtml, /6 skipped/);
 assert.match(appSource, /\/api\/journeys/);
+assert.match(appSource, /flow-canvas/);
 assert.match(appSource, /journey-step-card/);
+assert.match(serverSource, /UPDATE contact_journey_events[\s\S]+assessment_completed/);
 
 csvApi.state.directSendReceipt = { invitationId: 'invite-direct', providerMessageId: 'message-direct', transport: 'api', status: 'accepted', candidateName: 'Direct Candidate', candidateEmail: 'direct@example.com', locale: 'es', testId: 'test_tenure_potential', submittedAt: '2026-07-22T14:49:40.427Z' };
 csvApi.state.candidates = [{ id: 'candidate-direct', invitation_id: 'invite-direct', invitation_status: 'delivered' }];
@@ -248,12 +254,12 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /styles\.css\?v=20260826\.1/);
-assert.match(indexSource, /app\.js\?v=20260826\.1/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260826\.1/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260826\.1/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260826\.1/);
-assert.match(indexSource, /pdf-report\.js\?v=20260826\.1/);
+assert.match(indexSource, /styles\.css\?v=20260826\.2/);
+assert.match(indexSource, /app\.js\?v=20260826\.2/);
+assert.match(indexSource, /candidate-portal\.js\?v=20260826\.2/);
+assert.match(indexSource, /assessment-engine\.js\?v=20260826\.2/);
+assert.match(indexSource, /ai-assessment\.js\?v=20260826\.2/);
+assert.match(indexSource, /pdf-report\.js\?v=20260826\.2/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);

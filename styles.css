@@ -1026,10 +1026,42 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .channel-pill.whatsapp { color: #106236; background: #dcf7e7; }
 .channel-pill.sms { color: #6d4a08; background: #fff1cf; }
 .journey-builder code { padding: 2px 5px; border-radius: 4px; background: #eef3f2; font-size: 11px; }
-.journey-step-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.journey-step-card { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfc; }
-.journey-step-card legend { padding: 0 6px; color: var(--teal); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.journey-step-grid { display: block; }
+.flow-canvas { position: relative; display: grid; justify-items: center; gap: 0; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: linear-gradient(180deg, #f8faf9 0%, #f1f5f4 100%); }
+.flow-node { position: relative; width: min(100%, 680px); min-height: 82px; display: grid; grid-template-columns: 34px 52px minmax(0, 1fr); align-items: center; gap: 14px; padding: 18px; border: 1px solid #d7e0df; border-radius: 8px; background: #fff; box-shadow: 0 10px 24px rgba(20, 38, 38, .06); }
+.flow-node.flow-trigger { border-color: #f0a199; }
+.flow-node.flow-goal { border-color: #96d1c4; background: #f6fffc; }
+.flow-node.flow-whatsapp { border-left: 5px solid #21a65b; }
+.flow-node.flow-sms { border-left: 5px solid #d9971c; }
+.flow-node.flow-email { border-left: 5px solid var(--teal); }
+.flow-number { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #10a6cf; font-size: 12px; font-weight: 900; }
+.flow-trigger .flow-number { background: #ff625d; }
+.flow-goal .flow-number { background: var(--teal); }
+.flow-icon { width: 48px; height: 48px; display: grid; place-items: center; border: 2px solid #d9e3e1; border-radius: 50%; color: var(--teal); background: #f7fbfa; font-size: 12px; font-weight: 950; }
+.flow-node-copy { min-width: 0; }
+.flow-node-copy strong, .flow-node-copy span, .flow-node-copy small { display: block; }
+.flow-node-copy strong { font-size: 15px; }
+.flow-node-copy span { margin-top: 4px; color: #536064; font-size: 12px; line-height: 1.45; }
+.flow-node-copy small { margin-top: 5px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.flow-connector { width: 2px; height: 54px; display: grid; place-items: center; background: #d4dcdb; }
+.flow-connector span { min-width: max-content; padding: 4px 9px; border: 1px solid #d4dcdb; border-radius: 999px; color: #5d696d; background: #fff; font-size: 11px; font-weight: 800; }
+.flow-connector.compact { height: 34px; }
+.flow-controls { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+.journey-step-card { min-width: 0; margin: 0; }
+.journey-step-card legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 .journey-step-card .form-wide { grid-column: 1 / -1; }
+.journey-flow-list { display: grid; gap: 18px; padding: 18px; }
+.journey-flow-card { display: grid; gap: 15px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.journey-flow-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.journey-flow-head strong, .journey-flow-head span { display: block; }
+.journey-flow-head strong { font-size: 15px; }
+.journey-flow-head span { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.saved-flow { display: grid; justify-items: center; padding: 14px; border-radius: 8px; background: #f8faf9; overflow-x: auto; }
+.saved-flow .flow-node { width: min(100%, 520px); min-height: 70px; padding: 13px; grid-template-columns: 30px 44px minmax(0, 1fr); }
+.saved-flow .flow-icon { width: 40px; height: 40px; }
+.flow-stats { display: flex; flex-wrap: wrap; gap: 7px; }
+.flow-stats span { padding: 5px 9px; border-radius: 999px; background: #eef3f2; color: #4d5b5f; font-size: 11px; font-weight: 800; }
+.journey-flow-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .table-actions { min-width: 210px; }
 .table-actions .button { margin: 2px; }
 
@@ -1041,7 +1073,7 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
   .cp-sidebar { position: static; grid-row: 1; grid-template-columns: minmax(0, 1fr) 280px; }
   .cp-referral-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cp-referral-form .cp-button { grid-column: auto; }
-  .journey-step-grid { grid-template-columns: 1fr; }
+  .flow-controls { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 620px) {
@@ -1079,6 +1111,9 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
   .journey-summary > div:last-child { border-bottom: 0; }
   .attempt-control { align-items: stretch; flex-direction: column; }
   .attempt-control > div { margin: 0 0 8px; }
-  .journey-step-card { grid-template-columns: 1fr; }
+  .flow-canvas { padding: 12px; }
+  .flow-node, .saved-flow .flow-node { grid-template-columns: 28px minmax(0, 1fr); gap: 10px; }
+  .flow-icon { display: none; }
+  .flow-controls { grid-column: 1 / -1; }
   .table-actions { min-width: 0; }
 }
