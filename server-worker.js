@@ -436,6 +436,7 @@ const schemaStatements = [
     journey_id TEXT NOT NULL,
     step_order INTEGER NOT NULL,
     delay_minutes INTEGER NOT NULL,
+    business_day_offset INTEGER,
     channel TEXT NOT NULL,
     template_name TEXT,
     brevo_template_id TEXT,
@@ -577,6 +578,7 @@ const runtimeColumnMigrations = [
   ['ai_analyses', 'last_started_at', `ALTER TABLE ai_analyses ADD COLUMN last_started_at TEXT`],
   ['ai_analyses', 'next_retry_at', `ALTER TABLE ai_analyses ADD COLUMN next_retry_at TEXT`],
   ['ai_analyses', 'requested_by_email', `ALTER TABLE ai_analyses ADD COLUMN requested_by_email TEXT`],
+  ['contact_journey_steps', 'business_day_offset', `ALTER TABLE contact_journey_steps ADD COLUMN business_day_offset INTEGER`],
 ];
 
 const postMigrationStatements = [
@@ -4344,16 +4346,22 @@ async function listSendBatches(env, user) {
 
 function normalizedJourneySteps(inputSteps) {
   const fallback = [
-    { delayHours: 0, channel: 'email' },
-    { delayHours: 3, channel: 'whatsapp' },
-    { delayHours: 24, channel: 'email' },
-    { delayHours: 48, channel: 'sms' },
+    { delayHours: 0, businessDayOffset: 0, channel: 'whatsapp' },
+    { delayHours: 1, businessDayOffset: 0, channel: 'email' },
+    { delayHours: 0, businessDayOffset: 1, channel: 'whatsapp' },
+    { delayHours: 0, businessDayOffset: 2, channel: 'whatsapp' },
+    { delayHours: 0, businessDayOffset: 3, channel: 'email' },
+    { delayHours: 0, businessDayOffset: 4, channel: 'whatsapp' },
   ];
   const rows = (Array.isArray(inputSteps) && inputSteps.length ? inputSteps : fallback).slice(0, 8);
   return rows.map((step, index) => {
     const channel = ['email', 'whatsapp', 'sms'].includes(step.channel) ? step.channel : 'email';
     const delayHours = Math.max(0, Math.min(720, Number(step.delayHours ?? step.delay_hours ?? 0) || 0));
     const delayMinutes = Math.round(delayHours * 60);
+    const rawBusinessDayOffset = step.businessDayOffset ?? step.business_day_offset;
+    const businessDayOffset = rawBusinessDayOffset === null || rawBusinessDayOffset === undefined || rawBusinessDayOffset === ''
+      ? null
+      : Math.max(0, Math.min(30, Number(rawBusinessDayOffset) || 0));
     const order = index + 1;
     const defaultEn = channel === 'email'
       ? `Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here: {{link}}`
@@ -4365,6 +4373,7 @@ function normalizedJourneySteps(inputSteps) {
       id: crypto.randomUUID(),
       step_order: order,
       delay_minutes: delayMinutes,
+      business_day_offset: businessDayOffset,
       channel,
       template_name: cleanText(step.templateName || step.template_name || `Step ${order}`, 120) || `Step ${order}`,
       brevo_template_id: cleanText(step.brevoTemplateId || step.brevo_template_id, 80) || null,
@@ -4422,9 +4431,9 @@ async function createContactJourney(request, env, user) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assessment_completed', ?, ?)
   `).bind(journeyId, list.company_id, list.id, test.id, user.id, name, status, locale, now, now)];
   steps.forEach((step) => statements.push(env.DB.prepare(`
-    INSERT INTO contact_journey_steps (id, journey_id, step_order, delay_minutes, channel, template_name, brevo_template_id, subject_en, subject_es, message_en, message_es, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(step.id, journeyId, step.step_order, step.delay_minutes, step.channel, step.template_name, step.brevo_template_id, step.subject_en, step.subject_es, step.message_en, step.message_es, now)));
+    INSERT INTO contact_journey_steps (id, journey_id, step_order, delay_minutes, business_day_offset, channel, template_name, brevo_template_id, subject_en, subject_es, message_en, message_es, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(step.id, journeyId, step.step_order, step.delay_minutes, step.business_day_offset, step.channel, step.template_name, step.brevo_template_id, step.subject_en, step.subject_es, step.message_en, step.message_es, now)));
   await env.DB.batch(statements);
   await audit(env, user.email, 'contact_journey_created', 'contact_journey', journeyId, { listId: list.id, testId: test.id, stepCount: steps.length, status });
   return json({ journeyId, journeys: await listContactJourneys(env, user) }, 201);
@@ -4439,6 +4448,36 @@ async function updateContactJourney(request, env, user, journeyId) {
   await env.DB.prepare(`UPDATE contact_journeys SET status = ?, updated_at = ? WHERE id = ?`).bind(status, new Date().toISOString(), journeyId).run();
   await audit(env, user.email, 'contact_journey_status_updated', 'contact_journey', journeyId, { status });
   return json({ journeys: await listContactJourneys(env, user) });
+}
+
+function isWeekend(date) {
+  const day = date.getUTCDay();
+  return day === 0 || day === 6;
+}
+
+function nextBusinessDate(date) {
+  const result = new Date(date.getTime());
+  while (isWeekend(result)) result.setUTCDate(result.getUTCDate() + 1);
+  return result;
+}
+
+function addBusinessDays(date, days) {
+  const result = nextBusinessDate(date);
+  let remaining = Math.max(0, Number(days || 0));
+  while (remaining > 0) {
+    result.setUTCDate(result.getUTCDate() + 1);
+    if (!isWeekend(result)) remaining -= 1;
+  }
+  return result;
+}
+
+function scheduledJourneyStepDate(start, step) {
+  const delayMinutes = Number(step.delay_minutes || 0);
+  if (step.business_day_offset !== null && step.business_day_offset !== undefined) {
+    const businessDate = addBusinessDays(start, Number(step.business_day_offset || 0));
+    return new Date(businessDate.getTime() + delayMinutes * 60 * 1000);
+  }
+  return new Date(start.getTime() + delayMinutes * 60 * 1000);
 }
 
 async function enrollContactJourney(request, env, user, journeyId, context) {
@@ -4463,7 +4502,7 @@ async function enrollContactJourney(request, env, user, journeyId, context) {
       VALUES (?, ?, ?, ?, 'active', ?)
     `).bind(enrollmentId, journey.id, candidate.id, journey.test_id, now.toISOString()));
     for (const step of journey.steps) {
-      const scheduledAt = new Date(now.getTime() + Number(step.delay_minutes || 0) * 60 * 1000).toISOString();
+      const scheduledAt = scheduledJourneyStepDate(now, step).toISOString();
       statements.push(env.DB.prepare(`
         INSERT OR IGNORE INTO contact_journey_events (id, enrollment_id, step_id, candidate_id, channel, status, scheduled_at, created_at, updated_at)
         SELECT ?, e.id, ?, ?, ?, 'queued', ?, ?, ? FROM contact_journey_enrollments e

@@ -565,21 +565,24 @@ function journeyNode({ type = 'action', number = '', title, subtitle, channel = 
 
 function journeyStepInputs() {
   const defaults = [
-    { delay: 0, channel: 'email', en: 'Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here: {{link}}', es: 'Hola {{name}}, tu evaluación de {{brand}} para {{role}} está lista. Complétala aquí: {{link}}' },
-    { delay: 3, channel: 'whatsapp', en: 'Hi {{name}}, quick reminder from {{brand}}. Your assessment link is {{link}}', es: 'Hola {{name}}, recordatorio de {{brand}}. Tu enlace de evaluación es {{link}}' },
-    { delay: 24, channel: 'email', en: 'Hi {{name}}, we still have your assessment open for {{role}}. You can continue here: {{link}}', es: 'Hola {{name}}, aún tenemos abierta tu evaluación para {{role}}. Puedes continuar aquí: {{link}}' },
-    { delay: 48, channel: 'sms', en: '{{brand}} reminder: please complete your assessment for {{role}} here {{link}}', es: 'Recordatorio de {{brand}}: completa tu evaluación para {{role}} aquí {{link}}' },
+    { delay: 0, businessDay: 0, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, {{brand}} invites you to complete your assessment for {{role}}. It takes about 10 minutes. Open it here: {{link}}', es: 'Hola {{name}}, {{brand}} te invita a completar tu evaluación para {{role}}. Toma unos 10 minutos. Entra aquí: {{link}}' },
+    { delay: 1, businessDay: 0, channel: 'email', en: 'Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here when you have a quiet moment: {{link}}', es: 'Hola {{name}}, tu evaluación de {{brand}} para {{role}} está lista. Cuando tengas un momento tranquilo, complétala aquí: {{link}}' },
+    { delay: 0, businessDay: 1, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, friendly reminder from {{brand}}. Your assessment for {{role}} is still open and takes about 10 minutes: {{link}}', es: 'Hola {{name}}, recordatorio cordial de {{brand}}. Tu evaluación para {{role}} sigue abierta y toma unos 10 minutos: {{link}}' },
+    { delay: 0, businessDay: 2, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, we still want to get to know you for {{role}}. You can complete the assessment here: {{link}}', es: 'Hola {{name}}, todavía queremos conocerte mejor para {{role}}. Puedes completar la evaluación aquí: {{link}}' },
+    { delay: 0, businessDay: 3, channel: 'email', en: 'Hi {{name}}, your assessment link for {{role}} remains available. Please complete it today if you are still interested: {{link}}', es: 'Hola {{name}}, tu enlace de evaluación para {{role}} sigue disponible. Si aún estás interesado, por favor complétala hoy: {{link}}' },
+    { delay: 0, businessDay: 4, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, final reminder from {{brand}} for your {{role}} assessment. You can still complete it here: {{link}}', es: 'Hola {{name}}, último recordatorio de {{brand}} para tu evaluación de {{role}}. Aún puedes completarla aquí: {{link}}' },
   ];
   return `<div class="flow-canvas flow-builder-canvas">
     ${journeyNode({ type: 'trigger', number: '1', title: 'List enrollment', subtitle: 'Recruiter enrolls candidates from one list', meta: 'Individual lifecycle starts per candidate' })}
-    ${defaults.map((step, index) => `<div class="flow-connector"><span>wait ${step.delay}h</span></div><fieldset class="journey-step-card flow-node flow-action flow-${step.channel}">
+    ${defaults.map((step, index) => `<div class="flow-connector"><span>${step.businessDay === 0 ? 'same business day' : `business day ${step.businessDay}`}${step.delay ? ` +${step.delay}h` : ''}</span></div><fieldset class="journey-step-card flow-node flow-action flow-${step.channel}">
       <span class="flow-number">${index + 2}</span>
       <div class="flow-icon">${esc(channelIcon(step.channel))}</div>
       <div class="flow-node-copy"><strong>${step.channel === 'email' ? 'Send email' : step.channel === 'whatsapp' ? 'Send WhatsApp' : 'Send SMS'}</strong><span>Only if this candidate has not completed the test</span><small>Provider acceptance is tracked per person</small></div>
       <div class="flow-controls">
         <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${step.delay}"></label>
+        <label class="field"><span>Business day</span><input class="input journey-business-day-offset" type="number" min="0" max="30" step="1" value="${step.businessDay}"><small>0 is same business day; weekends are skipped.</small></label>
         <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option></select></label>
-        <label class="field"><span>Provider template</span><input class="input journey-template" placeholder="Infobip template name or Brevo ID" maxlength="120"></label>
+        <label class="field"><span>Provider template</span><input class="input journey-template" placeholder="Infobip template name or Brevo ID" maxlength="120" value="${esc(step.template || '')}"></label>
         <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
         <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
       </div>
@@ -593,7 +596,7 @@ function journeyFlowPreview(journey) {
   const steps = journey.steps || [];
   return `<div class="saved-flow">
     ${journeyNode({ type: 'trigger', number: '1', title: 'Enroll list', subtitle: journey.list_name || 'Candidate list', meta: `${Number(journey.enrollment_count || 0)} candidates enrolled` })}
-    ${steps.map((step, index) => `<div class="flow-connector compact"><span>+${Math.round(Number(step.delay_minutes || 0) / 60)}h</span></div>${journeyNode({ type: 'action', number: index + 2, title: `Send ${step.channel}`, subtitle: 'Check candidate completion first', channel: step.channel, meta: 'Tracked independently per candidate' })}`).join('')}
+    ${steps.map((step, index) => { const offset = step.business_day_offset == null ? null : Number(step.business_day_offset); const hours = Math.round(Number(step.delay_minutes || 0) / 60); const wait = offset == null ? `+${hours}h` : `${offset === 0 ? 'same business day' : `business day ${offset}`}${hours ? ` +${hours}h` : ''}`; return `<div class="flow-connector compact"><span>${esc(wait)}</span></div>${journeyNode({ type: 'action', number: index + 2, title: `Send ${step.channel}`, subtitle: 'Check candidate completion first', channel: step.channel, meta: 'Tracked independently per candidate' })}`; }).join('')}
     <div class="flow-connector compact"><span>completion</span></div>
     ${journeyNode({ type: 'goal', number: steps.length + 2, title: 'Stop', subtitle: 'No more reminders after completed test', meta: `${Number(journey.skipped_event_count || 0)} skipped reminders` })}
   </div>`;
@@ -1459,6 +1462,7 @@ async function sendBatch(listId) {
 function journeyFormSteps() {
   return [...document.querySelectorAll('.journey-step-card')].map((card) => ({
     delayHours: Number(card.querySelector('.journey-delay')?.value || 0),
+    businessDayOffset: card.querySelector('.journey-business-day-offset')?.value || '',
     channel: card.querySelector('.journey-channel')?.value || 'email',
     brevoTemplateId: card.querySelector('.journey-template')?.value || '',
     messageEn: card.querySelector('.journey-message-en')?.value || '',

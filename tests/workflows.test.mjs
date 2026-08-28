@@ -139,7 +139,7 @@ csvApi.state.journeys = [{
   id: 'journey-1', name: 'Email WhatsApp SMS', status: 'active', list_id: 'list-care', list_name: 'Customer Care', company_name: 'Allied Global',
   test_name_en: 'Tenure Potential', enrollment_count: 25, queued_event_count: 50, accepted_event_count: 20, failed_event_count: 1,
   completed_count: 3, skipped_event_count: 6,
-  steps: [{ channel: 'email', delay_minutes: 0 }, { channel: 'whatsapp', delay_minutes: 180 }, { channel: 'sms', delay_minutes: 2880 }],
+  steps: [{ channel: 'whatsapp', delay_minutes: 0, business_day_offset: 0 }, { channel: 'email', delay_minutes: 60, business_day_offset: 0 }, { channel: 'whatsapp', delay_minutes: 0, business_day_offset: 1 }],
 }];
 const journeyHtml = csvApi.renderContactability();
 assert.match(journeyHtml, /Contactability journeys/);
@@ -148,6 +148,9 @@ assert.match(journeyHtml, /BREVO_WHATSAPP_SENDER_NUMBER/);
 assert.match(journeyHtml, /Provider template/);
 assert.match(journeyHtml, /approved provider template/);
 assert.match(journeyHtml, /Enroll list/);
+assert.match(journeyHtml, /same business day/);
+assert.match(journeyHtml, /business day 1/);
+assert.match(journeyHtml, /último recordatorio/);
 assert.match(journeyHtml, /Stop reminders/);
 assert.match(journeyHtml, /No more reminders after completed test/);
 assert.match(journeyHtml, /6 skipped/);

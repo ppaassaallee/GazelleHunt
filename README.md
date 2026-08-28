@@ -157,6 +157,15 @@ Before sending a WhatsApp step through Infobip, Gazelle checks the configured se
 
 Inbound candidate replies should be configured in Infobip to POST to `https://gazelle-assessment.gazellehunt.workers.dev/api/infobip/webhook`. If `INFOBIP_WEBHOOK_TOKEN` is set, send it either as `Authorization: Bearer TOKEN`, `X-Gazelle-Webhook-Token: TOKEN`, or as `?token=TOKEN`. Gazelle matches replies to candidates by normalized phone number, stores the WhatsApp reply on the candidate timeline, audits the event, and stops pending contactability reminders for that candidate with `candidate_replied`.
 
+The default contactability preset starts in Spanish-first WhatsApp and skips weekends for every configured business-day step:
+
+1. Same business day: WhatsApp invitation.
+2. Same business day + 1 hour: email reminder.
+3. Business day 1: WhatsApp reminder.
+4. Business day 2: WhatsApp reminder.
+5. Business day 3: email reminder.
+6. Business day 4: final WhatsApp reminder.
+
 If Infobip SMS cannot cover the destination country, Gazelle can switch SMS to a simple HTTP provider by setting `SMS_PROVIDER=custom_http` and configuring `CUSTOM_SMS_ENDPOINT`, `CUSTOM_SMS_API_KEY`, and `CUSTOM_SMS_SENDER`. The provider must accept a JSON payload with `from`, `to`, `text`, `messageId`, and `tag`; adjust `CUSTOM_SMS_AUTH_HEADER` and `CUSTOM_SMS_AUTH_SCHEME` if the provider does not use `Authorization: Bearer`.
 
 Implementation references: [Infobip API authentication](https://www.infobip.com/docs/essentials/api-essentials/api-authentication), [Infobip base URL](https://www.infobip.com/docs/essentials/api-essentials/base-url), [Infobip WhatsApp template messages](https://www.infobip.com/docs/api/channels/whatsapp/whatsapp-outbound-messages/send-whatsapp-template-message), and [Infobip SMS API](https://www.infobip.com/docs/api/channels/sms).
