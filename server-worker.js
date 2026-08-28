@@ -1688,12 +1688,14 @@ function aiConfig(env) {
   const openAiModel = cleanText(env.OPENAI_MODEL, 120) || GazelleAiAssessment.DEFAULT_MODEL;
   const geminiModel = cleanText(env.GEMINI_MODEL, 120) || GazelleAiAssessment.DEFAULT_GEMINI_MODEL;
   const apiKey = providerKey === 'gemini' ? geminiKey : openAiKey;
+  const background = String(env.OPENAI_BACKGROUND || '').toLowerCase() === 'true';
   return {
     configured: Boolean(apiKey),
     providerKey,
     provider: providerKey === 'gemini' ? 'Google Gemini' : 'OpenAI',
     apiKey,
     model: providerKey === 'gemini' ? geminiModel : openAiModel,
+    background,
   };
 }
 
@@ -3420,6 +3422,8 @@ function recruiterModelEvidence(evidence) {
 }
 
 const AI_MAX_ATTEMPTS = 3;
+const AI_STALE_PROCESSING_MS = 3 * 60 * 1000;
+const AI_BACKGROUND_MAX_MS = 8 * 60 * 1000;
 
 function isRetryableAiError(error) {
   const status = Number(error?.providerStatus || 0);
@@ -3460,10 +3464,12 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
     return { status: 'not_configured' };
   }
 
-  const staleCutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
-  const analysisRow = await env.DB.prepare(`SELECT status, provider_response_id, attempt_count, requested_by_email, next_retry_at, updated_at FROM ai_analyses WHERE assessment_id = ?`).bind(assessmentId).first();
+  const staleCutoff = new Date(Date.now() - AI_STALE_PROCESSING_MS).toISOString();
+  const analysisRow = await env.DB.prepare(`SELECT status, provider_response_id, attempt_count, requested_by_email, next_retry_at, updated_at, last_started_at FROM ai_analyses WHERE assessment_id = ?`).bind(assessmentId).first();
   if (!analysisRow || (!['queued', 'processing'].includes(analysisRow.status))) return { status: analysisRow?.status || 'not_generated' };
   const backgroundPoll = analysisRow.status === 'processing' && config.providerKey === 'openai' && Boolean(analysisRow.provider_response_id);
+  const startedAt = Date.parse(analysisRow.last_started_at || analysisRow.updated_at || '');
+  const backgroundExpired = backgroundPoll && Number.isFinite(startedAt) && Date.now() - startedAt > AI_BACKGROUND_MAX_MS;
   if (analysisRow.status === 'processing' && !backgroundPoll && analysisRow.updated_at >= staleCutoff) return { status: 'processing' };
   if (analysisRow.status === 'queued') {
     const nextRetry = Date.parse(analysisRow.next_retry_at || '');
@@ -3480,6 +3486,7 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
   const auditActor = actorEmail || analysisRow.requested_by_email || null;
   let evidenceHash = null;
   try {
+    if (backgroundExpired) throw new Error('provider_timeout');
     const evidence = await aiEvidenceForAssessment(env, assessmentId);
     if (!evidence) throw new Error('assessment_not_found');
     if (evidence.scenarios.length !== 3) throw new Error('scenario_evidence_incomplete');
@@ -3497,7 +3504,7 @@ async function generateAndStoreAiAnalysis(env, assessmentId, actorEmail = null) 
         schemaName: 'tenure_potential_recruiter_analysis',
         safetyIdentifier: `assessment_${assessmentId}`,
         maxOutputTokens: 5000,
-        background: config.providerKey === 'openai',
+        background: config.providerKey === 'openai' && config.background,
       });
     if (ai.pending) {
       await env.DB.prepare(`UPDATE ai_analyses SET status = 'processing', provider = ?, model = ?, provider_response_id = ?, error_code = NULL, updated_at = ? WHERE assessment_id = ?`)
@@ -3710,6 +3717,17 @@ async function regenerateAiAnalysis(env, user, assessmentId, context) {
   if (context?.waitUntil) context.waitUntil(work);
   else work.catch(() => {});
   return json({ status: 'queued', assessmentId }, 202);
+}
+
+async function advanceAiAnalysis(env, user, assessmentId, context) {
+  if (!aiConfig(env).configured) return json({ error: 'An AI analysis provider is not configured.', code: 'ai_not_configured' }, 503);
+  const scope = candidateScope(user, 'c');
+  const assessment = await env.DB.prepare(`SELECT a.id FROM assessments a JOIN candidates c ON c.id = a.candidate_id WHERE a.id = ? AND ${scope.sql}`).bind(assessmentId, ...scope.bindings).first();
+  if (!assessment) return json({ error: 'Assessment not found.' }, 404);
+  const work = generateAndStoreAiAnalysis(env, assessmentId, user.email);
+  if (context?.waitUntil) context.waitUntil(work);
+  else work.catch(() => {});
+  return json({ status: 'processing', assessmentId }, 202);
 }
 
 async function analyzePreview(request, env, admin) {
@@ -4316,7 +4334,7 @@ async function recoverAsyncWork(env) {
     await processSendBatch(env, user, row.id, origin);
   }
 
-  const staleCutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const staleCutoff = new Date(Date.now() - AI_STALE_PROCESSING_MS).toISOString();
   const now = new Date().toISOString();
   await env.DB.prepare(`
     UPDATE ai_analyses SET status = 'failed', error_code = 'retry_limit_reached', next_retry_at = NULL, updated_at = ?
@@ -4706,7 +4724,7 @@ async function handleApi(request, env, context) {
           missing: messaging.sms.missing,
         },
       },
-      ai: { configured: ai.configured, provider: ai.provider, providerKey: ai.providerKey, model: ai.model, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
+      ai: { configured: ai.configured, provider: ai.provider, providerKey: ai.providerKey, model: ai.model, background: ai.background, scenarioPromptVersion: GazelleAiAssessment.SCENARIO_PROMPT_VERSION, analysisPromptVersion: GazelleAiAssessment.ANALYSIS_PROMPT_VERSION },
       candidatePortal: { enabled: true, googleConfigured: googleOAuthConfig(env).configured },
       assessmentVersion: GazelleAssessmentEngine.ASSESSMENT_VERSION,
       modelVersion: GazelleAssessmentEngine.MODEL_VERSION,
@@ -4755,6 +4773,7 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/preview/ai-analysis' && request.method === 'POST') return analyzePreview(request, env, user);
   const aiAnalysisMatch = url.pathname.match(/^\/api\/assessments\/([^/]+)\/ai-analysis$/);
   if (aiAnalysisMatch && request.method === 'POST') return regenerateAiAnalysis(env, user, cleanText(aiAnalysisMatch[1], 100), context);
+  if (aiAnalysisMatch && request.method === 'PATCH') return advanceAiAnalysis(env, user, cleanText(aiAnalysisMatch[1], 100), context);
   return json({ error: 'API route not found.' }, 404);
 }
 
