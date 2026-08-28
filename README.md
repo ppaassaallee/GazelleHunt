@@ -150,6 +150,8 @@ Email steps use the existing Brevo Transactional Email configuration. WhatsApp a
 
 For Infobip WhatsApp, proactive outbound messages use a Meta-approved template. Gazelle passes four placeholders to the template in this order: candidate name, candidate-facing brand, role, and the candidate's unique assessment link. The journey message text is used for email/SMS and as copy guidance; WhatsApp delivery uses the approved template content. Candidate phone numbers are normalized before sending; invalid or missing numbers fail the journey step with a clear message so the recruiter can correct the candidate record.
 
+Before sending a WhatsApp step through Infobip, Gazelle checks the configured sender's template list and only sends when the configured template/language is returned as approved or active. If the template is pending, rejected, paused, missing, or cannot be verified, the journey event fails with `whatsapp_template_not_approved` instead of attempting a blind send.
+
 Implementation references: [Infobip API authentication](https://www.infobip.com/docs/essentials/api-essentials/api-authentication), [Infobip base URL](https://www.infobip.com/docs/essentials/api-essentials/base-url), [Infobip WhatsApp template messages](https://www.infobip.com/docs/api/channels/whatsapp/whatsapp-outbound-messages/send-whatsapp-template-message), and [Infobip SMS API](https://www.infobip.com/docs/api/channels/sms).
 
 ## AI provider configuration

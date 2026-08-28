@@ -2111,6 +2111,71 @@ async function infobipApiRequest(config, path, options = {}) {
   return body;
 }
 
+function infobipTemplateRecords(value, records = []) {
+  if (!value || typeof value !== 'object') return records;
+  if (!Array.isArray(value)) {
+    const templateName = cleanText(value.name || value.templateName, 120);
+    const status = cleanText(value.status || value.state || value.registrationStatus, 80);
+    if (templateName || status) records.push(value);
+  }
+  const values = Array.isArray(value) ? value : Object.values(value);
+  for (const item of values) {
+    if (item && typeof item === 'object') infobipTemplateRecords(item, records);
+  }
+  return records;
+}
+
+function normalizedTemplateStatus(template) {
+  return cleanText(template?.status || template?.state || template?.registrationStatus, 80).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+}
+
+function isInfobipTemplateSendable(template) {
+  const status = normalizedTemplateStatus(template);
+  if (!status) return false;
+  if (/(REJECTED|PENDING|IN_REVIEW|PAUSED|DISABLED|DELETED|ARCHIVED)/.test(status)) return false;
+  return /(APPROVED|ACTIVE)/.test(status);
+}
+
+function findInfobipTemplate(body, templateName, language) {
+  const expectedName = cleanText(templateName, 120).toLowerCase();
+  const expectedLanguage = cleanText(language, 20).toLowerCase();
+  return infobipTemplateRecords(body).find((template) => {
+    const name = cleanText(template.name || template.templateName, 120).toLowerCase();
+    const templateLanguage = cleanText(template.language || template.locale, 20).toLowerCase();
+    return name === expectedName && (!expectedLanguage || !templateLanguage || templateLanguage === expectedLanguage);
+  }) || null;
+}
+
+async function infobipWhatsAppTemplateStatus(env, templateName = null, language = null) {
+  const config = infobipConfig(env);
+  const contact = contactabilityConfig(env);
+  const sender = contact.whatsapp.senderNumber;
+  const wantedName = cleanText(templateName, 120) || contact.whatsapp.templateName;
+  const wantedLanguage = cleanText(language, 20) || contact.whatsapp.templateLanguage || 'es';
+  if (!config.configured || !sender || !wantedName) {
+    return {
+      configured: false,
+      sendable: false,
+      templateName: wantedName || null,
+      language: wantedLanguage,
+      status: null,
+      missing: contact.whatsapp.missing,
+      error: 'Infobip WhatsApp template validation is not configured.',
+    };
+  }
+  const body = await infobipApiRequest(config, `/whatsapp/1/senders/${encodeURIComponent(sender)}/templates`);
+  const template = findInfobipTemplate(body, wantedName, wantedLanguage);
+  return {
+    configured: true,
+    sendable: Boolean(template && isInfobipTemplateSendable(template)),
+    templateName: wantedName,
+    language: wantedLanguage,
+    status: template ? normalizedTemplateStatus(template) || null : null,
+    missing: [],
+    error: template ? null : 'The configured WhatsApp template was not found for this sender and language.',
+  };
+}
+
 function compactMessage(value, max = 420) {
   return cleanText(value, max).replace(/\s+/g, ' ').trim();
 }
@@ -2215,6 +2280,13 @@ async function sendInfobipWhatsApp(env, message) {
   }
   const templateName = cleanText(message.templateName, 120) || cleanText(message.templateId, 120) || contact.whatsapp.templateName;
   const language = cleanText(message.templateLanguage, 20) || contact.whatsapp.templateLanguage || 'es';
+  const templateStatus = await infobipWhatsAppTemplateStatus(env, templateName, language);
+  if (!templateStatus.sendable) {
+    const error = new Error('whatsapp_template_not_approved');
+    error.providerStatus = 422;
+    error.providerMessage = templateStatus.error || `Infobip template ${templateName} is ${templateStatus.status || 'not approved'} and cannot be sent yet.`;
+    throw error;
+  }
   const providerMessageId = cleanText(message.idempotencyKey, 100) || crypto.randomUUID();
   const body = await infobipApiRequest(config, '/whatsapp/1/message/template', {
     method: 'POST',
@@ -4529,6 +4601,17 @@ async function handleApi(request, env, context) {
     const email = emailConfig(env);
     const ai = aiConfig(env);
     const messaging = contactabilityConfig(env);
+    const whatsappTemplate = messaging.whatsapp.providerKey === 'infobip'
+      ? await infobipWhatsAppTemplateStatus(env).catch((error) => ({
+        configured: messaging.whatsapp.configured,
+        sendable: false,
+        templateName: messaging.whatsapp.templateName,
+        language: messaging.whatsapp.templateLanguage,
+        status: null,
+        missing: messaging.whatsapp.missing,
+        error: cleanText(error.providerMessage || error.message || 'Infobip template status could not be checked.', 300),
+      }))
+      : null;
     return json({
       database: true,
       publicBaseUrl: cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || url.origin,
@@ -4553,6 +4636,7 @@ async function handleApi(request, env, context) {
           templateId: messaging.whatsapp.templateId,
           templateName: messaging.whatsapp.templateName,
           templateLanguage: messaging.whatsapp.templateLanguage,
+          templateStatus: whatsappTemplate,
           missing: messaging.whatsapp.missing,
         },
         sms: {

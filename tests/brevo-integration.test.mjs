@@ -28,11 +28,20 @@ const context = {
   atob,
   fetch: async (url, options) => {
     fetchCalls.push({ url: String(url), options });
+    if (String(url).includes('/whatsapp/1/senders/') && String(url).endsWith('/templates')) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { templates: [{ name: 'gazelle_assessment_invitation', language: 'es', status: 'APPROVED' }] };
+        },
+      };
+    }
     return { ok: true, status: 201, async json() { return { messageId: '<brevo-message-123@example.com>' }; } };
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, infobipConfig, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendInfobipSms, sendInfobipWhatsApp, sendSms, sendWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, infobipConfig, infobipWhatsAppTemplateStatus, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendInfobipSms, sendInfobipWhatsApp, sendSms, sendWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -147,6 +156,9 @@ assert.equal(infobipContactability.whatsapp.templateName, 'gazelle_assessment_in
 assert.equal(infobipContactability.sms.configured, true);
 assert.equal(infobipContactability.sms.providerKey, 'infobip');
 assert.equal(brevo.infobipConfig(infobipEnv).baseUrl, 'https://abc123.api.infobip.com');
+const infobipTemplateStatus = await brevo.infobipWhatsAppTemplateStatus(infobipEnv);
+assert.equal(infobipTemplateStatus.sendable, true);
+assert.equal(infobipTemplateStatus.status, 'APPROVED');
 
 const infobipSms = await brevo.sendInfobipSms(infobipEnv, {
   toPhone: '50248048638',
@@ -175,6 +187,15 @@ assert.equal(infobipWhatsAppBody.messages[0].messageId, 'wa-event-1');
 assert.equal(infobipWhatsAppBody.messages[0].content.templateName, 'gazelle_assessment_invitation');
 assert.equal(infobipWhatsAppBody.messages[0].content.language, 'es');
 assert.deepEqual(infobipWhatsAppBody.messages[0].content.templateData.body.placeholders, ['Candidate Name', 'Allied Global', 'Bilingual Customer Care', 'https://example.com/candidate?invite=abc']);
+
+await assert.rejects(
+  brevo.sendInfobipWhatsApp({ ...infobipEnv, INFOBIP_WHATSAPP_TEMPLATE_NAME: 'missing_template' }, {
+    toPhone: '50248048638',
+    candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
+    link: 'https://example.com/candidate?invite=abc',
+  }),
+  /whatsapp_template_not_approved/,
+);
 
 const webhook = brevo.brevoWebhookPayload(configured, 'https://assessment.example.com/api/brevo/webhook');
 assert.equal(webhook.type, 'transactional');

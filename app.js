@@ -453,8 +453,15 @@ function renderProgress() {
 function channelStatusCard(channel, config = {}) {
   const ready = Boolean(config.configured);
   const missing = (config.missing || []).join(', ');
-  const detail = ready && channel === 'whatsapp' && config.templateName ? `Template: ${config.templateName}${config.templateLanguage ? ` (${config.templateLanguage})` : ''}` : '';
-  return `<article class="card channel-card"><div class="channel-card-head"><span class="channel-pill ${channel}">${channel}</span>${statusBadge(ready ? 'active' : 'setup required')}</div><strong>${esc(config.provider || (channel === 'email' ? 'Brevo Email' : channel))}</strong><p>${ready ? esc(detail || 'Ready for journey execution.') : `Missing ${esc(missing || 'provider configuration')}. Steps can be designed, but sends will fail clearly until configured.`}</p></article>`;
+  const template = config.templateStatus || null;
+  const templateReady = channel === 'whatsapp' && template ? Boolean(template.sendable) : true;
+  const badge = ready && templateReady ? 'active' : 'setup required';
+  const templateDetail = channel === 'whatsapp' && config.templateName
+    ? `Template: ${config.templateName}${config.templateLanguage ? ` (${config.templateLanguage})` : ''}${template ? ` · ${template.sendable ? 'approved' : template.status || template.error || 'not approved'}` : ''}`
+    : '';
+  const readyText = templateDetail || 'Ready for journey execution.';
+  const blockedText = template?.error || (template && !template.sendable ? `Template ${template.templateName || config.templateName || ''} is ${template.status || 'not approved'}.` : '');
+  return `<article class="card channel-card"><div class="channel-card-head"><span class="channel-pill ${channel}">${channel}</span>${statusBadge(badge)}</div><strong>${esc(config.provider || (channel === 'email' ? 'Brevo Email' : channel))}</strong><p>${ready && templateReady ? esc(readyText) : esc(blockedText || `Missing ${missing || 'provider configuration'}. Steps can be designed, but sends will fail clearly until configured.`)}</p></article>`;
 }
 
 function channelIcon(channel) {
