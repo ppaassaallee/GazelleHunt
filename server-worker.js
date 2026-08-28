@@ -665,6 +665,10 @@ function cleanEmail(value) {
   return validEmailAddress(email) ? email : '';
 }
 
+function cleanPhoneDigits(value) {
+  return cleanText(value, 80).replace(/[^\d]/g, '');
+}
+
 const sensitiveEvidencePattern = /\b(age|aged|race|racial|ethnicity|ethnic|nationality|religion|religious|sex|gender|sexual orientation|pregnan\w*|disab\w*|health|medical|diagnos\w*|mental health|family|familia(?:s|r(?:es)?)?|childcare|caregiv\w*|financial|finanzas|politic\w*|union|edad|raza|etnia|nacionalidad|religión|religion|sexo|género|genero|orientación sexual|embaraz\w*|discap\w*|salud(?: mental)?|médic\w*|diagnóstic\w*|diagnostic\w*|cuidador(?:a|es|as)?|responsabilidades? de cuidado|polític\w*|politic\w*|sindicat\w*)\b/iu;
 const contactEvidencePattern = /(?:https?:\/\/|www\.|\b[^\s@]+@[^\s@]+\.[^\s@]+\b|(?:\+?\d[\d\s().-]{7,}\d))/iu;
 const prohibitedAnalysisPattern = /\b(recommend\w*\s+(?:to\s+)?(?:hire|reject)|should\s+(?:be\s+)?(?:hired|rejected)|hire\s+this\s+candidate|reject\s+this\s+candidate|contratar\s+(?:a\s+)?(?:este|esta)\s+candidat\w*|rechazar\s+(?:a\s+)?(?:este|esta)\s+candidat\w*|diagnos\w*|diagnóstic\w*|high[ -]risk|low[ -]risk|alto\s+riesgo|bajo\s+riesgo)\b/iu;
@@ -1642,7 +1646,7 @@ function contactabilityConfig(env) {
       apiConfigured: whatsappProvider === 'infobip' ? infobip.configured : Boolean(email.apiKey),
       providerKey: whatsappProvider,
       senderNumber: whatsappProvider === 'infobip' ? infobip.whatsappSender || null : whatsappSenderNumber || null,
-      templateId: whatsappProvider === 'infobip' ? null : whatsappTemplateId || null,
+      templateId: whatsappProvider === 'infobip' ? infobip.whatsappTemplateId || null : whatsappTemplateId || null,
       templateName: whatsappProvider === 'infobip' ? infobip.whatsappTemplateName || null : null,
       templateLanguage: whatsappProvider === 'infobip' ? infobip.whatsappTemplateLanguage : null,
       linkPlacement: whatsappProvider === 'infobip' ? infobip.whatsappLinkPlacement : 'body',
@@ -1670,6 +1674,7 @@ function infobipConfig(env) {
   const apiKey = String(env.INFOBIP_API_KEY || '');
   let baseUrl = cleanText(env.INFOBIP_BASE_URL, 220).replace(/\/+$/, '');
   if (baseUrl && !/^https?:\/\//i.test(baseUrl)) baseUrl = `https://${baseUrl}`;
+  const language = cleanText(env.INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE, 20).toLowerCase();
   return {
     configured: Boolean(apiKey && baseUrl),
     apiKey,
@@ -1677,8 +1682,10 @@ function infobipConfig(env) {
     smsSender: cleanText(env.INFOBIP_SMS_SENDER, 40),
     whatsappSender: cleanText(env.INFOBIP_WHATSAPP_SENDER, 40).replace(/[^\d+]/g, ''),
     whatsappTemplateName: cleanText(env.INFOBIP_WHATSAPP_TEMPLATE_NAME, 120),
-    whatsappTemplateLanguage: cleanText(env.INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE, 20) || 'es',
+    whatsappTemplateId: cleanText(env.INFOBIP_WHATSAPP_TEMPLATE_ID, 120),
+    whatsappTemplateLanguage: language === 'spanish' ? 'es' : language || 'es',
     whatsappLinkPlacement: cleanText(env.INFOBIP_WHATSAPP_LINK_PLACEMENT, 20).toLowerCase() === 'body' ? 'body' : 'button',
+    webhookToken: String(env.INFOBIP_WEBHOOK_TOKEN || ''),
   };
 }
 
@@ -2191,8 +2198,9 @@ function findInfobipTemplate(body, templateName, language) {
   const expectedLanguage = cleanText(language, 20).toLowerCase();
   return infobipTemplateRecords(body).find((template) => {
     const name = cleanText(template.name || template.templateName, 120).toLowerCase();
+    const id = cleanText(template.id || template.templateId, 120).toLowerCase();
     const templateLanguage = cleanText(template.language || template.locale, 20).toLowerCase();
-    return name === expectedName && (!expectedLanguage || !templateLanguage || templateLanguage === expectedLanguage);
+    return (name === expectedName || id === expectedName) && (!expectedLanguage || !templateLanguage || templateLanguage === expectedLanguage);
   }) || null;
 }
 
@@ -4845,9 +4853,114 @@ async function handleBrevoWebhook(request, env) {
   return json({ received: true, eventCount: received });
 }
 
+function deepValue(object, path) {
+  return path.split('.').reduce((value, key) => value && typeof value === 'object' ? value[key] : undefined, object);
+}
+
+function firstDeepText(object, paths, max = 500) {
+  for (const path of paths) {
+    const value = deepValue(object, path);
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = cleanText(value, max);
+      if (text) return text;
+    }
+    if (value && typeof value === 'object') {
+      const nested = cleanText(value.number || value.phoneNumber || value.address || value.id || value.text, max);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+function infobipInboundEvents(body) {
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.results)) return body.results;
+  if (Array.isArray(body?.messages)) return body.messages;
+  if (Array.isArray(body?.events)) return body.events;
+  return body && typeof body === 'object' ? [body] : [];
+}
+
+async function communicationRecorderForCandidate(env, candidate) {
+  if (candidate.owner_user_id) return candidate.owner_user_id;
+  const user = await env.DB.prepare(`
+    SELECT id FROM users
+    WHERE status = 'active' AND (company_id = ? OR role = 'super_admin')
+    ORDER BY CASE role WHEN 'admin' THEN 1 WHEN 'super_admin' THEN 2 ELSE 3 END, created_at ASC
+    LIMIT 1
+  `).bind(candidate.company_id).first();
+  return user?.id || null;
+}
+
+async function handleInfobipWebhook(request, env) {
+  const config = infobipConfig(env);
+  const url = new URL(request.url);
+  const configuredToken = config.webhookToken;
+  if (configuredToken) {
+    const authorization = String(request.headers.get('authorization') || '');
+    const secretHeader = String(request.headers.get('x-gazelle-webhook-token') || '');
+    const queryToken = String(url.searchParams.get('token') || '');
+    if (!constantTimeEqual(authorization, `Bearer ${configuredToken}`) && !constantTimeEqual(secretHeader, configuredToken) && !constantTimeEqual(queryToken, configuredToken)) {
+      return json({ error: 'Invalid Infobip webhook authorization.' }, 401);
+    }
+  }
+  const body = await request.json().catch(() => null);
+  if (!body) return json({ error: 'Invalid webhook payload.' }, 400);
+  await ensureSchema(env);
+  const events = infobipInboundEvents(body).slice(0, 100);
+  const phoneExpression = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', ''), '.', '')`;
+  let received = 0;
+  let matched = 0;
+  for (const eventData of events) {
+    const from = cleanPhoneDigits(firstDeepText(eventData, ['from', 'sender', 'senderAddress', 'contact.from', 'message.from', 'message.sender', 'waId', 'identity.phoneNumber'], 80));
+    const text = firstDeepText(eventData, ['text', 'message.text', 'message.content.text', 'content.text', 'content.body.text', 'message.body', 'body.text'], 1200);
+    const messageId = firstDeepText(eventData, ['messageId', 'message.id', 'id', 'callbackData'], 160);
+    if (!from && !text) continue;
+    received += 1;
+    if (from.length < 7) {
+      await audit(env, 'infobip-webhook', 'infobip_inbound_unmatched', 'whatsapp_message', messageId || crypto.randomUUID(), { from, text: cleanText(text, 200), reason: 'missing_or_short_phone' });
+      continue;
+    }
+    const candidate = await env.DB.prepare(`
+      SELECT c.id, c.company_id, c.owner_user_id, c.name, c.phone
+      FROM candidates c
+      WHERE c.phone IS NOT NULL AND (${phoneExpression} = ? OR ? LIKE '%' || ${phoneExpression} OR ${phoneExpression} LIKE '%' || ?)
+      ORDER BY c.updated_at DESC LIMIT 1
+    `).bind(from, from, from).first();
+    if (!candidate) {
+      await audit(env, 'infobip-webhook', 'infobip_inbound_unmatched', 'whatsapp_message', messageId || crypto.randomUUID(), { from, text: cleanText(text, 200), reason: 'candidate_phone_not_found' });
+      continue;
+    }
+    const recorderId = await communicationRecorderForCandidate(env, candidate);
+    if (!recorderId) {
+      await audit(env, 'infobip-webhook', 'infobip_inbound_unmatched', 'candidate', candidate.id, { from, text: cleanText(text, 200), reason: 'no_active_recorder' });
+      continue;
+    }
+    const now = new Date().toISOString();
+    const message = text || '[non-text WhatsApp reply received]';
+    await env.DB.prepare(`
+      INSERT INTO candidate_communications (id, candidate_id, created_by_user_id, channel, subject_en, subject_es, message_en, message_es, visible_to_candidate, provider_message_id, created_at)
+      VALUES (?, ?, ?, 'whatsapp', ?, ?, ?, ?, 0, ?, ?)
+    `).bind(crypto.randomUUID(), candidate.id, recorderId, 'Inbound WhatsApp reply', 'Respuesta entrante de WhatsApp', message, message, messageId || null, now).run();
+    const enrollments = await env.DB.prepare(`
+      SELECT id FROM contact_journey_enrollments WHERE candidate_id = ? AND status = 'active'
+    `).bind(candidate.id).all();
+    const enrollmentIds = (enrollments.results || []).map((entry) => entry.id);
+    if (enrollmentIds.length) {
+      await env.DB.batch(enrollmentIds.flatMap((enrollmentId) => [
+        env.DB.prepare(`UPDATE contact_journey_enrollments SET status = 'stopped', completed_at = ?, stopped_reason = 'candidate_replied' WHERE id = ?`).bind(now, enrollmentId),
+        env.DB.prepare(`UPDATE contact_journey_events SET status = 'skipped', error_code = 'candidate_replied', updated_at = ? WHERE enrollment_id = ? AND status = 'queued'`).bind(now, enrollmentId),
+      ]));
+    }
+    await audit(env, 'infobip-webhook', 'candidate_whatsapp_reply_received', 'candidate', candidate.id, { from, providerMessageId: messageId || null, text: cleanText(message, 240) });
+    matched += 1;
+  }
+  return json({ received: true, eventCount: received, matched });
+}
+
 async function handleApi(request, env, context) {
   const url = new URL(request.url);
   if (url.pathname === '/api/brevo/webhook' && request.method === 'POST') return handleBrevoWebhook(request, env);
+  if (url.pathname === '/api/infobip/webhook' && request.method === 'POST') return handleInfobipWebhook(request, env);
   if (request.method !== 'GET' && !sameOrigin(request)) return json({ error: 'Invalid request origin.' }, 403);
   await ensureSchema(env);
   if (url.pathname === '/api/auth/bootstrap-status' && request.method === 'GET') {

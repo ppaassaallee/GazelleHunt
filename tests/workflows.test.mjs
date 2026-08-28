@@ -305,6 +305,9 @@ assert.match(serverSource, /initialAiStatus = ai\.configured \? 'not_generated'/
 assert.match(buildSource, /dist\/\.openai\/hosting\.json/);
 assert.match(serverSource, /\/api\/preview\/ai-analysis/);
 assert.match(serverSource, /assetHeaders\('text\/html; charset=utf-8', 'no-cache', true\)/);
+assert.match(serverSource, /\/api\/infobip\/webhook/);
+assert.match(serverSource, /candidate_whatsapp_reply_received/);
+assert.match(serverSource, /candidate_replied/);
 assert.match(serverSource, /assessments_invitation_unique/);
 assert.match(serverSource, /soft_bounce/);
 assert.match(serverSource, /hard_bounce/);

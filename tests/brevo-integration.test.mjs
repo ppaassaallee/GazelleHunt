@@ -144,8 +144,9 @@ const infobipEnv = {
   INFOBIP_BASE_URL: 'abc123.api.infobip.com/',
   INFOBIP_SMS_SENDER: 'Gazelle',
   INFOBIP_WHATSAPP_SENDER: '+50255551212',
+  INFOBIP_WHATSAPP_TEMPLATE_ID: '1723626188858185',
   INFOBIP_WHATSAPP_TEMPLATE_NAME: 'gazelle_assessment_invitation',
-  INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE: 'es',
+  INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE: 'Spanish',
 };
 const infobipContactability = brevo.contactabilityConfig(infobipEnv);
 assert.equal(infobipContactability.whatsapp.configured, true);
@@ -153,10 +154,12 @@ assert.equal(infobipContactability.whatsapp.providerKey, 'infobip');
 assert.equal(infobipContactability.whatsapp.provider, 'Infobip WhatsApp');
 assert.equal(infobipContactability.whatsapp.senderNumber, '+50255551212');
 assert.equal(infobipContactability.whatsapp.templateName, 'gazelle_assessment_invitation');
+assert.equal(infobipContactability.whatsapp.templateId, '1723626188858185');
 assert.equal(infobipContactability.whatsapp.linkPlacement, 'button');
 assert.equal(infobipContactability.sms.configured, true);
 assert.equal(infobipContactability.sms.providerKey, 'infobip');
 assert.equal(brevo.infobipConfig(infobipEnv).baseUrl, 'https://abc123.api.infobip.com');
+assert.equal(brevo.infobipConfig(infobipEnv).whatsappTemplateLanguage, 'es');
 const infobipTemplateStatus = await brevo.infobipWhatsAppTemplateStatus(infobipEnv);
 assert.equal(infobipTemplateStatus.sendable, true);
 assert.equal(infobipTemplateStatus.status, 'APPROVED');

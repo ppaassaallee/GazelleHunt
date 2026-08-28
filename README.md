@@ -144,14 +144,18 @@ Email steps use the existing Brevo Transactional Email configuration. WhatsApp a
 - `INFOBIP_BASE_URL`, your Infobip personal base URL, for example `xxxxx.api.infobip.com`
 - `INFOBIP_WHATSAPP_SENDER`, the registered WhatsApp sender number
 - `INFOBIP_WHATSAPP_TEMPLATE_NAME`, the approved WhatsApp template name
+- `INFOBIP_WHATSAPP_TEMPLATE_ID`, optional provider template id for admin visibility
 - `INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE`, optional, defaults to `es`
 - `INFOBIP_WHATSAPP_LINK_PLACEMENT=button`, sends the unique invite token as the dynamic URL button parameter
+- `INFOBIP_WEBHOOK_TOKEN`, optional secret used to authenticate inbound WhatsApp callbacks
 - `INFOBIP_SMS_SENDER`, the approved SMS sender name or number
 - `DEFAULT_PHONE_COUNTRY_CODE`, optional, defaults to `502`
 
 For Infobip WhatsApp, proactive outbound messages use a Meta-approved template. With the default button URL template, Gazelle passes three body placeholders in this order: candidate name, candidate-facing brand, and role. It also passes the unique invite token as the `URL` button parameter, so the approved button URL should be `https://gazelle-assessment.gazellehunt.workers.dev/candidate?invite={{1}}`. If a future template puts the full link in the message body instead, set `INFOBIP_WHATSAPP_LINK_PLACEMENT=body` and Gazelle will send the full link as a fourth body placeholder.
 
 Before sending a WhatsApp step through Infobip, Gazelle checks the configured sender's template list and only sends when the configured template/language is returned as approved or active. If the template is pending, rejected, paused, missing, or cannot be verified, the journey event fails with `whatsapp_template_not_approved` instead of attempting a blind send.
+
+Inbound candidate replies should be configured in Infobip to POST to `https://gazelle-assessment.gazellehunt.workers.dev/api/infobip/webhook`. If `INFOBIP_WEBHOOK_TOKEN` is set, send it either as `Authorization: Bearer TOKEN`, `X-Gazelle-Webhook-Token: TOKEN`, or as `?token=TOKEN`. Gazelle matches replies to candidates by normalized phone number, stores the WhatsApp reply on the candidate timeline, audits the event, and stops pending contactability reminders for that candidate with `candidate_replied`.
 
 If Infobip SMS cannot cover the destination country, Gazelle can switch SMS to a simple HTTP provider by setting `SMS_PROVIDER=custom_http` and configuring `CUSTOM_SMS_ENDPOINT`, `CUSTOM_SMS_API_KEY`, and `CUSTOM_SMS_SENDER`. The provider must accept a JSON payload with `from`, `to`, `text`, `messageId`, and `tag`; adjust `CUSTOM_SMS_AUTH_HEADER` and `CUSTOM_SMS_AUTH_SCHEME` if the provider does not use `Authorization: Bearer`.
 
