@@ -457,7 +457,7 @@ function channelStatusCard(channel, config = {}) {
   const templateReady = channel === 'whatsapp' && template ? Boolean(template.sendable) : true;
   const badge = ready && templateReady ? 'active' : 'setup required';
   const templateDetail = channel === 'whatsapp' && config.templateName
-    ? `Template: ${config.templateName}${config.templateLanguage ? ` (${config.templateLanguage})` : ''}${template ? ` · ${template.sendable ? 'approved' : template.status || template.error || 'not approved'}` : ''}`
+    ? `Template: ${config.templateName}${config.templateLanguage ? ` (${config.templateLanguage})` : ''}${config.linkPlacement === 'button' ? ' · URL button' : ''}${template ? ` · ${template.sendable ? 'approved' : template.status || template.error || 'not approved'}` : ''}`
     : '';
   const readyText = templateDetail || 'Ready for journey execution.';
   const blockedText = template?.error || (template && !template.sendable ? `Template ${template.templateName || config.templateName || ''} is ${template.status || 'not approved'}.` : '');

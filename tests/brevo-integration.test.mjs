@@ -28,7 +28,7 @@ const context = {
   atob,
   fetch: async (url, options) => {
     fetchCalls.push({ url: String(url), options });
-    if (String(url).includes('/whatsapp/1/senders/') && String(url).endsWith('/templates')) {
+    if (String(url).includes('/whatsapp/2/senders/') && String(url).endsWith('/templates')) {
       return {
         ok: true,
         status: 200,
@@ -41,7 +41,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, infobipConfig, infobipWhatsAppTemplateStatus, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendInfobipSms, sendInfobipWhatsApp, sendSms, sendWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, infobipConfig, customSmsConfig, infobipWhatsAppTemplateStatus, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendInfobipSms, sendCustomHttpSms, sendInfobipWhatsApp, sendSms, sendWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -153,6 +153,7 @@ assert.equal(infobipContactability.whatsapp.providerKey, 'infobip');
 assert.equal(infobipContactability.whatsapp.provider, 'Infobip WhatsApp');
 assert.equal(infobipContactability.whatsapp.senderNumber, '+50255551212');
 assert.equal(infobipContactability.whatsapp.templateName, 'gazelle_assessment_invitation');
+assert.equal(infobipContactability.whatsapp.linkPlacement, 'button');
 assert.equal(infobipContactability.sms.configured, true);
 assert.equal(infobipContactability.sms.providerKey, 'infobip');
 assert.equal(brevo.infobipConfig(infobipEnv).baseUrl, 'https://abc123.api.infobip.com');
@@ -176,6 +177,7 @@ const infobipWhatsApp = await brevo.sendInfobipWhatsApp(infobipEnv, {
   toPhone: '50248048638',
   candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
   link: 'https://example.com/candidate?invite=abc',
+  buttonToken: 'abc',
   idempotencyKey: 'wa-event-1',
 });
 assert.equal(infobipWhatsApp.transport, 'whatsapp');
@@ -186,7 +188,42 @@ assert.equal(infobipWhatsAppBody.messages[0].to, '50248048638');
 assert.equal(infobipWhatsAppBody.messages[0].messageId, 'wa-event-1');
 assert.equal(infobipWhatsAppBody.messages[0].content.templateName, 'gazelle_assessment_invitation');
 assert.equal(infobipWhatsAppBody.messages[0].content.language, 'es');
-assert.deepEqual(infobipWhatsAppBody.messages[0].content.templateData.body.placeholders, ['Candidate Name', 'Allied Global', 'Bilingual Customer Care', 'https://example.com/candidate?invite=abc']);
+assert.deepEqual(infobipWhatsAppBody.messages[0].content.templateData.body.placeholders, ['Candidate Name', 'Allied Global', 'Bilingual Customer Care']);
+assert.deepEqual(infobipWhatsAppBody.messages[0].content.templateData.buttons, [{ type: 'URL', parameter: 'abc' }]);
+
+const infobipBodyLink = await brevo.sendInfobipWhatsApp({ ...infobipEnv, INFOBIP_WHATSAPP_LINK_PLACEMENT: 'body' }, {
+  toPhone: '50248048638',
+  candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
+  link: 'https://example.com/candidate?invite=abc',
+});
+const infobipBodyLinkPayload = JSON.parse(fetchCalls.at(-1).options.body);
+assert.deepEqual(infobipBodyLinkPayload.messages[0].content.templateData.body.placeholders, ['Candidate Name', 'Allied Global', 'Bilingual Customer Care', 'https://example.com/candidate?invite=abc']);
+assert.equal(infobipBodyLinkPayload.messages[0].content.templateData.buttons, undefined);
+
+const customSmsEnv = {
+  ...env,
+  SMS_PROVIDER: 'custom_http',
+  CUSTOM_SMS_ENDPOINT: 'https://sms.example.com/send',
+  CUSTOM_SMS_API_KEY: 'custom-sms-key',
+  CUSTOM_SMS_SENDER: 'Gazelle',
+};
+assert.equal(brevo.contactabilityConfig(customSmsEnv).sms.configured, true);
+const customSms = await brevo.sendCustomHttpSms(customSmsEnv, {
+  toPhone: '50248048638',
+  text: 'Complete your assessment',
+  idempotencyKey: 'custom-sms-1',
+  tag: 'tenure-potential',
+});
+assert.equal(customSms.transport, 'sms');
+assert.equal(fetchCalls.at(-1).url, 'https://sms.example.com/send');
+assert.equal(fetchCalls.at(-1).options.headers.Authorization, 'Bearer custom-sms-key');
+assert.deepEqual(JSON.parse(fetchCalls.at(-1).options.body), {
+  from: 'Gazelle',
+  to: '50248048638',
+  text: 'Complete your assessment',
+  messageId: 'custom-sms-1',
+  tag: 'tenure-potential',
+});
 
 await assert.rejects(
   brevo.sendInfobipWhatsApp({ ...infobipEnv, INFOBIP_WHATSAPP_TEMPLATE_NAME: 'missing_template' }, {

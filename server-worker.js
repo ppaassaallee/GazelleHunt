@@ -1585,8 +1585,10 @@ function emailConfig(env) {
 function contactabilityConfig(env) {
   const email = emailConfig(env);
   const whatsappProvider = cleanText(env.WHATSAPP_PROVIDER, 30).toLowerCase() === 'infobip' ? 'infobip' : 'brevo';
-  const smsProvider = cleanText(env.SMS_PROVIDER, 30).toLowerCase() === 'infobip' ? 'infobip' : 'brevo';
+  const requestedSmsProvider = cleanText(env.SMS_PROVIDER, 30).toLowerCase();
+  const smsProvider = requestedSmsProvider === 'infobip' ? 'infobip' : requestedSmsProvider === 'custom_http' ? 'custom_http' : 'brevo';
   const infobip = infobipConfig(env);
+  const customSms = customSmsConfig(env);
   const whatsappSenderNumber = cleanText(env.BREVO_WHATSAPP_SENDER_NUMBER, 40).replace(/[^\d+]/g, '');
   const whatsappTemplateId = cleanText(env.BREVO_WHATSAPP_TEMPLATE_ID, 80);
   const smsSender = cleanText(env.BREVO_SMS_SENDER, 40);
@@ -1596,6 +1598,8 @@ function contactabilityConfig(env) {
     : Boolean(email.apiKey && whatsappSenderNumber);
   const smsConfigured = smsProvider === 'infobip'
     ? Boolean(infobip.configured && infobip.smsSender)
+    : smsProvider === 'custom_http'
+      ? customSms.configured
     : Boolean(email.apiKey && smsSender);
   return {
     defaultCountryCode,
@@ -1613,6 +1617,7 @@ function contactabilityConfig(env) {
       templateId: whatsappProvider === 'infobip' ? null : whatsappTemplateId || null,
       templateName: whatsappProvider === 'infobip' ? infobip.whatsappTemplateName || null : null,
       templateLanguage: whatsappProvider === 'infobip' ? infobip.whatsappTemplateLanguage : null,
+      linkPlacement: whatsappProvider === 'infobip' ? infobip.whatsappLinkPlacement : 'body',
       provider: whatsappProvider === 'infobip' ? 'Infobip WhatsApp' : 'Brevo WhatsApp',
       missing: whatsappProvider === 'infobip'
         ? [!infobip.apiKey ? 'INFOBIP_API_KEY' : '', !infobip.baseUrl ? 'INFOBIP_BASE_URL' : '', !infobip.whatsappSender ? 'INFOBIP_WHATSAPP_SENDER' : '', !infobip.whatsappTemplateName ? 'INFOBIP_WHATSAPP_TEMPLATE_NAME' : ''].filter(Boolean)
@@ -1620,12 +1625,14 @@ function contactabilityConfig(env) {
     },
     sms: {
       configured: smsConfigured,
-      apiConfigured: smsProvider === 'infobip' ? infobip.configured : Boolean(email.apiKey),
+      apiConfigured: smsProvider === 'infobip' ? infobip.configured : smsProvider === 'custom_http' ? Boolean(customSms.endpoint && customSms.apiKey) : Boolean(email.apiKey),
       providerKey: smsProvider,
-      sender: smsProvider === 'infobip' ? infobip.smsSender || null : smsSender || null,
-      provider: smsProvider === 'infobip' ? 'Infobip SMS' : 'Brevo Transactional SMS',
+      sender: smsProvider === 'infobip' ? infobip.smsSender || null : smsProvider === 'custom_http' ? customSms.sender || null : smsSender || null,
+      provider: smsProvider === 'infobip' ? 'Infobip SMS' : smsProvider === 'custom_http' ? 'Custom SMS Provider' : 'Brevo Transactional SMS',
       missing: smsProvider === 'infobip'
         ? [!infobip.apiKey ? 'INFOBIP_API_KEY' : '', !infobip.baseUrl ? 'INFOBIP_BASE_URL' : '', !infobip.smsSender ? 'INFOBIP_SMS_SENDER' : ''].filter(Boolean)
+        : smsProvider === 'custom_http'
+          ? [!customSms.endpoint ? 'CUSTOM_SMS_ENDPOINT' : '', !customSms.apiKey ? 'CUSTOM_SMS_API_KEY' : '', !customSms.sender ? 'CUSTOM_SMS_SENDER' : ''].filter(Boolean)
         : [!email.apiKey ? 'BREVO_API_KEY' : '', !smsSender ? 'BREVO_SMS_SENDER' : ''].filter(Boolean),
     },
   };
@@ -1643,6 +1650,19 @@ function infobipConfig(env) {
     whatsappSender: cleanText(env.INFOBIP_WHATSAPP_SENDER, 40).replace(/[^\d+]/g, ''),
     whatsappTemplateName: cleanText(env.INFOBIP_WHATSAPP_TEMPLATE_NAME, 120),
     whatsappTemplateLanguage: cleanText(env.INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE, 20) || 'es',
+    whatsappLinkPlacement: cleanText(env.INFOBIP_WHATSAPP_LINK_PLACEMENT, 20).toLowerCase() === 'body' ? 'body' : 'button',
+  };
+}
+
+function customSmsConfig(env) {
+  const endpoint = cleanText(env.CUSTOM_SMS_ENDPOINT, 500);
+  return {
+    configured: Boolean(endpoint && env.CUSTOM_SMS_API_KEY && cleanText(env.CUSTOM_SMS_SENDER, 40)),
+    endpoint,
+    apiKey: String(env.CUSTOM_SMS_API_KEY || ''),
+    authHeader: cleanText(env.CUSTOM_SMS_AUTH_HEADER, 80) || 'Authorization',
+    authScheme: cleanText(env.CUSTOM_SMS_AUTH_SCHEME, 40) || 'Bearer',
+    sender: cleanText(env.CUSTOM_SMS_SENDER, 40),
   };
 }
 
@@ -2163,7 +2183,7 @@ async function infobipWhatsAppTemplateStatus(env, templateName = null, language 
       error: 'Infobip WhatsApp template validation is not configured.',
     };
   }
-  const body = await infobipApiRequest(config, `/whatsapp/1/senders/${encodeURIComponent(sender)}/templates`);
+  const body = await infobipApiRequest(config, `/whatsapp/2/senders/${encodeURIComponent(sender)}/templates`);
   const template = findInfobipTemplate(body, wantedName, wantedLanguage);
   return {
     configured: true,
@@ -2269,6 +2289,40 @@ async function sendInfobipSms(env, message) {
   return { id: messageId, transport: 'sms', message: 'Infobip accepted the SMS request.' };
 }
 
+async function sendCustomHttpSms(env, message) {
+  const config = customSmsConfig(env);
+  const contact = contactabilityConfig(env);
+  if (!contact.sms.configured || contact.sms.providerKey !== 'custom_http') {
+    const error = new Error('sms_not_configured');
+    error.providerStatus = 503;
+    error.providerMessage = `Configure ${contact.sms.missing.join(', ') || 'custom SMS provider'} before SMS journeys can send.`;
+    throw error;
+  }
+  const providerMessageId = cleanText(message.idempotencyKey, 100) || crypto.randomUUID();
+  const headers = { accept: 'application/json', 'content-type': 'application/json' };
+  headers[config.authHeader] = `${config.authScheme} ${config.apiKey}`.trim();
+  const response = await fetch(config.endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      from: config.sender,
+      to: message.toPhone,
+      text: compactMessage(message.text, 640),
+      messageId: providerMessageId,
+      tag: cleanText(message.tag, 80).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'gazelle-assessment',
+    }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error('custom_sms_rejected');
+    error.providerStatus = response.status;
+    error.providerMessage = cleanText(body.message || body.error || body.code || 'The custom SMS provider rejected the request.', 400);
+    throw error;
+  }
+  const messageId = cleanText(body.messageId || body.id || body.reference || providerMessageId, 300);
+  return { id: messageId, transport: 'sms', message: 'The custom SMS provider accepted the request.' };
+}
+
 async function sendInfobipWhatsApp(env, message) {
   const config = infobipConfig(env);
   const contact = contactabilityConfig(env);
@@ -2280,6 +2334,13 @@ async function sendInfobipWhatsApp(env, message) {
   }
   const templateName = cleanText(message.templateName, 120) || cleanText(message.templateId, 120) || contact.whatsapp.templateName;
   const language = cleanText(message.templateLanguage, 20) || contact.whatsapp.templateLanguage || 'es';
+  const buttonToken = cleanText(message.buttonToken, 500) || cleanText(message.link || '', 500);
+  const bodyPlaceholders = [
+    cleanText(message.candidate?.name || '', 120),
+    cleanText(message.candidate?.candidate_brand_name || 'Allied Global', 120),
+    cleanText(message.candidate?.role || '', 120),
+  ];
+  if (config.whatsappLinkPlacement === 'body') bodyPlaceholders.push(cleanText(message.link || '', 500));
   const templateStatus = await infobipWhatsAppTemplateStatus(env, templateName, language);
   if (!templateStatus.sendable) {
     const error = new Error('whatsapp_template_not_approved');
@@ -2299,13 +2360,9 @@ async function sendInfobipWhatsApp(env, message) {
           templateName,
           templateData: {
             body: {
-              placeholders: [
-                cleanText(message.candidate?.name || '', 120),
-                cleanText(message.candidate?.candidate_brand_name || 'Allied Global', 120),
-                cleanText(message.candidate?.role || '', 120),
-                cleanText(message.link || '', 500),
-              ],
+              placeholders: bodyPlaceholders,
             },
+            ...(config.whatsappLinkPlacement === 'button' ? { buttons: [{ type: 'URL', parameter: buttonToken }] } : {}),
           },
           language,
         },
@@ -2318,9 +2375,10 @@ async function sendInfobipWhatsApp(env, message) {
 }
 
 async function sendSms(env, message) {
-  return contactabilityConfig(env).sms.providerKey === 'infobip'
-    ? sendInfobipSms(env, message)
-    : sendBrevoSms(env, message);
+  const provider = contactabilityConfig(env).sms.providerKey;
+  if (provider === 'infobip') return sendInfobipSms(env, message);
+  if (provider === 'custom_http') return sendCustomHttpSms(env, message);
+  return sendBrevoSms(env, message);
 }
 
 async function sendWhatsApp(env, message) {
@@ -3037,7 +3095,7 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
       ? await sendBrevo(env, { to: recipientEmail, toName: candidate.name, ...copy, invitationId, idempotencyKey, tag: test.slug })
       : deliveryChannel === 'sms'
         ? await sendSms(env, { toPhone: recipientPhone.phone, text: messageText, invitationId, idempotencyKey, tag: test.slug })
-        : await sendWhatsApp(env, { toPhone: recipientPhone.phone, text: messageText, link, candidate, templateName: step?.brevo_template_id, templateId: step?.brevo_template_id, invitationId, idempotencyKey, tag: test.slug });
+        : await sendWhatsApp(env, { toPhone: recipientPhone.phone, text: messageText, link, buttonToken: token, candidate, templateName: step?.brevo_template_id, templateId: step?.brevo_template_id, invitationId, idempotencyKey, tag: test.slug });
     await env.DB.prepare(`UPDATE invitations SET status = ?, provider_message_id = ? WHERE id = ?`).bind('accepted', provider.id, invitationId).run();
     await audit(env, user.email, 'invitation_accepted_by_provider', 'invitation', invitationId, { providerMessageId: provider.id, locale, channel: deliveryChannel, testId: test.id, listId, batchId });
     return { invitationId, status: 'accepted', providerMessageId: provider.id, transport: provider.transport, channel: deliveryChannel, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
@@ -4636,6 +4694,7 @@ async function handleApi(request, env, context) {
           templateId: messaging.whatsapp.templateId,
           templateName: messaging.whatsapp.templateName,
           templateLanguage: messaging.whatsapp.templateLanguage,
+          linkPlacement: messaging.whatsapp.linkPlacement,
           templateStatus: whatsappTemplate,
           missing: messaging.whatsapp.missing,
         },

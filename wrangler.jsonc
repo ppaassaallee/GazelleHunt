@@ -28,6 +28,7 @@
     "BREVO_SMTP_LOGIN": "your-brevo-smtp-login",
     "BREVO_SMTP_PORT": "587",
     "DEFAULT_PHONE_COUNTRY_CODE": "502",
+    "INFOBIP_WHATSAPP_LINK_PLACEMENT": "button",
     "SMS_PROVIDER": "infobip",
     "WHATSAPP_PROVIDER": "infobip",
     "OPENAI_MODEL": "gpt-4.1-mini",
