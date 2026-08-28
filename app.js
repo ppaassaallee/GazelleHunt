@@ -52,7 +52,7 @@ const state = {
   health: {
     database: false, publicBaseUrl: '',
     email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', transport: 'api', senderEmail: null, senderName: 'Gazelle Assessment' },
-    messaging: { defaultCountryCode: '502', whatsapp: { configured: false, missing: ['BREVO_WHATSAPP_SENDER_NUMBER'] }, sms: { configured: false, missing: ['BREVO_SMS_SENDER'] } },
+    messaging: { defaultCountryCode: '502', whatsapp: { configured: false, provider: 'Infobip WhatsApp', missing: ['INFOBIP_API_KEY', 'INFOBIP_BASE_URL', 'INFOBIP_WHATSAPP_SENDER', 'INFOBIP_WHATSAPP_TEMPLATE_NAME'] }, sms: { configured: false, provider: 'Infobip SMS', missing: ['INFOBIP_API_KEY', 'INFOBIP_BASE_URL', 'INFOBIP_SMS_SENDER'] } },
     ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-4.1-mini' },
   },
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
@@ -453,7 +453,8 @@ function renderProgress() {
 function channelStatusCard(channel, config = {}) {
   const ready = Boolean(config.configured);
   const missing = (config.missing || []).join(', ');
-  return `<article class="card channel-card"><div class="channel-card-head"><span class="channel-pill ${channel}">${channel}</span>${statusBadge(ready ? 'active' : 'setup required')}</div><strong>${esc(config.provider || (channel === 'email' ? 'Brevo Email' : channel))}</strong><p>${ready ? 'Ready for journey execution.' : `Missing ${esc(missing || 'provider configuration')}. Steps can be designed, but sends will fail clearly until configured.`}</p></article>`;
+  const detail = ready && channel === 'whatsapp' && config.templateName ? `Template: ${config.templateName}${config.templateLanguage ? ` (${config.templateLanguage})` : ''}` : '';
+  return `<article class="card channel-card"><div class="channel-card-head"><span class="channel-pill ${channel}">${channel}</span>${statusBadge(ready ? 'active' : 'setup required')}</div><strong>${esc(config.provider || (channel === 'email' ? 'Brevo Email' : channel))}</strong><p>${ready ? esc(detail || 'Ready for journey execution.') : `Missing ${esc(missing || 'provider configuration')}. Steps can be designed, but sends will fail clearly until configured.`}</p></article>`;
 }
 
 function channelIcon(channel) {
@@ -485,7 +486,7 @@ function journeyStepInputs() {
       <div class="flow-controls">
         <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${step.delay}"></label>
         <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option></select></label>
-        <label class="field"><span>Brevo template ID</span><input class="input journey-template" placeholder="Optional for WhatsApp" maxlength="80"></label>
+        <label class="field"><span>Provider template</span><input class="input journey-template" placeholder="Infobip template name or Brevo ID" maxlength="120"></label>
         <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
         <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
       </div>
@@ -517,7 +518,7 @@ function renderContactability() {
   return `<div class="stack">${pageIntro('Automation flows', 'Contactability journeys', 'Design persistence flows across email, WhatsApp, and SMS. Each step creates a real provider send or a clear failed event if that channel is not configured.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}
     <section class="grid grid-4">${metric('Active journeys', activeJourneys, 'Running flows', 'workflow')}${metric('Scheduled events', queued, 'Waiting for trigger time', 'clock')}${metric('Provider accepted', accepted, 'Real sends accepted', 'send')}${metric('Needs attention', failed, 'Failed provider or config', 'alert')}</section>
     <section class="grid grid-3">${channelStatusCard('email', { configured: state.health.email?.configured, provider: 'Brevo Transactional Email', missing: state.health.email?.configured ? [] : ['BREVO_API_KEY', 'BREVO_SENDER_EMAIL', 'BREVO_WEBHOOK_TOKEN'] })}${channelStatusCard('whatsapp', messaging.whatsapp)}${channelStatusCard('sms', messaging.sms)}</section>
-    <section class="card journey-builder"><div class="card-header"><div><h3>Create a contactability flow</h3><p>Use <code>{{name}}</code>, <code>{{brand}}</code>, <code>{{role}}</code>, and <code>{{link}}</code> in messages. Delays are counted from enrollment time.</p></div>${icon('workflow')}</div>
+    <section class="card journey-builder"><div class="card-header"><div><h3>Create a contactability flow</h3><p>Use <code>{{name}}</code>, <code>{{brand}}</code>, <code>{{role}}</code>, and <code>{{link}}</code> in email/SMS messages. WhatsApp uses the approved provider template with the candidate link as a placeholder.</p></div>${icon('workflow')}</div>
       <form class="card-body stack" id="journey-form">
         <div class="form-grid">
           <label class="field"><span>Journey name</span><input class="input" id="journey-name" required value="Email + WhatsApp persistence"></label>

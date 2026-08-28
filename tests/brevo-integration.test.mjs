@@ -32,7 +32,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, infobipConfig, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendInfobipSms, sendInfobipWhatsApp, sendSms, sendWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -126,6 +126,55 @@ assert.equal(fetchCalls.at(-1).url, 'https://api.brevo.com/v3/whatsapp/sendMessa
 const whatsappBody = JSON.parse(fetchCalls.at(-1).options.body);
 assert.deepEqual(whatsappBody.contactNumbers, ['50248048638']);
 assert.equal(whatsappBody.senderNumber, '+50255551212');
+
+const infobipEnv = {
+  ...env,
+  WHATSAPP_PROVIDER: 'infobip',
+  SMS_PROVIDER: 'infobip',
+  INFOBIP_API_KEY: 'infobip-test-key',
+  INFOBIP_BASE_URL: 'abc123.api.infobip.com/',
+  INFOBIP_SMS_SENDER: 'Gazelle',
+  INFOBIP_WHATSAPP_SENDER: '+50255551212',
+  INFOBIP_WHATSAPP_TEMPLATE_NAME: 'gazelle_assessment_invitation',
+  INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE: 'es',
+};
+const infobipContactability = brevo.contactabilityConfig(infobipEnv);
+assert.equal(infobipContactability.whatsapp.configured, true);
+assert.equal(infobipContactability.whatsapp.providerKey, 'infobip');
+assert.equal(infobipContactability.whatsapp.provider, 'Infobip WhatsApp');
+assert.equal(infobipContactability.whatsapp.senderNumber, '+50255551212');
+assert.equal(infobipContactability.whatsapp.templateName, 'gazelle_assessment_invitation');
+assert.equal(infobipContactability.sms.configured, true);
+assert.equal(infobipContactability.sms.providerKey, 'infobip');
+assert.equal(brevo.infobipConfig(infobipEnv).baseUrl, 'https://abc123.api.infobip.com');
+
+const infobipSms = await brevo.sendInfobipSms(infobipEnv, {
+  toPhone: '50248048638',
+  text: 'Complete your assessment: https://example.com/candidate?invite=abc',
+  idempotencyKey: 'sms-event-1',
+});
+assert.equal(infobipSms.transport, 'sms');
+assert.equal(fetchCalls.at(-1).url, 'https://abc123.api.infobip.com/sms/2/text/advanced');
+assert.equal(fetchCalls.at(-1).options.headers.authorization, 'App infobip-test-key');
+const infobipSmsBody = JSON.parse(fetchCalls.at(-1).options.body);
+assert.equal(infobipSmsBody.messages[0].from, 'Gazelle');
+assert.deepEqual(infobipSmsBody.messages[0].destinations, [{ to: '50248048638', messageId: 'sms-event-1' }]);
+
+const infobipWhatsApp = await brevo.sendInfobipWhatsApp(infobipEnv, {
+  toPhone: '50248048638',
+  candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
+  link: 'https://example.com/candidate?invite=abc',
+  idempotencyKey: 'wa-event-1',
+});
+assert.equal(infobipWhatsApp.transport, 'whatsapp');
+assert.equal(fetchCalls.at(-1).url, 'https://abc123.api.infobip.com/whatsapp/1/message/template');
+const infobipWhatsAppBody = JSON.parse(fetchCalls.at(-1).options.body);
+assert.equal(infobipWhatsAppBody.messages[0].from, '+50255551212');
+assert.equal(infobipWhatsAppBody.messages[0].to, '50248048638');
+assert.equal(infobipWhatsAppBody.messages[0].messageId, 'wa-event-1');
+assert.equal(infobipWhatsAppBody.messages[0].content.templateName, 'gazelle_assessment_invitation');
+assert.equal(infobipWhatsAppBody.messages[0].content.language, 'es');
+assert.deepEqual(infobipWhatsAppBody.messages[0].content.templateData.body.placeholders, ['Candidate Name', 'Allied Global', 'Bilingual Customer Care', 'https://example.com/candidate?invite=abc']);
 
 const webhook = brevo.brevoWebhookPayload(configured, 'https://assessment.example.com/api/brevo/webhook');
 assert.equal(webhook.type, 'transactional');

@@ -136,16 +136,21 @@ The **Contactability** workspace lets recruiters and administrators design persi
 
 Each enrolled candidate receives scheduled journey events. The Worker cron checks due events every minute. If the candidate completes the selected test, remaining queued events are skipped. If the provider is not configured or rejects a send, the event is marked failed with the exact error code; it is not displayed as delivered or silently ignored.
 
-Email steps use the existing Brevo Transactional Email configuration. WhatsApp and SMS steps use Brevo's API and require additional runtime values:
+Email steps use the existing Brevo Transactional Email configuration. WhatsApp and SMS steps can use Brevo or Infobip. Production is configured to prefer Infobip for WhatsApp/SMS:
 
-- `BREVO_WHATSAPP_SENDER_NUMBER` for WhatsApp sends
-- `BREVO_WHATSAPP_TEMPLATE_ID` when using an approved WhatsApp Business template
-- `BREVO_SMS_SENDER` for Transactional SMS
+- `WHATSAPP_PROVIDER=infobip`
+- `SMS_PROVIDER=infobip`
+- `INFOBIP_API_KEY`, hosted secret, with SMS send and WhatsApp message send permissions
+- `INFOBIP_BASE_URL`, your Infobip personal base URL, for example `xxxxx.api.infobip.com`
+- `INFOBIP_WHATSAPP_SENDER`, the registered WhatsApp sender number
+- `INFOBIP_WHATSAPP_TEMPLATE_NAME`, the approved WhatsApp template name
+- `INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE`, optional, defaults to `es`
+- `INFOBIP_SMS_SENDER`, the approved SMS sender name or number
 - `DEFAULT_PHONE_COUNTRY_CODE`, optional, defaults to `502`
 
-WhatsApp production sending requires a connected WhatsApp Business sender in Brevo and, for proactive outbound messages, Meta-approved templates. SMS requires Brevo transactional SMS credits and a sender name or number allowed by Brevo for the destination countries. Candidate phone numbers are normalized before sending; invalid or missing numbers fail the journey step with a clear message so the recruiter can correct the candidate record.
+For Infobip WhatsApp, proactive outbound messages use a Meta-approved template. Gazelle passes four placeholders to the template in this order: candidate name, candidate-facing brand, role, and the candidate's unique assessment link. The journey message text is used for email/SMS and as copy guidance; WhatsApp delivery uses the approved template content. Candidate phone numbers are normalized before sending; invalid or missing numbers fail the journey step with a clear message so the recruiter can correct the candidate record.
 
-Implementation references: [Brevo WhatsApp messages](https://developers.brevo.com/docs/whatsapp-messages), [Brevo Transactional SMS](https://developers.brevo.com/docs/transactional-sms-endpoints), and [Brevo send asynchronous transactional SMS](https://developers.brevo.com/reference/send-async-transactional-sms).
+Implementation references: [Infobip API authentication](https://www.infobip.com/docs/essentials/api-essentials/api-authentication), [Infobip base URL](https://www.infobip.com/docs/essentials/api-essentials/base-url), [Infobip WhatsApp template messages](https://www.infobip.com/docs/api/channels/whatsapp/whatsapp-outbound-messages/send-whatsapp-template-message), and [Infobip SMS API](https://www.infobip.com/docs/api/channels/sms).
 
 ## AI provider configuration
 

@@ -28,6 +28,8 @@
     "BREVO_SMTP_LOGIN": "your-brevo-smtp-login",
     "BREVO_SMTP_PORT": "587",
     "DEFAULT_PHONE_COUNTRY_CODE": "502",
+    "SMS_PROVIDER": "infobip",
+    "WHATSAPP_PROVIDER": "infobip",
     "OPENAI_MODEL": "gpt-4.1-mini",
     "SUPER_ADMIN_EMAIL": "david.alejandro.pa@gmail.com"
   }
