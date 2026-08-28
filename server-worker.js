@@ -509,6 +509,30 @@ const schemaStatements = [
     FOREIGN KEY (referrer_account_id) REFERENCES candidate_accounts(id) ON DELETE CASCADE,
     FOREIGN KEY (source_candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS assessment_outcomes (
+    id TEXT PRIMARY KEY,
+    assessment_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    company_id TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    outcome_type TEXT NOT NULL,
+    outcome_date TEXT NOT NULL,
+    tenure_days INTEGER,
+    performance_rating INTEGER,
+    hired INTEGER,
+    started INTEGER,
+    still_employed INTEGER,
+    source TEXT NOT NULL,
+    notes TEXT,
+    recorded_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (assessment_id) REFERENCES assessments(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (test_id) REFERENCES assessment_tests(id),
+    FOREIGN KEY (recorded_by_user_id) REFERENCES users(id)
+  )`,
   `CREATE INDEX IF NOT EXISTS invitations_candidate_idx ON invitations(candidate_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessments_candidate_idx ON assessments(candidate_id, completed_at DESC)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS assessments_invitation_unique ON assessments(invitation_id) WHERE invitation_id IS NOT NULL`,
@@ -529,6 +553,8 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS candidate_communications_candidate_idx ON candidate_communications(candidate_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS candidate_referrals_account_idx ON candidate_referrals(referrer_account_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS candidate_referrals_company_idx ON candidate_referrals(company_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS assessment_outcomes_scope_idx ON assessment_outcomes(company_id, test_id, outcome_date DESC)`,
+  `CREATE INDEX IF NOT EXISTS assessment_outcomes_assessment_idx ON assessment_outcomes(assessment_id, created_at DESC)`,
 ];
 
 const runtimeColumnMigrations = [
@@ -564,6 +590,8 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS contact_journeys_scope_idx ON contact_journeys(company_id, list_id, status, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS contact_journey_events_due_idx ON contact_journey_events(status, scheduled_at, updated_at)`,
   `CREATE INDEX IF NOT EXISTS contact_journey_enrollments_status_idx ON contact_journey_enrollments(journey_id, status)`,
+  `CREATE INDEX IF NOT EXISTS assessment_outcomes_scope_idx ON assessment_outcomes(company_id, test_id, outcome_date DESC)`,
+  `CREATE INDEX IF NOT EXISTS assessment_outcomes_assessment_idx ON assessment_outcomes(assessment_id, created_at DESC)`,
 ];
 
 let schemaReady = false;
@@ -2995,6 +3023,194 @@ async function listAssessmentResults(env, user) {
   return rows;
 }
 
+const OUTCOME_TYPES = new Set(['not_hired', 'hired', 'started', 'checkpoint', 'exit', 'performance_review']);
+
+function cleanOutcomeType(value) {
+  const normalized = cleanText(value, 40).toLowerCase();
+  return OUTCOME_TYPES.has(normalized) ? normalized : '';
+}
+
+function optionalInteger(value, min, max) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) return null;
+  return number;
+}
+
+function optionalBooleanInteger(value) {
+  if (value === null || value === undefined || value === '') return null;
+  return value === true || value === 1 || value === '1' || value === 'true' ? 1 : 0;
+}
+
+function scoreBucket(score) {
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) return 'unknown';
+  if (numeric >= 80) return 'strong';
+  if (numeric >= 65) return 'aligned';
+  if (numeric >= 50) return 'conditional';
+  return 'limited';
+}
+
+function buildCalibrationSummaries(assessments = [], outcomes = []) {
+  const byAssessment = new Map();
+  for (const outcome of outcomes) {
+    const list = byAssessment.get(outcome.assessment_id) || [];
+    list.push(outcome);
+    byAssessment.set(outcome.assessment_id, list);
+  }
+  const summaries = new Map();
+  for (const assessment of assessments) {
+    const key = assessment.assessment_test_id || assessment.test_id || 'unknown';
+    if (!summaries.has(key)) summaries.set(key, {
+      test_id: key,
+      test_name_en: assessment.assessment_test_name_en || 'Assessment',
+      test_name_es: assessment.assessment_test_name_es || assessment.assessment_test_name_en || 'Evaluacion',
+      completed_assessments: 0,
+      outcomes_recorded: 0,
+      hired_count: 0,
+      started_count: 0,
+      known_tenure_count: 0,
+      retained_30_count: 0,
+      retained_90_count: 0,
+      retained_180_count: 0,
+      exit_count: 0,
+      performance_count: 0,
+      performance_sum: 0,
+      tenure_sum: 0,
+      high_score_known_count: 0,
+      high_score_retained_90_count: 0,
+      lower_score_known_count: 0,
+      lower_score_retained_90_count: 0,
+      score_buckets: { strong: 0, aligned: 0, conditional: 0, limited: 0, unknown: 0 },
+    });
+    const summary = summaries.get(key);
+    summary.completed_assessments += 1;
+    summary.score_buckets[scoreBucket(assessment.potential_index)] += 1;
+    const assessmentOutcomes = byAssessment.get(assessment.assessment_id) || [];
+    if (!assessmentOutcomes.length) continue;
+    summary.outcomes_recorded += assessmentOutcomes.length;
+    const hired = assessmentOutcomes.some((outcome) => Number(outcome.hired) === 1 || ['hired', 'started', 'checkpoint', 'exit', 'performance_review'].includes(outcome.outcome_type));
+    const started = assessmentOutcomes.some((outcome) => Number(outcome.started) === 1 || ['started', 'checkpoint', 'exit', 'performance_review'].includes(outcome.outcome_type));
+    const exited = assessmentOutcomes.some((outcome) => outcome.outcome_type === 'exit' || Number(outcome.still_employed) === 0);
+    const tenureValues = assessmentOutcomes.map((outcome) => Number(outcome.tenure_days)).filter(Number.isFinite);
+    const maxTenure = tenureValues.length ? Math.max(...tenureValues) : null;
+    const retainedAt = (days) => maxTenure != null && maxTenure >= days;
+    if (hired) summary.hired_count += 1;
+    if (started) summary.started_count += 1;
+    if (exited) summary.exit_count += 1;
+    if (maxTenure != null) {
+      summary.known_tenure_count += 1;
+      summary.tenure_sum += maxTenure;
+      if (retainedAt(30)) summary.retained_30_count += 1;
+      if (retainedAt(90)) summary.retained_90_count += 1;
+      if (retainedAt(180)) summary.retained_180_count += 1;
+      if (Number(assessment.potential_index) >= 65) {
+        summary.high_score_known_count += 1;
+        if (retainedAt(90)) summary.high_score_retained_90_count += 1;
+      } else {
+        summary.lower_score_known_count += 1;
+        if (retainedAt(90)) summary.lower_score_retained_90_count += 1;
+      }
+    }
+    for (const outcome of assessmentOutcomes) {
+      const rating = Number(outcome.performance_rating);
+      if (Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+        summary.performance_count += 1;
+        summary.performance_sum += rating;
+      }
+    }
+  }
+  return [...summaries.values()].map((summary) => {
+    const tenureRate = (count) => summary.known_tenure_count ? Math.round((count / summary.known_tenure_count) * 1000) / 10 : null;
+    const highRate = summary.high_score_known_count ? Math.round((summary.high_score_retained_90_count / summary.high_score_known_count) * 1000) / 10 : null;
+    const lowerRate = summary.lower_score_known_count ? Math.round((summary.lower_score_retained_90_count / summary.lower_score_known_count) * 1000) / 10 : null;
+    const knownRate = summary.completed_assessments ? Math.round((summary.known_tenure_count / summary.completed_assessments) * 1000) / 10 : 0;
+    return {
+      ...summary,
+      outcome_coverage_rate: knownRate,
+      retained_30_rate: tenureRate(summary.retained_30_count),
+      retained_90_rate: tenureRate(summary.retained_90_count),
+      retained_180_rate: tenureRate(summary.retained_180_count),
+      average_tenure_days: summary.known_tenure_count ? Math.round(summary.tenure_sum / summary.known_tenure_count) : null,
+      average_performance_rating: summary.performance_count ? Math.round((summary.performance_sum / summary.performance_count) * 10) / 10 : null,
+      high_score_retained_90_rate: highRate,
+      lower_score_retained_90_rate: lowerRate,
+      score_lift_90: highRate != null && lowerRate != null ? Math.round((highRate - lowerRate) * 10) / 10 : null,
+      validation_status: summary.known_tenure_count >= 100 ? 'calibration_ready' : summary.known_tenure_count >= 30 ? 'directional' : 'learning_sample',
+    };
+  }).sort((left, right) => right.completed_assessments - left.completed_assessments);
+}
+
+async function assessmentOutcomeDataset(env, user) {
+  const scope = candidateScope(user);
+  const assessmentRows = await env.DB.prepare(`
+    SELECT a.id AS assessment_id, a.test_id AS assessment_test_id, a.completed_at AS assessment_completed_at,
+      a.potential_index, a.potential_band, c.id AS candidate_id, c.company_id, c.owner_user_id, c.name AS candidate_name,
+      c.email AS candidate_email, c.role, c.site, company.name AS company_name,
+      t.name_en AS assessment_test_name_en, t.name_es AS assessment_test_name_es
+    FROM assessments a
+    JOIN candidates c ON c.id = a.candidate_id
+    JOIN companies company ON company.id = c.company_id
+    LEFT JOIN assessment_tests t ON t.id = a.test_id
+    WHERE ${scope.sql}
+    ORDER BY a.completed_at DESC
+  `).bind(...scope.bindings).all();
+  const outcomeRows = await env.DB.prepare(`
+    SELECT o.*, c.name AS candidate_name, c.email AS candidate_email, c.role, c.site,
+      company.name AS company_name, t.name_en AS test_name_en, t.name_es AS test_name_es,
+      a.potential_index, a.potential_band, recorder.name AS recorded_by_name
+    FROM assessment_outcomes o
+    JOIN candidates c ON c.id = o.candidate_id
+    JOIN companies company ON company.id = o.company_id
+    LEFT JOIN assessment_tests t ON t.id = o.test_id
+    LEFT JOIN assessments a ON a.id = o.assessment_id
+    LEFT JOIN users recorder ON recorder.id = o.recorded_by_user_id
+    WHERE ${scope.sql}
+    ORDER BY o.outcome_date DESC, o.created_at DESC
+    LIMIT 500
+  `).bind(...scope.bindings).all();
+  const assessments = assessmentRows.results || [];
+  const outcomes = outcomeRows.results || [];
+  return { assessments, outcomes, summaries: buildCalibrationSummaries(assessments, outcomes) };
+}
+
+async function listAssessmentOutcomes(env, user) {
+  return assessmentOutcomeDataset(env, user);
+}
+
+async function recordAssessmentOutcome(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const assessmentId = cleanText(body.assessmentId, 100);
+  const outcomeType = cleanOutcomeType(body.outcomeType);
+  const outcomeDate = cleanText(body.outcomeDate, 40) || new Date().toISOString().slice(0, 10);
+  const tenureDays = optionalInteger(body.tenureDays, 0, 5000);
+  const performanceRating = optionalInteger(body.performanceRating, 1, 5);
+  const hired = optionalBooleanInteger(body.hired);
+  const started = optionalBooleanInteger(body.started);
+  const stillEmployed = optionalBooleanInteger(body.stillEmployed);
+  const source = cleanText(body.source || 'manual', 80);
+  const notes = cleanText(body.notes, 1200);
+  if (!assessmentId || !outcomeType) return json({ error: 'Assessment and outcome type are required.', code: 'outcome_required' }, 422);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(outcomeDate)) return json({ error: 'Use a valid outcome date.', code: 'invalid_outcome_date' }, 422);
+  const scope = candidateScope(user);
+  const assessment = await env.DB.prepare(`
+    SELECT a.id AS assessment_id, a.test_id, c.id AS candidate_id, c.company_id
+    FROM assessments a JOIN candidates c ON c.id = a.candidate_id
+    WHERE a.id = ? AND ${scope.sql}
+  `).bind(assessmentId, ...scope.bindings).first();
+  if (!assessment) return json({ error: 'Assessment not found in your accessible scope.', code: 'assessment_not_found' }, 404);
+  if (['checkpoint', 'exit'].includes(outcomeType) && tenureDays == null) return json({ error: 'Tenure days are required for checkpoint or exit outcomes.', code: 'tenure_required' }, 422);
+  if (outcomeType === 'performance_review' && performanceRating == null) return json({ error: 'Performance rating 1-5 is required for performance review outcomes.', code: 'performance_required' }, 422);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO assessment_outcomes (id, assessment_id, candidate_id, company_id, test_id, outcome_type, outcome_date, tenure_days, performance_rating, hired, started, still_employed, source, notes, recorded_by_user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, assessment.assessment_id, assessment.candidate_id, assessment.company_id, assessment.test_id || 'test_tenure_potential', outcomeType, outcomeDate, tenureDays, performanceRating, hired, started, stillEmployed, source, notes, user.id, now, now).run();
+  await audit(env, user.email, 'assessment_outcome_recorded', 'assessment_outcome', id, { assessmentId, outcomeType, tenureDays, performanceRating, source });
+  return json(await listAssessmentOutcomes(env, user), 201);
+}
+
 async function importCandidates(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const candidates = Array.isArray(body.candidates) ? body.candidates.slice(0, 500) : [];
@@ -4732,6 +4948,8 @@ async function handleApi(request, env, context) {
   }
   if (url.pathname === '/api/candidates' && request.method === 'GET') return json({ candidates: await listCandidates(env, user) });
   if (url.pathname === '/api/results' && request.method === 'GET') return json({ results: await listAssessmentResults(env, user) });
+  if (url.pathname === '/api/outcomes' && request.method === 'GET') return json(await listAssessmentOutcomes(env, user));
+  if (url.pathname === '/api/outcomes' && request.method === 'POST') return recordAssessmentOutcome(request, env, user);
   if (url.pathname === '/api/candidates/import' && request.method === 'POST') return importCandidates(request, env, user);
   if (url.pathname === '/api/stages' && request.method === 'GET') return json({ stages: await listRecruitmentStages(env, user) });
   if (url.pathname === '/api/stages' && request.method === 'POST') return createRecruitmentStage(request, env, user);

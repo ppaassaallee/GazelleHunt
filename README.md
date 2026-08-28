@@ -169,6 +169,12 @@ The server sends deidentified, job-related assessment evidence to the selected p
 
 The AI output is prohibited from diagnosing the candidate, inferring protected or sensitive characteristics, estimating retention probability, ranking candidates, or recommending hire/reject decisions. The 1–5 rating is a structured job-alignment evidence summary, not a cut score.
 
+## Outcome calibration
+
+The hiring workspace includes a **Calibration** module for feeding real-world evidence back into Gazelle Hunt. For any completed test, recruiters and admins can record outcomes such as hired, started, retention checkpoint, exit, not hired, or performance review. The app stores the outcome against the frozen assessment/test version and recalculates coverage, 30/90/180-day retention, average tenure, average performance, and the directional difference between candidates scoring 65+ and lower-scoring candidates.
+
+Sample status is conservative by design: fewer than 30 known-tenure outcomes is a learning sample, 30-99 is directional, and 100+ is calibration-ready for deeper analysis. These metrics are evidence for validation and threshold review, not automatic hiring decisions.
+
 ## Public access
 
 Invitation links use `/candidate?invite=...` and open the bilingual candidate portal. Candidates see the company welcome, preparation guidance, hiring-stage timeline, messages, assessment access, account options, and referral progress before entering a test. The assessment itself still begins with `Choose your language · Elige tu idioma`; the suggested email language never bypasses this choice. Consent explicitly describes the three scenario questions and AI-assisted recruiter report before any response is recorded.

@@ -1,4 +1,4 @@
-export const schemaVersion = '0012_contactability_journeys';
+export const schemaVersion = '0013_outcomes_calibration';
 
 export type CandidateRecord = {
   id: string;
@@ -111,6 +111,28 @@ export type AiAnalysisRecord = {
   attempt_count: number;
   last_started_at: string | null;
   next_retry_at: string | null;
+};
+
+export type AssessmentOutcomeType = 'not_hired' | 'hired' | 'started' | 'checkpoint' | 'exit' | 'performance_review';
+
+export type AssessmentOutcomeRecord = {
+  id: string;
+  assessment_id: string;
+  candidate_id: string;
+  company_id: string;
+  test_id: string;
+  outcome_type: AssessmentOutcomeType;
+  outcome_date: string;
+  tenure_days: number | null;
+  performance_rating: number | null;
+  hired: 0 | 1 | null;
+  started: 0 | 1 | null;
+  still_employed: 0 | 1 | null;
+  source: string;
+  notes: string | null;
+  recorded_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type CandidateAccountRecord = {

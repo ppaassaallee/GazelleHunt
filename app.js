@@ -40,7 +40,7 @@ const icons = {
 const baseNavItems = [
   ['home', 'Overview', 'home'], ['tests', 'Test catalog', 'layers'], ['lists', 'Candidate lists', 'list'],
   ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'], ['send', 'Direct send', 'send'],
-  ['progress', 'Send progress', 'clock'], ['journeys', 'Contactability', 'workflow'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['settings', 'Settings', 'settings'],
+  ['progress', 'Send progress', 'clock'], ['journeys', 'Contactability', 'workflow'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['calibration', 'Calibration', 'chart'], ['settings', 'Settings', 'settings'],
 ];
 
 function navItems() {
@@ -59,6 +59,7 @@ const state = {
   resetToken: '', passwordResetSent: false, passwordResetComplete: false,
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
   tests: [], lists: [], batches: [], journeys: [], users: [], companies: [], selectedListId: null,
+  outcomes: [], calibration: { summaries: [], assessments: [] }, calibrationTestId: 'all',
   stages: [], referrals: [], journeyCandidateId: null,
   deliveryChecks: {},
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
@@ -126,9 +127,9 @@ async function loadWorkspace({ silent = false } = {}) {
     const auth = await fetchJson('/api/auth/me');
     state.user = auth.user;
     state.adminAuthenticated = true;
-    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/journeys'), fetchJson('/api/stages'), fetchJson('/api/referrals')];
+    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/journeys'), fetchJson('/api/stages'), fetchJson('/api/referrals'), fetchJson('/api/outcomes')];
     if (state.user.role === 'super_admin') requests.push(fetchJson('/api/admin/users'));
-    const [health, candidates, results, tests, lists, batches, journeys, stages, referrals, team] = await Promise.all(requests);
+    const [health, candidates, results, tests, lists, batches, journeys, stages, referrals, outcomes, team] = await Promise.all(requests);
     state.health = health;
     state.candidates = candidates.candidates || [];
     state.results = results.results || [];
@@ -138,6 +139,8 @@ async function loadWorkspace({ silent = false } = {}) {
     state.journeys = journeys.journeys || [];
     state.stages = stages.stages || [];
     state.referrals = referrals.referrals || [];
+    state.outcomes = outcomes.outcomes || [];
+    state.calibration = { summaries: outcomes.summaries || [], assessments: outcomes.assessments || [] };
     const visibleCandidateIds = new Set(state.candidates.map((candidate) => candidate.id));
     state.selectedCandidateIds = state.selectedCandidateIds.filter((id) => visibleCandidateIds.has(id));
     if (!state.bulkResendTestId) state.bulkResendTestId = state.tests.find((test) => test.status === 'active' && test.engine_key === 'tenure_potential')?.id || null;
@@ -448,6 +451,89 @@ function renderProgress() {
   const failures = state.batches.filter((batch) => Number(batch.failed_count || 0) > 0);
   const notices = `${active.length ? `<div class="notice notice-info" role="status"><strong>${active.length} batch${active.length === 1 ? '' : 'es'} still processing.</strong> This page refreshes automatically. Temporary provider failures are retried safely up to three times.</div>` : ''}${failures.length ? `<div class="notice notice-error"><strong>${failures.reduce((sum, batch) => sum + Number(batch.failed_count || 0), 0)} send${failures.length === 1 ? '' : 's'} need attention.</strong> ${esc(failures.map((batch) => batch.last_error_code).filter(Boolean)[0] || 'Review the candidate email and retry after correcting the cause.')}</div>` : ''}`;
   return `${notices}${renderProgressLegacy()}`;
+}
+
+function outcomeTypeLabel(type) {
+  return {
+    not_hired: 'Not hired',
+    hired: 'Hired',
+    started: 'Started',
+    checkpoint: 'Retention checkpoint',
+    exit: 'Exited',
+    performance_review: 'Performance review',
+  }[type] || type || 'Outcome';
+}
+
+function validationStatusLabel(status) {
+  return {
+    learning_sample: 'Learning sample',
+    directional: 'Directional signal',
+    calibration_ready: 'Calibration-ready sample',
+  }[status] || 'Learning sample';
+}
+
+function pct(value) {
+  return value == null ? '—' : `${Number(value).toFixed(1)}%`;
+}
+
+function renderCalibrationSummaryCard(summary) {
+  const lift = summary.score_lift_90 == null ? '—' : `${summary.score_lift_90 > 0 ? '+' : ''}${summary.score_lift_90.toFixed(1)} pts`;
+  return `<article class="calibration-summary-card">
+    <div class="calibration-card-head"><div><strong>${esc(summary.test_name_en || 'Assessment')}</strong><span>${esc(summary.test_name_es || '')}</span></div><b>${validationStatusLabel(summary.validation_status)}</b></div>
+    <div class="calibration-kpis">
+      <div><span>Completed tests</span><strong>${Number(summary.completed_assessments || 0)}</strong></div>
+      <div><span>Outcome coverage</span><strong>${pct(summary.outcome_coverage_rate)}</strong></div>
+      <div><span>Retained 90 days</span><strong>${pct(summary.retained_90_rate)}</strong></div>
+      <div><span>Score lift at 90</span><strong>${esc(lift)}</strong></div>
+    </div>
+    <div class="calibration-bars">
+      <label><span>30 days</span><i><em style="width:${Math.min(Number(summary.retained_30_rate || 0), 100)}%"></em></i><strong>${pct(summary.retained_30_rate)}</strong></label>
+      <label><span>90 days</span><i><em style="width:${Math.min(Number(summary.retained_90_rate || 0), 100)}%"></em></i><strong>${pct(summary.retained_90_rate)}</strong></label>
+      <label><span>180 days</span><i><em style="width:${Math.min(Number(summary.retained_180_rate || 0), 100)}%"></em></i><strong>${pct(summary.retained_180_rate)}</strong></label>
+    </div>
+    <p>${summary.validation_status === 'calibration_ready' ? 'There is enough outcome volume to review cutoffs by test, company, role, and list.' : summary.validation_status === 'directional' ? 'Use this as directional evidence while continuing to collect outcomes.' : 'Keep collecting outcomes before changing score thresholds. Early samples are descriptive only.'}</p>
+  </article>`;
+}
+
+function renderCalibration() {
+  const summaries = state.calibration.summaries || [];
+  const selectedSummaries = state.calibrationTestId === 'all' ? summaries : summaries.filter((summary) => summary.test_id === state.calibrationTestId);
+  const assessments = (state.calibration.assessments || []).filter((assessment) => state.calibrationTestId === 'all' || assessment.assessment_test_id === state.calibrationTestId);
+  const outcomes = state.calibrationTestId === 'all' ? state.outcomes : state.outcomes.filter((outcome) => outcome.test_id === state.calibrationTestId);
+  const knownTenure = selectedSummaries.reduce((sum, summary) => sum + Number(summary.known_tenure_count || 0), 0);
+  const weightedTenure = selectedSummaries.reduce((sum, summary) => sum + Number(summary.average_tenure_days || 0) * Number(summary.known_tenure_count || 0), 0);
+  const avgTenure = knownTenure ? Math.round(weightedTenure / knownTenure) : '—';
+  const retained90Known = selectedSummaries.reduce((sum, summary) => sum + Number(summary.retained_90_count || 0), 0);
+  const retained90Rate = knownTenure ? Math.round((retained90Known / knownTenure) * 1000) / 10 : null;
+  const assessmentOptions = assessments.map((assessment) => `<option value="${esc(assessment.assessment_id)}">${esc(assessment.candidate_name)} · ${esc(assessment.assessment_test_name_en || 'Assessment')} · ${Number(assessment.potential_index).toFixed(1)}</option>`).join('');
+  const testOptions = `<option value="all">All tests</option>${summaries.map((summary) => `<option value="${esc(summary.test_id)}" ${state.calibrationTestId === summary.test_id ? 'selected' : ''}>${esc(summary.test_name_en || summary.test_id)}</option>`).join('')}`;
+  const outcomeRows = outcomes.slice(0, 40).map((outcome) => `<tr><td><strong>${esc(outcome.candidate_name)}</strong><br><span class="empty-value">${esc(outcome.candidate_email)}</span></td><td>${esc(outcomeTypeLabel(outcome.outcome_type))}</td><td>${esc(outcome.test_name_en || 'Assessment')}</td><td>${outcome.tenure_days == null ? '—' : `${Number(outcome.tenure_days)} days`}</td><td>${outcome.performance_rating == null ? '—' : `${Number(outcome.performance_rating)} / 5`}</td><td>${formatDate(outcome.outcome_date)}</td><td>${esc(outcome.recorded_by_name || outcome.source || 'Manual')}</td></tr>`).join('');
+  return `${pageIntro('Outcome feedback loop', 'Calibration', 'Feed real hiring and tenure outcomes back into Gazelle Hunt so every test can be measured against operational evidence.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}
+  <section class="grid grid-4">${metric('Assessments', assessments.length, 'Completed tests in scope', 'file')}${metric('Outcomes', outcomes.length, 'Post-test evidence events', 'check')}${metric('Retained 90', pct(retained90Rate), 'Known-tenure candidates', 'shield')}${metric('Avg tenure', avgTenure === '—' ? avgTenure : `${avgTenure} days`, 'Known outcomes', 'clock')}</section>
+  <section class="calibration-layout">
+    <div class="stack">
+      <section class="card"><div class="card-header"><div><h3>Record real-world outcome</h3><p>Use this after hiring decisions, start dates, retention checkpoints, exits, or supervisor reviews.</p></div>${icon('chart')}</div>
+        <form class="card-body form-grid" id="outcome-form">
+          <label class="field form-span"><span>Candidate assessment</span><select class="select" id="outcome-assessment" required>${assessmentOptions}</select></label>
+          <label class="field"><span>Outcome type</span><select class="select" id="outcome-type" required><option value="hired">Hired</option><option value="started">Started</option><option value="checkpoint">Retention checkpoint</option><option value="exit">Exited</option><option value="performance_review">Performance review</option><option value="not_hired">Not hired</option></select></label>
+          <label class="field"><span>Outcome date</span><input class="input" id="outcome-date" type="date" required value="${new Date().toISOString().slice(0, 10)}"></label>
+          <label class="field"><span>Tenure days</span><input class="input" id="outcome-tenure" type="number" min="0" max="5000" placeholder="90"></label>
+          <label class="field"><span>Performance rating</span><select class="select" id="outcome-performance"><option value="">Not applicable</option><option value="1">1 - Low</option><option value="2">2</option><option value="3">3 - Meets</option><option value="4">4</option><option value="5">5 - Strong</option></select></label>
+          <label class="field"><span>Still employed?</span><select class="select" id="outcome-employed"><option value="">Unknown</option><option value="1">Yes</option><option value="0">No</option></select></label>
+          <label class="field"><span>Source</span><input class="input" id="outcome-source" maxlength="80" value="Recruiter follow-up"></label>
+          <label class="field form-span"><span>Notes</span><textarea class="textarea" id="outcome-notes" maxlength="1200" placeholder="Brief evidence: start date, supervisor checkpoint, HRIS update, reason for exit, or performance context."></textarea></label>
+          <div class="form-span"><button class="button button-primary" type="submit" ${!assessments.length || state.busy ? 'disabled' : ''}>${icon('plus')}Record outcome</button><p class="field-help">This is evidence for validation, not an automatic hiring rule.</p></div>
+        </form>
+      </section>
+      <section class="card"><div class="card-header"><div><h3>Recent outcomes</h3><p>Auditable evidence captured after the assessment.</p></div><label class="compact-select"><span>Test</span><select class="select" id="calibration-test-filter">${testOptions}</select></label></div>
+        <div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Outcome</th><th>Test</th><th>Tenure</th><th>Performance</th><th>Date</th><th>Source</th></tr></thead><tbody>${outcomeRows || '<tr><td colspan="7"><div class="empty-panel"><h3>No outcomes yet</h3><p>Record the first hiring, tenure, exit, or performance outcome to start calibration.</p></div></td></tr>'}</tbody></table></div>
+      </section>
+    </div>
+    <aside class="stack">
+      <section class="card"><div class="card-header"><div><h3>Validation model</h3><p>Standard for any assessment.</p></div>${icon('shield')}</div><div class="card-body validation-notes"><p><strong>1. Predictor:</strong> the completed assessment score and version.</p><p><strong>2. Criterion:</strong> observed job outcomes such as hiring, start, retention, exit, and performance.</p><p><strong>3. Calibration:</strong> compare score bands against outcomes only after enough cases accumulate.</p><p><strong>4. Governance:</strong> review adverse impact and keep audit records before changing thresholds.</p></div></section>
+      ${selectedSummaries.map(renderCalibrationSummaryCard).join('') || '<section class="card card-body"><h3>No completed tests yet</h3><p class="empty-value">Calibration starts after candidates complete assessments.</p></section>'}
+    </aside>
+  </section>`;
 }
 
 function channelStatusCard(channel, config = {}) {
@@ -1400,6 +1486,28 @@ async function createContactabilityJourney(event) {
   finally { state.busy = false; render(); }
 }
 
+async function recordOutcome(event) {
+  event.preventDefault();
+  const payload = {
+    assessmentId: document.getElementById('outcome-assessment')?.value,
+    outcomeType: document.getElementById('outcome-type')?.value,
+    outcomeDate: document.getElementById('outcome-date')?.value,
+    tenureDays: document.getElementById('outcome-tenure')?.value,
+    performanceRating: document.getElementById('outcome-performance')?.value,
+    stillEmployed: document.getElementById('outcome-employed')?.value,
+    source: document.getElementById('outcome-source')?.value,
+    notes: document.getElementById('outcome-notes')?.value,
+  };
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/outcomes', { method: 'POST', body: JSON.stringify(payload) });
+    state.outcomes = response.outcomes || [];
+    state.calibration = { summaries: response.summaries || [], assessments: response.assessments || state.calibration.assessments || [] };
+    toast('Outcome recorded. Calibration metrics updated.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
 async function enrollContactabilityJourney(journeyId) {
   state.busy = true; render();
   try {
@@ -1552,7 +1660,7 @@ function render() {
     bindEvents();
     return;
   }
-  const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, journeys: renderContactability, referrals: renderReferrals, reports: renderReports, team: renderTeam, settings: renderSettings };
+  const views = { home: renderHome, tests: renderTests, lists: renderLists, candidates: renderCandidates, import: renderImport, send: renderSend, progress: renderProgress, journeys: renderContactability, referrals: renderReferrals, reports: renderReports, calibration: renderCalibration, team: renderTeam, settings: renderSettings };
   document.getElementById('app').innerHTML = shell(state.loading ? '<div class="loading-panel"><div class="spinner"></div><p>Loading secure workspace…</p></div>' : (views[state.view] || renderHome)());
   bindEvents();
   scheduleAiReportRefresh();
@@ -1593,6 +1701,7 @@ function bindEvents() {
   document.getElementById('invite-form')?.addEventListener('submit', sendInvitation);
   document.getElementById('candidate-stage-form')?.addEventListener('submit', updateJourneyStage);
   document.getElementById('candidate-contact-form')?.addEventListener('submit', updateCandidateContact);
+  document.getElementById('outcome-form')?.addEventListener('submit', recordOutcome);
   document.getElementById('candidate-stage-create-form')?.addEventListener('submit', createJourneyStage);
   document.getElementById('candidate-communication-form')?.addEventListener('submit', publishCandidateCommunication);
   document.getElementById('journey-form')?.addEventListener('submit', createContactabilityJourney);
@@ -1669,6 +1778,7 @@ function bindEvents() {
   document.getElementById('report-scope-filter')?.addEventListener('change', (event) => { state.reportScope = event.target.value; render(); });
   document.getElementById('report-role-filter')?.addEventListener('change', (event) => { state.reportRole = event.target.value; render(); });
   document.getElementById('report-list-filter')?.addEventListener('change', (event) => { state.reportListId = event.target.value; render(); });
+  document.getElementById('calibration-test-filter')?.addEventListener('change', (event) => { state.calibrationTestId = event.target.value; render(); });
   if (state.runner) bindRunner();
 }
 

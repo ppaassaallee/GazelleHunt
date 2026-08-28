@@ -92,3 +92,18 @@ AI provenance is stored separately: provider, model snapshot, prompt version, pr
 10. Change control and revalidation every 6–12 months or after material item/model/job changes.
 
 Until these gates pass, bands are descriptive summaries and must not be converted into cut scores.
+
+## Outcome feedback and calibration
+
+Gazelle now stores post-assessment outcomes in a generic `assessment_outcomes` table so the same feedback loop can support Tenure Potential and future tests. Each record links the completed assessment, candidate, company, test version, outcome type, date, optional tenure days, optional 1–5 performance rating, employment status, source, notes, recorder, and audit event.
+
+This implements a criterion-related validation workflow:
+
+1. **Predictor snapshot:** the original assessment score, band, test id, and model version stay frozen.
+2. **Criterion evidence:** recruiters or admins add real outcomes such as hired, started, 30/90/180-day checkpoint, exit, not hired, or performance review.
+3. **Coverage monitoring:** the app shows what share of completed tests already has known outcome evidence.
+4. **Retention checkpoints:** the app reports retained 30/90/180 based on known tenure outcomes.
+5. **Score/outcome signal:** the app compares 90-day retention for candidates scoring 65+ against lower-scoring candidates.
+6. **Sample gates:** fewer than 30 known-tenure outcomes is a learning sample; 30–99 is directional; 100+ is calibration-ready for deeper review.
+
+These metrics are intentionally conservative. They are operational learning signals, not automatic employment decisions. Any threshold change should be documented, reviewed for job relevance, checked for adverse impact, and validated again after material changes to test content, job conditions, market, language, or scoring model.

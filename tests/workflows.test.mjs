@@ -53,6 +53,7 @@ const context = {
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
       if (url === '/api/journeys') return { journeys: [] };
+      if (url === '/api/outcomes') return { outcomes: [], summaries: [], assessments: [] };
       if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
       return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, messaging: { defaultCountryCode: '502', whatsapp: { configured: false, missing: ['BREVO_WHATSAPP_SENDER_NUMBER'] }, sms: { configured: false, missing: ['BREVO_SMS_SENDER'] } }, ai: { configured: true, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.5' } };
     },
@@ -73,7 +74,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, normalizeCandidateEmail, buildExcelWorkbook, renderCandidates, renderSend, renderProgress, renderContactability, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderReport, renderAudit, renderMethod, state, render };`, context);
+vm.runInNewContext(`${appSource}\n;globalThis.__gazelleWorkflowTest = { startPreview, startInvite, prepareScenarios, completeAssessment, parseCsv, guessedMapping, csvMappedCandidates, normalizeCandidateEmail, buildExcelWorkbook, renderCandidates, renderSend, renderProgress, renderContactability, renderCalibration, bulkResendEligible, filteredReportResults, renderResultDirectory, reportUiCopy, renderReport, renderAudit, renderMethod, state, render };`, context);
 await Promise.resolve();
 
 const csvApi = context.__gazelleWorkflowTest;
@@ -154,6 +155,27 @@ assert.match(appSource, /\/api\/journeys/);
 assert.match(appSource, /flow-canvas/);
 assert.match(appSource, /journey-step-card/);
 assert.match(serverSource, /UPDATE contact_journey_events[\s\S]+assessment_completed/);
+
+csvApi.state.calibration = {
+  assessments: [
+    { assessment_id: 'assessment-care', candidate_name: 'Ana Care', candidate_email: 'ana@example.com', role: 'Customer Care', assessment_test_id: 'test_tenure_potential', assessment_test_name_en: 'Tenure Potential', assessment_test_name_es: 'Potencial de Permanencia', potential_index: 82 },
+    { assessment_id: 'assessment-sales', candidate_name: 'Luis Sales', candidate_email: 'luis@example.com', role: 'Sales', assessment_test_id: 'test_sales', assessment_test_name_en: 'Sales Judgment', assessment_test_name_es: 'Criterio Comercial', potential_index: 55 },
+  ],
+  summaries: [
+    { test_id: 'test_tenure_potential', test_name_en: 'Tenure Potential', test_name_es: 'Potencial de Permanencia', completed_assessments: 12, outcomes_recorded: 5, known_tenure_count: 5, retained_30_rate: 80, retained_90_rate: 60, retained_180_rate: null, average_tenure_days: 74, outcome_coverage_rate: 41.7, high_score_retained_90_rate: 70, lower_score_retained_90_rate: 40, score_lift_90: 30, validation_status: 'learning_sample' },
+  ],
+};
+csvApi.state.outcomes = [{ assessment_id: 'assessment-care', candidate_name: 'Ana Care', candidate_email: 'ana@example.com', outcome_type: 'checkpoint', test_id: 'test_tenure_potential', test_name_en: 'Tenure Potential', tenure_days: 90, performance_rating: 4, outcome_date: '2026-08-28', recorded_by_name: 'Alejandro Pascual' }];
+const calibrationHtml = csvApi.renderCalibration();
+assert.match(calibrationHtml, /Outcome feedback loop/);
+assert.match(calibrationHtml, /Record real-world outcome/);
+assert.match(calibrationHtml, /Retained 90/);
+assert.match(calibrationHtml, /Learning sample/);
+assert.match(calibrationHtml, /Validation model/);
+assert.match(appSource, /\/api\/outcomes/);
+assert.match(serverSource, /CREATE TABLE IF NOT EXISTS assessment_outcomes/);
+assert.match(serverSource, /buildCalibrationSummaries/);
+assert.match(serverSource, /assessment_outcome_recorded/);
 
 csvApi.state.directSendReceipt = { invitationId: 'invite-direct', providerMessageId: 'message-direct', transport: 'api', status: 'accepted', candidateName: 'Direct Candidate', candidateEmail: 'direct@example.com', locale: 'es', testId: 'test_tenure_potential', submittedAt: '2026-07-22T14:49:40.427Z' };
 csvApi.state.candidates = [{ id: 'candidate-direct', invitation_id: 'invite-direct', invitation_status: 'delivered' }];
@@ -316,6 +338,7 @@ for (const route of [
   '/api/auth/signup', '/api/auth/login', '/api/auth/logout', '/api/auth/me',
   '/api/auth/password-reset/request', '/api/auth/password-reset/confirm',
   '/api/tests', '/api/lists', '/api/batches', '/api/results', '/api/admin/users',
+  '/api/outcomes',
   '/api/brevo/configure-webhook',
 ]) assert.match(serverSource, new RegExp(route.replaceAll('/', '\\/')));
 
