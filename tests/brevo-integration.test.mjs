@@ -44,7 +44,7 @@ const context = {
   },
 };
 context.globalThis = context;
-vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, infobipConfig, customSmsConfig, infobipWhatsAppTemplateStatus, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendInfobipSms, sendCustomHttpSms, sendInfobipWhatsApp, sendSms, sendWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus };`, context);
+vm.runInNewContext(`${source}\n;globalThis.__brevoTest = { emailConfig, contactabilityConfig, infobipConfig, customSmsConfig, infobipWhatsAppTemplateStatus, normalizeContactPhone, sendBrevoSms, sendBrevoWhatsApp, sendInfobipSms, sendCustomHttpSms, sendInfobipWhatsApp, sendSms, sendWhatsApp, sendBrevo, smtpMessage, normalizeCandidateEmail, isRetryableProviderError, brevoWebhookPayload, normalizedBrevoEvent, brevoInvitationId, brevoInvitationStatus, brevoDeliverySummary, normalizedProviderMessageId, batchDeliveryStatus, templateInvitationMessage };`, context);
 
 const brevo = context.__brevoTest;
 const emptyConfig = brevo.emailConfig({});
@@ -117,6 +117,10 @@ assert.equal(requestBody.headers.idempotencyKey, 'batch-item-stable-123');
 assert.equal(requestBody.headers['X-Mailin-custom'], 'invitation_id:invitation-123');
 assert.equal(requestBody.headers['X-Sib-Sandbox'], undefined);
 assert.deepEqual(requestBody.tags, ['tenure-potential']);
+assert.match(
+  brevo.templateInvitationMessage({ name: 'Sandy', role: 'Bilingual Customer Care', candidate_brand_name: 'Allied Global' }, 'es', 'https://example.com/candidate?invite=abc', null),
+  /Hola Sandy/,
+);
 
 context.fetch = async () => ({
   ok: false,

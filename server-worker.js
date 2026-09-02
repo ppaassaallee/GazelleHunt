@@ -2253,7 +2253,8 @@ function textInvitationCopy(candidate, locale, link) {
 }
 
 function templateInvitationMessage(candidate, locale, link, step = {}) {
-  const template = cleanText(locale === 'es' ? step.message_es : step.message_en, 800);
+  const safeStep = step || {};
+  const template = cleanText(locale === 'es' ? safeStep.message_es : safeStep.message_en, 800);
   if (!template) return textInvitationCopy(candidate, locale, link);
   return compactMessage(template
     .replaceAll('{{name}}', candidate.name || '')
@@ -3344,9 +3345,9 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
     throw error;
   }
   const link = `${origin}/candidate?invite=${encodeURIComponent(token)}`;
-  const copy = invitationCopy(candidate, locale, link);
-  const messageText = templateInvitationMessage(candidate, locale, link, step);
   try {
+    const copy = invitationCopy(candidate, locale, link);
+    const messageText = templateInvitationMessage(candidate, locale, link, step);
     const provider = deliveryChannel === 'email'
       ? await sendBrevo(env, { to: recipientEmail, toName: candidate.name, ...copy, invitationId, idempotencyKey, tag: test.slug })
       : deliveryChannel === 'sms'
