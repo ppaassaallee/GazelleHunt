@@ -2960,7 +2960,7 @@ async function listCandidates(env, user) {
 
 async function reconcileStaleDeliveryStates(env) {
   const now = new Date().toISOString();
-  const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const cutoff = new Date(Date.now() - 45 * 1000).toISOString();
   await env.DB.batch([
     env.DB.prepare(`
       UPDATE invitations
@@ -2973,6 +2973,14 @@ async function reconcileStaleDeliveryStates(env) {
       WHERE status = 'sending' AND updated_at < ?
     `).bind(now, cutoff),
   ]).catch(() => null);
+  const batches = await env.DB.prepare(`
+    SELECT b.id, u.email
+    FROM send_batches b JOIN users u ON u.id = b.created_by_user_id
+    WHERE b.status IN ('queued', 'processing')
+      AND NOT EXISTS (SELECT 1 FROM send_batch_items bi WHERE bi.batch_id = b.id AND bi.status IN ('queued', 'sending'))
+    LIMIT 25
+  `).all().catch(() => ({ results: [] }));
+  for (const batch of batches.results || []) await updateBatchCounts(env, batch.id, batch.email).catch(() => null);
 }
 
 async function listAssessmentResults(env, user) {
@@ -3392,7 +3400,21 @@ async function createInvitation(request, env, user) {
   try {
     return json(await sendInvitationForCandidate({ env, user, candidate, test, locale, origin }), 201);
   } catch (error) {
-    return json({ error: error.providerMessage || 'The email provider did not accept the message.', code: error.message }, error.providerStatus || 502);
+    await reconcileStaleDeliveryStates(env);
+    console.error('gazelle_invitation_delivery_failed', {
+      candidateId: candidate?.id || null,
+      email: candidate?.email || null,
+      testId: test.id,
+      code: cleanText(error.message, 120),
+      providerStatus: error.providerStatus || null,
+      providerMessage: cleanText(error.providerMessage, 420) || null,
+    });
+    return json({
+      error: error.providerMessage || 'The email provider did not accept the message.',
+      code: error.message,
+      invitationId: error.invitationId || null,
+      candidates: await listCandidates(env, user),
+    }, error.providerStatus || 502);
   }
 }
 
@@ -5187,7 +5209,7 @@ export default {
     }
   },
   async scheduled(controller, env, context) {
-    const work = [recoverAsyncWork(env), processDueJourneyEvents(env)];
+    const work = [reconcileStaleDeliveryStates(env), recoverAsyncWork(env), processDueJourneyEvents(env)];
     if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
     context.waitUntil(Promise.all(work));
   },

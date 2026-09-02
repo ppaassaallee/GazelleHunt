@@ -113,6 +113,8 @@ async function fetchJson(url, options) {
     const error = new Error(body.error || 'The request could not be completed.');
     error.code = body.code;
     error.status = response.status;
+    error.body = body;
+    if (body.candidates) error.candidates = body.candidates;
     throw error;
   }
   return body;
@@ -1238,6 +1240,7 @@ async function sendInvitation(event) {
     toast(`Invitation submitted through Brevo ${response.transport === 'smtp' ? 'SMTP' : 'API'}. Checking delivery.`);
     await loadWorkspace();
   } catch (error) {
+    if (error.candidates) state.candidates = error.candidates;
     toast(error.message);
     await loadWorkspace({ silent: true }).catch(() => null);
   }
@@ -1253,6 +1256,7 @@ async function updateJourneyStage(event) {
     toast('Candidate stage updated.');
     await loadWorkspace();
   } catch (error) {
+    if (error.candidates) state.candidates = error.candidates;
     toast(error.message);
     await loadWorkspace({ silent: true }).catch(() => null);
   }
