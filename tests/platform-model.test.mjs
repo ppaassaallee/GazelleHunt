@@ -50,6 +50,7 @@ assert.match(server, /owner_user_id = \?/);
 assert.match(server, /company_id = \?/);
 assert.match(server, /A batch can contain at most 500/);
 assert.match(server, /createBulkResend/);
+assert.match(server, /SELECT c\.id, c\.company_id, c\.owner_user_id, c\.name, c\.email, c\.phone, c\.role, c\.site/);
 assert.doesNotMatch(server, /previous_invitation_required/);
 assert.match(server, /attempt_limit_reached/);
 assert.match(server, /engine_key = 'tenure_potential'/);

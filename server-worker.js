@@ -3430,7 +3430,7 @@ async function createBulkResend(request, env, user, context) {
   if (!test) return json({ error: 'This test is not active or does not have an executable engine.', code: 'test_not_executable' }, 422);
   const scope = candidateScope(user);
   const candidates = await env.DB.prepare(`
-    SELECT c.id, c.company_id, c.name,
+    SELECT c.id, c.company_id, c.owner_user_id, c.name, c.email, c.phone, c.role, c.site, c.created_at, c.updated_at,
       (SELECT i.locale FROM invitations i WHERE i.candidate_id = c.id AND i.test_id = ? AND i.status <> 'failed' ORDER BY i.created_at DESC LIMIT 1) AS previous_locale,
       (SELECT COUNT(*) FROM invitations used WHERE used.candidate_id = c.id AND used.test_id = ? AND used.status NOT IN ('failed', 'provider_unconfirmed')) AS attempts_used,
       COALESCE((SELECT access.attempt_limit FROM candidate_test_access access WHERE access.candidate_id = c.id AND access.test_id = ?), 3) AS attempt_limit
