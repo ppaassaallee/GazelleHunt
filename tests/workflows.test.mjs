@@ -114,17 +114,20 @@ csvApi.state.candidates = [
   { id: 'candidate-ready', name: 'Ready Candidate', email: 'ready@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_status: 'delivered', attempts_used: 1, attempt_limit: 3, attempts_remaining: 2 },
   { id: 'candidate-blocked', name: 'Blocked Candidate', email: 'blocked@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_status: 'completed', attempts_used: 3, attempt_limit: 3, attempts_remaining: 0 },
   { id: 'candidate-pending', name: 'Pending Candidate', email: 'pending@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_test_id: 'test_tenure_potential', invitation_id: 'invite-pending', invitation_status: 'accepted', attempts_used: 1, attempt_limit: 3, attempts_remaining: 2 },
+  { id: 'candidate-first', name: 'First Send Candidate', email: 'first@example.com', role: 'Customer Care', company_name: 'Allied Global', invitation_status: null, attempts_used: 0, attempt_limit: 3, attempts_remaining: 3 },
 ];
-csvApi.state.selectedCandidateIds = ['candidate-ready'];
+csvApi.state.selectedCandidateIds = ['candidate-ready', 'candidate-first'];
 const candidateBulkHtml = csvApi.renderCandidates();
-assert.match(candidateBulkHtml, /1 selected/);
-assert.match(candidateBulkHtml, /Resend to 1/);
-assert.match(candidateBulkHtml, /Previous language/);
+assert.match(candidateBulkHtml, /2 selected/);
+assert.match(candidateBulkHtml, /Send \/ resend 2/);
+assert.match(candidateBulkHtml, /Previous or Spanish/);
 assert.match(candidateBulkHtml, /candidate-ready[^>]*aria-label="Select Ready Candidate"[^>]*checked/);
+assert.match(candidateBulkHtml, /candidate-first[^>]*aria-label="Select First Send Candidate"[^>]*checked/);
 assert.match(candidateBulkHtml, /candidate-blocked[^>]*aria-label="Select Blocked Candidate"[^>]*disabled/);
 assert.match(candidateBulkHtml, /Awaiting delivery/);
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[0], 'test_tenure_potential'), true);
 assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[1], 'test_tenure_potential'), false);
+assert.equal(csvApi.bulkResendEligible(csvApi.state.candidates[3], 'test_tenure_potential'), true);
 
 csvApi.state.batches = [{ id: 'batch-unconfirmed', list_name: 'July candidates', company_name: 'Allied Global', created_by_name: 'Alejandro Pascual', status: 'provider_unconfirmed', total_count: 25, accepted_count: 25, failed_count: 0, provider_confirmed_count: 0, delivered_count: 0, completed_assessments: 0, created_at: '2026-07-22T14:49:40.427Z' }];
 const progressHtml = csvApi.renderProgress();

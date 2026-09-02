@@ -3396,15 +3396,13 @@ async function createBulkResend(request, env, user, context) {
   `).bind(test.id, test.id, test.id, ...candidateIds, ...scope.bindings).all();
   const rows = candidates.results || [];
   if (rows.length !== candidateIds.length) return json({ error: 'One or more selected candidates are outside your access scope.', code: 'candidate_scope_mismatch' }, 403);
-  const withoutPrevious = rows.filter((candidate) => !candidate.previous_locale);
-  if (withoutPrevious.length) return json({ error: `${withoutPrevious.length} selected candidate${withoutPrevious.length === 1 ? ' has' : 's have'} not received this test before. Use Direct send for a first invitation.`, code: 'previous_invitation_required' }, 422);
   const withoutAttempts = rows.filter((candidate) => Number(candidate.attempts_used || 0) >= Number(candidate.attempt_limit || 3));
   if (withoutAttempts.length) return json({ error: `${withoutAttempts.length} selected candidate${withoutAttempts.length === 1 ? ' has' : 's have'} no attempts remaining. An administrator must release three more before resending.`, code: 'attempt_limit_reached' }, 409);
 
   const requestedLocale = ['en', 'es'].includes(body.locale) ? body.locale : 'previous';
   const groups = new Map();
   rows.forEach((candidate) => {
-    const locale = requestedLocale === 'previous' ? (candidate.previous_locale === 'es' ? 'es' : 'en') : requestedLocale;
+    const locale = requestedLocale === 'previous' ? (candidate.previous_locale === 'en' ? 'en' : 'es') : requestedLocale;
     const key = `${candidate.company_id}:${locale}`;
     if (!groups.has(key)) groups.set(key, { companyId: candidate.company_id, locale, candidates: [] });
     groups.get(key).candidates.push(candidate);
