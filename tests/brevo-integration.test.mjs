@@ -26,6 +26,9 @@ const context = {
   FormData,
   btoa,
   atob,
+  AbortController,
+  setTimeout,
+  clearTimeout,
   fetch: async (url, options) => {
     fetchCalls.push({ url: String(url), options });
     if (String(url).includes('/whatsapp/2/senders/') && String(url).endsWith('/templates')) {
@@ -114,6 +117,45 @@ assert.equal(requestBody.headers.idempotencyKey, 'batch-item-stable-123');
 assert.equal(requestBody.headers['X-Mailin-custom'], 'invitation_id:invitation-123');
 assert.equal(requestBody.headers['X-Sib-Sandbox'], undefined);
 assert.deepEqual(requestBody.tags, ['tenure-potential']);
+
+context.fetch = async () => ({
+  ok: false,
+  status: 400,
+  async json() {
+    return { code: 'invalid_parameter', message: 'Sender email is not verified.' };
+  },
+});
+await assert.rejects(
+  brevo.sendBrevo(env, {
+    invitationId: 'invitation-rejected',
+    idempotencyKey: 'batch-item-rejected',
+    tag: 'Tenure Potential',
+    to: 'candidate@example.com',
+    subject: 'Assessment invitation',
+    text: 'Plain-text invitation',
+    html: '<p>HTML invitation</p>',
+  }),
+  (error) => {
+    assert.equal(error.message, 'brevo_rejected');
+    assert.equal(error.providerStatus, 400);
+    assert.match(error.providerMessage, /Sender email is not verified/);
+    assert.match(error.providerMessage, /invalid_parameter/);
+    return true;
+  },
+);
+context.fetch = async (url, options) => {
+  fetchCalls.push({ url: String(url), options });
+  if (String(url).includes('/whatsapp/2/senders/') && String(url).endsWith('/templates')) {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { templates: [{ name: 'gazelle_assessment_invitation', language: 'es', status: 'APPROVED' }] };
+      },
+    };
+  }
+  return { ok: true, status: 201, async json() { return { messageId: '<brevo-message-123@example.com>' }; } };
+};
 
 const smsSent = await brevo.sendBrevoSms({ ...env, BREVO_SMS_SENDER: 'Gazelle' }, {
   toPhone: '50248048638',

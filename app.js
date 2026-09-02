@@ -298,8 +298,9 @@ function candidateTable(candidates, selectedTestId, selectedIds = []) {
   const rows = candidates.map((candidate) => {
     const eligible = bulkResendEligible(candidate, selectedTestId);
     const checked = selected.has(candidate.id);
-    const reason = candidate.invitation_test_id !== selectedTestId ? 'No previous invitation for this test' : Number(candidate.attempts_remaining || 0) <= 0 ? 'No attempts remaining' : 'Select candidate';
-    return `<tr class="${checked ? 'candidate-row-selected' : ''}"><td class="table-check"><input type="checkbox" class="candidate-resend-checkbox" value="${candidate.id}" aria-label="Select ${esc(candidate.name)}" title="${esc(reason)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'}></td><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.company_name || candidate.site || 'No company')}</span></td><td><span class="badge badge-neutral">${esc(candidate.current_stage_name_en || 'Application received')}</span><br><small class="attempt-note">${Number(candidate.attempts_used || 0)} / ${Number(candidate.attempt_limit || 3)} attempts</small></td><td>${statusBadge(candidate.invitation_status)}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td><div class="row-actions"><button class="row-button" data-journey="${candidate.id}">Manage journey</button>${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open report</button>` : ''}</div></td></tr>`;
+    const reason = Number(candidate.attempts_remaining || 0) <= 0 ? 'No attempts remaining' : candidate.assessment_id ? 'Assessment already completed' : 'Select candidate';
+    const deliveryNote = candidate.assignment_error_code ? `<br><small class="attempt-note">Last send failed: ${esc(statusLabels[candidate.assignment_error_code] || candidate.assignment_error_code.replaceAll('_', ' '))}</small>` : '';
+    return `<tr class="${checked ? 'candidate-row-selected' : ''}"><td class="table-check"><input type="checkbox" class="candidate-resend-checkbox" value="${candidate.id}" aria-label="Select ${esc(candidate.name)}" title="${esc(reason)}" ${checked ? 'checked' : ''} ${eligible ? '' : 'disabled'}></td><td><div class="person"><div class="person-avatar">${initials(candidate.name)}</div><div><strong>${esc(candidate.name)}</strong><span>${esc(candidate.email)}</span></div></div></td><td><strong>${esc(candidate.role)}</strong><br><span class="empty-value">${esc(candidate.company_name || candidate.site || 'No company')}</span></td><td><span class="badge badge-neutral">${esc(candidate.current_stage_name_en || 'Application received')}</span><br><small class="attempt-note">${Number(candidate.attempts_used || 0)} / ${Number(candidate.attempt_limit || 3)} attempts</small></td><td>${statusBadge(candidate.invitation_status)}${deliveryNote}</td><td>${candidate.assessment_id ? `<span class="score-badge">${Number(candidate.potential_index).toFixed(1)} / 100</span>` : '<span class="empty-value">Not completed</span>'}</td><td><div class="row-actions"><button class="row-button" data-journey="${candidate.id}">Manage journey</button>${candidate.assessment_id ? `<button class="row-button" data-report="${candidate.id}">Open report</button>` : ''}</div></td></tr>`;
   }).join('');
   return `<div class="table-scroll"><table><thead><tr><th class="table-check"><input type="checkbox" id="candidate-select-visible" aria-label="Select all eligible visible candidates" ${allEligibleSelected ? 'checked' : ''} ${eligibleCandidates.length ? '' : 'disabled'}></th><th>Candidate</th><th>Role / company</th><th>Stage</th><th>Invitation</th><th>Assessment</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -1236,7 +1237,10 @@ async function sendInvitation(event) {
     state.view = 'send';
     toast(`Invitation submitted through Brevo ${response.transport === 'smtp' ? 'SMTP' : 'API'}. Checking delivery.`);
     await loadWorkspace();
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    toast(error.message);
+    await loadWorkspace({ silent: true }).catch(() => null);
+  }
   finally { state.busy = false; render(); }
 }
 
@@ -1248,7 +1252,10 @@ async function updateJourneyStage(event) {
     await fetchJson(`/api/candidates/${encodeURIComponent(candidateId)}/stage`, { method: 'PATCH', body: JSON.stringify({ stageId: document.getElementById('journey-stage').value, messageEn: document.getElementById('journey-stage-message-en').value, messageEs: document.getElementById('journey-stage-message-es').value }) });
     toast('Candidate stage updated.');
     await loadWorkspace();
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    toast(error.message);
+    await loadWorkspace({ silent: true }).catch(() => null);
+  }
   finally { state.busy = false; render(); }
 }
 
@@ -1267,7 +1274,10 @@ async function updateCandidateContact(event) {
     state.candidates = response.candidates || state.candidates;
     const accountNote = response.linkedAccountEmailUnchanged ? ' The existing candidate portal account still uses its previous sign-in email.' : '';
     toast(response.changed ? `Candidate email updated.${accountNote} Resend the test when ready.` : 'The candidate email is already up to date.');
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    toast(error.message);
+    await loadWorkspace({ silent: true }).catch(() => null);
+  }
   finally { state.busy = false; render(); }
 }
 
@@ -1320,7 +1330,10 @@ async function resendCandidateTest(candidateId) {
     const response = await fetchJson('/api/invitations', { method: 'POST', body: JSON.stringify({ candidateId, testId, locale: candidate.invitation_locale || 'en' }) });
     toast(`Test resent. ${response.attempts.remaining} attempts remain.`);
     await loadWorkspace();
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    toast(error.message);
+    await loadWorkspace({ silent: true }).catch(() => null);
+  }
   finally { state.busy = false; render(); }
 }
 

@@ -1876,7 +1876,7 @@ async function sendBrevoApi(config, message) {
   const tag = cleanText(message.tag, 80).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'gazelle-assessment';
   const headers = { idempotencyKey };
   if (invitationId) headers['X-Mailin-custom'] = `invitation_id:${invitationId}`;
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+  const response = await fetchWithTimeout('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { accept: 'application/json', 'api-key': config.apiKey, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -1888,12 +1888,14 @@ async function sendBrevoApi(config, message) {
       tags: [tag],
       headers,
     }),
-  });
+  }, 25000);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error('brevo_rejected');
     error.providerStatus = response.status;
-    error.providerMessage = cleanText(body.message || body.code || 'Brevo rejected the request', 300);
+    const providerCode = cleanText(body.code, 120);
+    const providerMessage = cleanText(body.message || body.error || body.error_description, 300);
+    error.providerMessage = cleanText([providerMessage, providerCode ? `Brevo code: ${providerCode}` : ''].filter(Boolean).join(' '), 420) || 'Brevo rejected the request.';
     throw error;
   }
   const messageId = cleanText(body.messageId, 300);
@@ -2843,6 +2845,7 @@ async function updateCandidateContact(request, env, user, candidateId) {
 }
 
 async function listCandidates(env, user) {
+  await reconcileStaleDeliveryStates(env);
   const scope = candidateScope(user);
   const candidatesMissingPipeline = await env.DB.prepare(`
     SELECT c.id, c.company_id
@@ -2953,6 +2956,23 @@ async function listCandidates(env, user) {
     }));
   });
   return rows;
+}
+
+async function reconcileStaleDeliveryStates(env) {
+  const now = new Date().toISOString();
+  const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE invitations
+      SET status = 'failed'
+      WHERE status = 'sending' AND provider_message_id IS NULL AND created_at < ?
+    `).bind(cutoff),
+    env.DB.prepare(`
+      UPDATE send_batch_items
+      SET status = 'failed', error_code = COALESCE(error_code, 'provider_response_missing'), next_attempt_at = NULL, updated_at = ?
+      WHERE status = 'sending' AND updated_at < ?
+    `).bind(now, cutoff),
+  ]).catch(() => null);
 }
 
 async function listAssessmentResults(env, user) {
@@ -3329,7 +3349,7 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
     return { invitationId, status: 'accepted', providerMessageId: provider.id, transport: provider.transport, channel: deliveryChannel, expiresAt, attempts: { limit: attempts.limit, used: attempts.used + 1, remaining: attempts.remaining - 1 } };
   } catch (error) {
     await env.DB.prepare(`UPDATE invitations SET status = ? WHERE id = ?`).bind('failed', invitationId).run();
-    await audit(env, user.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null, channel: deliveryChannel, testId: test.id, listId, batchId });
+    await audit(env, user.email, 'invitation_failed', 'invitation', invitationId, { code: error.message, providerStatus: error.providerStatus || null, providerMessage: error.providerMessage || null, channel: deliveryChannel, testId: test.id, listId, batchId });
     error.invitationId = invitationId;
     throw error;
   }
