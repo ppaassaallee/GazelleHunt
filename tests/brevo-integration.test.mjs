@@ -217,7 +217,7 @@ const infobipSms = await brevo.sendInfobipSms(infobipEnv, {
 });
 assert.equal(infobipSms.transport, 'sms');
 assert.equal(fetchCalls.at(-1).url, 'https://abc123.api.infobip.com/sms/2/text/advanced');
-assert.equal(fetchCalls.at(-1).options.headers.authorization, 'App infobip-test-key');
+assert.equal(fetchCalls.at(-1).options.headers.Authorization, 'App infobip-test-key');
 const infobipSmsBody = JSON.parse(fetchCalls.at(-1).options.body);
 assert.equal(infobipSmsBody.messages[0].from, 'Gazelle');
 assert.deepEqual(infobipSmsBody.messages[0].destinations, [{ to: '50248048638', messageId: 'sms-event-1' }]);
@@ -239,6 +239,25 @@ assert.equal(infobipWhatsAppBody.messages[0].content.templateName, 'gazelle_asse
 assert.equal(infobipWhatsAppBody.messages[0].content.language, 'es');
 assert.deepEqual(infobipWhatsAppBody.messages[0].content.templateData.body.placeholders, ['Candidate Name', 'Allied Global', 'Bilingual Customer Care']);
 assert.deepEqual(infobipWhatsAppBody.messages[0].content.templateData.buttons, [{ type: 'URL', parameter: 'abc' }]);
+
+const originalFetch = context.fetch;
+context.fetch = async (url, options) => {
+  fetchCalls.push({ url: String(url), options });
+  if (String(url).includes('/whatsapp/2/senders/') && String(url).endsWith('/templates')) {
+    return { ok: false, status: 401, async json() { return { requestError: { serviceException: { text: 'Invalid login details' } } }; } };
+  }
+  return { ok: true, status: 200, async json() { return { messages: [{ messageId: 'infobip-wa-fallback-1' }] }; } };
+};
+const infobipWhatsAppFallback = await brevo.sendInfobipWhatsApp(infobipEnv, {
+  toPhone: '50248048638',
+  candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
+  link: 'https://example.com/candidate?invite=abc',
+  buttonToken: 'abc',
+  idempotencyKey: 'wa-event-fallback-1',
+});
+assert.equal(infobipWhatsAppFallback.id, 'infobip-wa-fallback-1');
+assert.equal(fetchCalls.at(-1).url, 'https://abc123.api.infobip.com/whatsapp/1/message/template');
+context.fetch = originalFetch;
 
 const infobipBodyLink = await brevo.sendInfobipWhatsApp({ ...infobipEnv, INFOBIP_WHATSAPP_LINK_PLACEMENT: 'body' }, {
   toPhone: '50248048638',

@@ -2159,7 +2159,7 @@ async function brevoApiRequest(config, path, options = {}) {
 async function infobipApiRequest(config, path, options = {}) {
   const response = await fetch(`${config.baseUrl}${path}`, {
     method: options.method || 'GET',
-    headers: { accept: 'application/json', authorization: `App ${config.apiKey}`, 'content-type': 'application/json' },
+    headers: { Accept: 'application/json', Authorization: `App ${config.apiKey}`, 'Content-Type': 'application/json' },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const body = await response.json().catch(() => ({}));
@@ -2384,12 +2384,29 @@ async function sendInfobipWhatsApp(env, message) {
     cleanText(message.candidate?.role || '', 120),
   ];
   if (config.whatsappLinkPlacement === 'body') bodyPlaceholders.push(cleanText(message.link || '', 500));
-  const templateStatus = await infobipWhatsAppTemplateStatus(env, templateName, language);
+  const templateStatus = await infobipWhatsAppTemplateStatus(env, templateName, language).catch((error) => ({
+    configured: contact.whatsapp.configured,
+    sendable: null,
+    validationUnavailable: true,
+    templateName,
+    language,
+    status: null,
+    missing: [],
+    error: cleanText(error.providerMessage || error.message || 'Infobip template status could not be checked before sending.', 300),
+  }));
   if (!templateStatus.sendable) {
-    const error = new Error('whatsapp_template_not_approved');
-    error.providerStatus = 422;
-    error.providerMessage = templateStatus.error || `Infobip template ${templateName} is ${templateStatus.status || 'not approved'} and cannot be sent yet.`;
-    throw error;
+    if (templateStatus.validationUnavailable) {
+      console.warn('Infobip template status check failed; attempting direct WhatsApp send.', {
+        templateName,
+        language,
+        error: templateStatus.error,
+      });
+    } else {
+      const error = new Error('whatsapp_template_not_approved');
+      error.providerStatus = 422;
+      error.providerMessage = `Infobip template ${templateName} is ${templateStatus.status || 'not approved'} and cannot be sent yet.`;
+      throw error;
+    }
   }
   const providerMessageId = cleanText(message.idempotencyKey, 100) || crypto.randomUUID();
   const body = await infobipApiRequest(config, '/whatsapp/1/message/template', {
