@@ -2328,6 +2328,7 @@ async function sendInfobipSms(env, message) {
     },
   });
   const responseMessage = Array.isArray(body.messages) ? body.messages[0] || {} : {};
+  assertInfobipAccepted(responseMessage, 'SMS');
   const messageId = cleanText(responseMessage.messageId || body.bulkId || providerMessageId, 300);
   return { id: messageId, transport: 'sms', message: 'Infobip accepted the SMS request.' };
 }
@@ -2430,8 +2431,21 @@ async function sendInfobipWhatsApp(env, message) {
     },
   });
   const responseMessage = Array.isArray(body.messages) ? body.messages[0] || {} : {};
+  assertInfobipAccepted(responseMessage, 'WhatsApp');
   const messageId = cleanText(responseMessage.messageId || body.bulkId || providerMessageId, 300);
   return { id: messageId, transport: 'whatsapp', message: 'Infobip accepted the WhatsApp template request.' };
+}
+
+function assertInfobipAccepted(message, channelLabel) {
+  const groupName = cleanText(message?.status?.groupName, 80).toUpperCase();
+  const statusName = cleanText(message?.status?.name, 120);
+  const description = cleanText(message?.status?.description, 300);
+  if (/(REJECTED|UNDELIVERABLE|EXPIRED)/.test(groupName)) {
+    const error = new Error(`infobip_${channelLabel.toLowerCase()}_rejected`);
+    error.providerStatus = 422;
+    error.providerMessage = [statusName, description].filter(Boolean).join(': ') || `Infobip rejected the ${channelLabel} message.`;
+    throw error;
+  }
 }
 
 async function sendSms(env, message) {
@@ -2643,6 +2657,63 @@ async function emailDeliveryDiagnostics(request, env, user) {
   });
 }
 
+async function messagingDiagnostics(request, env, user) {
+  if (!isSuperAdmin(user)) return json({ error: 'Super administrator access is required.', code: 'super_admin_required' }, 403);
+  const infobip = infobipConfig(env);
+  const infobipKeyHash = infobip.apiKey ? await sha256(infobip.apiKey) : '';
+  const requestUrl = new URL(request.url);
+  const candidateId = cleanText(requestUrl.searchParams.get('candidateId'), 100);
+  const journeyId = cleanText(requestUrl.searchParams.get('journeyId'), 100);
+  const bindings = [];
+  let auditWhere = `event_type IN ('invitation_failed', 'invitation_accepted_by_provider', 'candidate_whatsapp_reply_received')`;
+  if (candidateId) {
+    auditWhere += ` AND (
+      entity_id IN (SELECT id FROM invitations WHERE candidate_id = ?)
+      OR json_extract(payload_json, '$.candidateId') = ?
+    )`;
+    bindings.push(candidateId, candidateId);
+  }
+  const auditRows = await env.DB.prepare(`
+    SELECT event_type, entity_type, entity_id, payload_json, created_at
+    FROM audit_events WHERE ${auditWhere}
+    ORDER BY created_at DESC LIMIT 25
+  `).bind(...bindings).all();
+  const eventBindings = [];
+  let eventWhere = `1 = 1`;
+  if (candidateId) { eventWhere += ` AND ev.candidate_id = ?`; eventBindings.push(candidateId); }
+  if (journeyId) { eventWhere += ` AND e.journey_id = ?`; eventBindings.push(journeyId); }
+  const eventRows = await env.DB.prepare(`
+    SELECT ev.id, ev.channel, ev.status, ev.error_code, ev.provider_message_id, ev.scheduled_at, ev.sent_at, ev.updated_at,
+      ev.candidate_id, c.name AS candidate_name, c.email AS candidate_email, c.phone AS candidate_phone,
+      e.journey_id, j.name AS journey_name
+    FROM contact_journey_events ev
+    JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id
+    JOIN contact_journeys j ON j.id = e.journey_id
+    JOIN candidates c ON c.id = ev.candidate_id
+    WHERE ${eventWhere}
+    ORDER BY ev.updated_at DESC LIMIT 25
+  `).bind(...eventBindings).all();
+  return json({
+    infobip: {
+      configured: infobip.configured,
+      baseUrl: infobip.baseUrl,
+      whatsappSender: infobip.whatsappSender,
+      whatsappTemplateName: infobip.whatsappTemplateName,
+      whatsappTemplateLanguage: infobip.whatsappTemplateLanguage,
+      apiKeyLength: infobip.apiKey.length,
+      apiKeySha256Prefix: infobipKeyHash.slice(0, 16) || null,
+    },
+    audit: (auditRows.results || []).map((row) => ({
+      type: row.event_type,
+      entityType: row.entity_type,
+      entityId: row.entity_id,
+      payload: safeJsonParse(row.payload_json, {}),
+      createdAt: row.created_at,
+    })),
+    journeyEvents: eventRows.results || [],
+  });
+}
+
 function invitationCopy(candidate, locale, link) {
   const name = escapeHtml(candidate.name.split(/\s+/)[0] || candidate.name);
   const role = escapeHtml(candidate.role);
@@ -2666,6 +2737,14 @@ async function audit(env, actor, type, entityType, entityId, payload) {
   await env.DB.prepare(`INSERT INTO audit_events (id, actor_email, event_type, entity_type, entity_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .bind(crypto.randomUUID(), actor || null, type, entityType, entityId, JSON.stringify(payload || {}), new Date().toISOString())
     .run();
+}
+
+function safeJsonParse(value, fallback = null) {
+  try {
+    return JSON.parse(String(value || ''));
+  } catch {
+    return fallback;
+  }
 }
 
 async function testAttemptStatus(env, candidateId, testId, updatedByUserId = null) {
@@ -5099,6 +5178,7 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/auth/password' && request.method === 'POST') return changePassword(request, env, user);
   if (url.pathname === '/api/brevo/configure-webhook' && request.method === 'POST') return configureBrevoWebhook(request, env, user);
   if (url.pathname === '/api/admin/email-diagnostics' && request.method === 'GET') return emailDeliveryDiagnostics(request, env, user);
+  if (url.pathname === '/api/admin/messaging-diagnostics' && request.method === 'GET') return messagingDiagnostics(request, env, user);
   if (url.pathname === '/api/health' && request.method === 'GET') {
     const email = emailConfig(env);
     const ai = aiConfig(env);

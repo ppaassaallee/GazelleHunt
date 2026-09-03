@@ -259,6 +259,30 @@ assert.equal(infobipWhatsAppFallback.id, 'infobip-wa-fallback-1');
 assert.equal(fetchCalls.at(-1).url, 'https://abc123.api.infobip.com/whatsapp/1/message/template');
 context.fetch = originalFetch;
 
+context.fetch = async (url, options) => {
+  fetchCalls.push({ url: String(url), options });
+  if (String(url).includes('/whatsapp/2/senders/') && String(url).endsWith('/templates')) {
+    return { ok: false, status: 401, async json() { return { requestError: { serviceException: { text: 'Invalid login details' } } }; } };
+  }
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return { messages: [{ messageId: 'infobip-wa-rejected-1', status: { groupName: 'REJECTED', name: 'REJECTED_SOURCE', description: 'Invalid Source address' } }] };
+    },
+  };
+};
+await assert.rejects(
+  brevo.sendInfobipWhatsApp(infobipEnv, {
+    toPhone: '50248048638',
+    candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
+    link: 'https://example.com/candidate?invite=abc',
+    buttonToken: 'abc',
+  }),
+  /infobip_whatsapp_rejected/,
+);
+context.fetch = originalFetch;
+
 const infobipBodyLink = await brevo.sendInfobipWhatsApp({ ...infobipEnv, INFOBIP_WHATSAPP_LINK_PLACEMENT: 'body' }, {
   toPhone: '50248048638',
   candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
