@@ -2747,6 +2747,12 @@ function safeJsonParse(value, fallback = null) {
   }
 }
 
+function chunkArray(values, size = 80) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size));
+  return chunks;
+}
+
 async function testAttemptStatus(env, candidateId, testId, updatedByUserId = null) {
   const now = new Date().toISOString();
   await env.DB.prepare(`
@@ -3011,10 +3017,10 @@ async function listCandidates(env, user) {
     attempt_limit: Number(row.attempt_limit || 3),
     attempts_used: Number(row.attempts_used || 0),
     attempts_remaining: Math.max(0, Number(row.attempt_limit || 3) - Number(row.attempts_used || 0)),
-    support_profile: row.support_profile_json ? JSON.parse(row.support_profile_json) : null,
-    response_quality: row.response_quality_json ? JSON.parse(row.response_quality_json) : null,
-    scoring_trace: row.scoring_trace_json ? JSON.parse(row.scoring_trace_json) : null,
-    weights: row.weights_json ? JSON.parse(row.weights_json) : null,
+    support_profile: row.support_profile_json ? safeJsonParse(row.support_profile_json, null) : null,
+    response_quality: row.response_quality_json ? safeJsonParse(row.response_quality_json, null) : null,
+    scoring_trace: row.scoring_trace_json ? safeJsonParse(row.scoring_trace_json, null) : null,
+    weights: row.weights_json ? safeJsonParse(row.weights_json, null) : null,
     ai_analysis: row.ai_analysis_status ? {
       status: row.ai_analysis_status,
       provider: row.ai_analysis_provider,
@@ -3023,9 +3029,9 @@ async function listCandidates(env, user) {
       provider_response_id: row.ai_provider_response_id,
       evidence_hash: row.ai_evidence_hash,
       output_hash: row.ai_output_hash,
-      output: row.ai_output_en_json && row.ai_output_es_json ? { en: JSON.parse(row.ai_output_en_json), es: JSON.parse(row.ai_output_es_json) } : null,
-      evidence_claims: row.ai_evidence_claims_json ? JSON.parse(row.ai_evidence_claims_json) : [],
-      limitations: row.ai_limitations_json ? JSON.parse(row.ai_limitations_json) : [],
+      output: row.ai_output_en_json && row.ai_output_es_json ? { en: safeJsonParse(row.ai_output_en_json, null), es: safeJsonParse(row.ai_output_es_json, null) } : null,
+      evidence_claims: row.ai_evidence_claims_json ? safeJsonParse(row.ai_evidence_claims_json, []) : [],
+      limitations: row.ai_limitations_json ? safeJsonParse(row.ai_limitations_json, []) : [],
       error_code: row.ai_error_code,
       updated_at: row.ai_analysis_updated_at,
     } : null,
@@ -3033,23 +3039,26 @@ async function listCandidates(env, user) {
   });
   const assessmentIds = rows.map((row) => row.assessment_id).filter(Boolean);
   if (!assessmentIds.length) return rows;
-  const placeholders = assessmentIds.map(() => '?').join(',');
-  const scenarioResult = await env.DB.prepare(`
-    SELECT sr.assessment_id, sr.response_text, sr.response_locale, sr.response_ms,
-      s.id AS scenario_id, s.question_order, s.construct, s.question_en, s.question_es,
-      s.evidence_item_ids_json, s.reviewer_note, s.source, s.model, s.prompt_version
-    FROM assessment_scenario_responses sr
-    JOIN invitation_scenarios s ON s.id = sr.scenario_id
-    WHERE sr.assessment_id IN (${placeholders})
-    ORDER BY sr.assessment_id, s.question_order
-  `).bind(...assessmentIds).all();
-  const scenarioRows = scenarioResult.results || [];
+  const scenarioRows = [];
+  for (const assessmentChunk of chunkArray(assessmentIds, 80)) {
+    const placeholders = assessmentChunk.map(() => '?').join(',');
+    const scenarioResult = await env.DB.prepare(`
+      SELECT sr.assessment_id, sr.response_text, sr.response_locale, sr.response_ms,
+        s.id AS scenario_id, s.question_order, s.construct, s.question_en, s.question_es,
+        s.evidence_item_ids_json, s.reviewer_note, s.source, s.model, s.prompt_version
+      FROM assessment_scenario_responses sr
+      JOIN invitation_scenarios s ON s.id = sr.scenario_id
+      WHERE sr.assessment_id IN (${placeholders})
+      ORDER BY sr.assessment_id, s.question_order
+    `).bind(...assessmentChunk).all();
+    scenarioRows.push(...(scenarioResult.results || []));
+  }
   rows.forEach((row) => {
     row.scenario_responses = scenarioRows.filter((scenario) => scenario.assessment_id === row.assessment_id).map((scenario) => ({
       ...scenario,
       database_scenario_id: scenario.scenario_id,
       scenario_id: GazelleAiAssessment.stableScenarioId(scenario.question_order),
-      evidence_item_ids: JSON.parse(scenario.evidence_item_ids_json || '[]'),
+      evidence_item_ids: safeJsonParse(scenario.evidence_item_ids_json || '[]', []),
     }));
   });
   return rows;
