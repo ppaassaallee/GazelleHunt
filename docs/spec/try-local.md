@@ -15,6 +15,8 @@ RECUPERA_MARK_PAID_ENABLED=true
 AUTH_PEPPER=local-dev-pepper-at-least-32-characters-long
 EOF
 
+# Ver apps/worker/.dev.vars.example para todos los flags Recupera.
+
 cd apps/worker
 pnpm exec wrangler dev --local --port 8787
 ```
@@ -22,8 +24,9 @@ pnpm exec wrangler dev --local --port 8787
 Abre la URL que imprime wrangler (suele ser `http://127.0.0.1:8787`).
 
 1. Regístrate / inicia sesión (Gazelle auth).
-2. Si es el primer owner, usa el bootstrap con `SUPER_ADMIN_EMAIL` + `SUPER_ADMIN_BOOTSTRAP_TOKEN` si aplica.
-3. Confirma que eres admin (o `ryvo_staff`).
+2. **Recupera self-serve** (solo local): con `RECUPERA_SELF_SERVE=true`, registra con `playbookIntent: "recupera"` en el body (o `?playbookIntent=recupera`) — crea company + admin activo + install sin aprobación.
+3. Si es el primer owner, usa el bootstrap con `SUPER_ADMIN_EMAIL` + `SUPER_ADMIN_BOOTSTRAP_TOKEN` si aplica.
+4. Confirma que eres admin (o `ryvo_staff`).
 
 ## 2. Shell React (UI RYVO)
 
@@ -96,6 +99,10 @@ Si ves `playbook_disabled` / 404 → falta el flag o la sesión.
 `RECUPERA_PORTAL_INSTANT_PAY=true` → "Ya pagué" cierra la obligación al instante (solo local/demo).
 
 `RECUPERA_ROCIO_INBOUND=true` → clasifica respuestas WhatsApp entrantes (Infobip) para candidatos Recupera con journey `stop_on_reply=0`. Sin LLM; heurísticas en español/inglés.
+
+`RECUPERA_SELF_SERVE=true` → signup con `playbookIntent=recupera` crea org + admin activo + install Recupera sin cola de aprobación (solo local/demo).
+
+Cron diario (medianoche UTC): `recuperaRecomputeStages` avanza buckets DPD; `recuperaSweepBrokenPromises` marca promesas vencidas como `broken` y restaura stage desde `due_date`.
 
 En la UI Recupera, **Simular respuesta** permite probar sin WhatsApp:
 - **Clasificar** → `POST /api/recupera/rocio/classify`

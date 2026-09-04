@@ -1360,6 +1360,58 @@ async function signUp(request, env) {
     return json({ user: { id: userId, email, name, role, status, ryvoStaff: true, companyId, companyName: 'Gazelle Platform' } }, 201, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
   }
 
+  const playbookIntent = cleanText(body.playbookIntent, 40) || cleanText(new URL(request.url).searchParams.get('playbookIntent'), 40);
+  if (env.RECUPERA_SELF_SERVE === 'true' && playbookIntent === 'recupera') {
+    const existingCompany = await env.DB.prepare(`SELECT id, playbooks_enabled_json FROM companies WHERE lower(name) = lower(?)`).bind(requestedCompanyName).first();
+    const resolvedCompanyId = existingCompany?.id || crypto.randomUUID();
+    const statements = [];
+    if (!existingCompany) {
+      statements.push(env.DB.prepare(`
+        INSERT INTO companies (id, name, status, playbooks_enabled_json, created_at, updated_at)
+        VALUES (?, ?, 'active', ?, ?, ?)
+      `).bind(resolvedCompanyId, requestedCompanyName, JSON.stringify(['recupera']), now, now));
+    }
+    statements.push(env.DB.prepare(`
+      INSERT INTO users (id, company_id, email, name, password_hash, password_salt, password_iterations, role, status, ryvo_staff, requested_company_name, approved_by, approved_at, password_changed_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'admin', 'active', 0, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      userId, resolvedCompanyId, email, name, passwordData.hash, passwordData.salt, passwordData.iterations,
+      requestedCompanyName, userId, now, now, now, now,
+    ));
+    const existingInstall = existingCompany
+      ? await env.DB.prepare(`SELECT id FROM playbook_installations WHERE company_id = ? AND playbook_key = ?`).bind(resolvedCompanyId, RECUPERA_PLAYBOOK_KEY).first()
+      : null;
+    if (!existingInstall) {
+      const installationId = crypto.randomUUID();
+      statements.push(env.DB.prepare(`
+        INSERT INTO playbook_installations
+          (id, company_id, playbook_key, playbook_version, status, config_json, installed_by_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'active', NULL, ?, ?, ?)
+      `).bind(installationId, resolvedCompanyId, RECUPERA_PLAYBOOK_KEY, RECUPERA_PLAYBOOK_VERSION, userId, now, now));
+    }
+    try {
+      await env.DB.batch(statements);
+    } catch {
+      return json({ error: 'The account could not be created.', code: 'recupera_signup_failed' }, 500);
+    }
+    if (existingCompany && !recuperaParsePlaybooksEnabled(existingCompany.playbooks_enabled_json).includes(RECUPERA_PLAYBOOK_KEY)) {
+      await recuperaMergePlaybooksEnabled(env, resolvedCompanyId);
+    }
+    let session;
+    try {
+      session = await createSession(request, env, userId);
+    } catch {
+      return json({ error: 'The account was created, but its session could not be started. Sign in again.', code: 'recupera_session_failed' }, 500);
+    }
+    await audit(env, email, 'recupera_self_serve_signup', 'user', userId, { companyId: resolvedCompanyId, playbookIntent });
+    return json({
+      user: publicUser({
+        id: userId, email, name, role: 'admin', status: 'active', ryvo_staff: 0,
+        company_id: resolvedCompanyId, company_name: requestedCompanyName,
+      }),
+    }, 201, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
+  }
+
   await insertUser.run();
   await audit(env, email, 'user_registration_requested', 'user', userId, { requestedCompanyName });
   return json({ status: 'pending', message: 'Your account is awaiting approval by a platform super administrator.' }, 202);
@@ -4311,7 +4363,10 @@ export default {
     const work = [reconcileStaleDeliveryStates(env), recoverAsyncWork(env), processDueJourneyEvents(env)];
     const scheduledAt = new Date(controller.scheduledTime);
     if (scheduledAt.getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
-    if (scheduledAt.getUTCHours() === 0 && scheduledAt.getUTCMinutes() === 0) work.push(recuperaRecomputeStages(env));
+    if (scheduledAt.getUTCHours() === 0 && scheduledAt.getUTCMinutes() === 0) {
+      work.push(recuperaRecomputeStages(env));
+      work.push(recuperaSweepBrokenPromises(env));
+    }
     context.waitUntil(Promise.all(work));
   },
 };

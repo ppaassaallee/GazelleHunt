@@ -51,3 +51,10 @@ function recuperaIsoDateValid(value) {
     return false;
   }
 }
+
+/** After a broken promise, return the DPD bucket implied by the obligation due date. */
+function recuperaNextStageAfterBrokenPromise(current, now = new Date()) {
+  const dueDate = current?.due_date ?? current?.dueDate;
+  if (dueDate) return recuperaStageFromDueDate(dueDate, now);
+  return 'DPD_1_7';
+}

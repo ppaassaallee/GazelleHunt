@@ -11,6 +11,9 @@ export function SettingsPage() {
       <p className="text-sm text-[var(--text-secondary)]">
         Configuración disponible próximamente.
       </p>
+      <p className="mt-4 text-xs text-[var(--text-secondary)]">
+        Local flags in <code className="rounded bg-[var(--surface-secondary)] px-1">apps/worker/.dev.vars</code> — see <code className="rounded bg-[var(--surface-secondary)] px-1">.dev.vars.example</code>.
+      </p>
     </div>
   );
 }

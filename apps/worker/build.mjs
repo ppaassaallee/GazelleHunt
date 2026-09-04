@@ -29,6 +29,7 @@ const [
   runtimeWebhooks,
   recuperaStage,
   recuperaRecompute,
+  recuperaPromises,
   recuperaCsv,
   recuperaRocio,
   recuperaApi,
@@ -53,6 +54,7 @@ const [
   readFile(resolve(runtimeRoot, 'webhooks.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'stage.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'recompute.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'promises.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'csv.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'rocio.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'api.js'), 'utf8'),
@@ -119,6 +121,7 @@ ${runtimeAi}
 ${runtimeWebhooks}
 ${recuperaStage}
 ${recuperaRecompute}
+${recuperaPromises}
 ${recuperaCsv}
 ${recuperaRocio}
 ${recuperaApi}

@@ -4,9 +4,10 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, recomputeSource, csvSource, rocioSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
+const [stageSource, recomputeSource, promisesSource, csvSource, rocioSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
   readFile(new URL('recompute.js', recuperaRoot), 'utf8'),
+  readFile(new URL('promises.js', recuperaRoot), 'utf8'),
   readFile(new URL('csv.js', recuperaRoot), 'utf8'),
   readFile(new URL('rocio.js', recuperaRoot), 'utf8'),
   readFile(new URL('api.js', recuperaRoot), 'utf8'),
@@ -16,7 +17,7 @@ const [stageSource, recomputeSource, csvSource, rocioSource, apiSource, legacySe
   readFile(new URL('../../../packages/runtime/src/webhooks.js', import.meta.url), 'utf8'),
 ]);
 
-const serverSource = `${stageSource}\n${recomputeSource}\n${csvSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
+const serverSource = `${stageSource}\n${recomputeSource}\n${promisesSource}\n${csvSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
 
 for (const route of [
   '/api/recupera/install',
@@ -56,8 +57,13 @@ assert.match(apiSource, /recuperaGetInsights/);
 assert.match(apiSource, /pendingCents/);
 assert.match(apiSource, /recoveredCentsThisMonth/);
 assert.match(recomputeSource, /recuperaRecomputeStages/);
+assert.match(promisesSource, /recuperaSweepBrokenPromises/);
 assert.match(serverSource, /recuperaRecomputeStages\(env\)/);
+assert.match(serverSource, /recuperaSweepBrokenPromises\(env\)/);
+assert.match(serverSource, /RECUPERA_SELF_SERVE/);
+assert.match(serverSource, /recupera_self_serve_signup/);
 assert.match(buildSource, /recuperaRecompute/);
+assert.match(buildSource, /recuperaPromises/);
 assert.match(rocioSource, /rocioMaybeProcessInfobipInbound/);
 assert.match(rocioSource, /RECUPERA_ROCIO_INBOUND/);
 

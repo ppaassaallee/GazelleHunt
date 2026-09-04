@@ -1,5 +1,14 @@
 # Local secrets for wrangler dev --local (do not commit real keys)
-RECUPERA_ENABLED=true
-# RECUPERA_ROCIO_INBOUND=true
 AUTH_PEPPER=local-dev-pepper-at-least-32-characters-long
+
+# Recupera feature flags (local / demo only)
+RECUPERA_ENABLED=true
+# RECUPERA_MARK_PAID_ENABLED=true
+# RECUPERA_PORTAL_INSTANT_PAY=true
+# RECUPERA_ROCIO_INBOUND=true
+# RECUPERA_SELF_SERVE=true
+
+# RYVO React shell at /ryvo/ (requires pnpm build:web)
+# RYVO_SHELL_ENABLED=true
+
 # SUPER_ADMIN_BOOTSTRAP_TOKEN=change-me-if-bootstrapping-owner
