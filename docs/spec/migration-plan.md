@@ -103,7 +103,22 @@ Sin rutas Worker, sin UI, sin cablear Recupera en producción.
 - [ ] Instalación por tenant vía API
 - [ ] Rocío AI employee wiring
 
-## §8.F–H
+## §8.F — Shell React (scaffold)
+
+**Entregable:** `apps/web` — Vite + React 19 + TypeScript + Tailwind v4, paquete `@ryvo/web`.
+Shell mínimo (rail desktop, tab bar móvil, tokens light/dark). Sin integración Worker aún.
+
+**En progreso:**
+
+- [x] Scaffold `apps/web` (`pnpm dev:web`, `pnpm build:web`)
+- [x] Nav: Inicio, Playbooks, Trabajo, Insights (+ Ajustes solo desktop)
+- [x] Stubs: Home ("Buenos días" + métrica), Playbooks (Recupera / Sube / Monetiza)
+- [ ] Servir desde Worker / strangler sobre `app.js`
+- [ ] Auth + datos reales
+
+**DO NOT:** Cambiar `wrangler` ni reemplazar Gazelle `app.js` hasta fase H.
+
+## §8.G–H
 
 Pagos + Rocío texto → Voz + Control → Gazelle al shell React.
 
