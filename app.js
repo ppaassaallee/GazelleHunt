@@ -596,14 +596,22 @@ function journeyStepInputs() {
   const steps = ensureJourneyDraftSteps();
   const channelTitle = (channel) => channel === 'email' ? 'Send email' : channel === 'whatsapp' ? 'Send WhatsApp' : channel === 'sms' ? 'Send SMS' : 'Call API webhook';
   const actionMeta = (channel) => channel === 'api' ? 'External action tracked per candidate' : 'Provider acceptance is tracked per person';
-  return `<div class="flow-canvas flow-builder-canvas">
-    ${journeyNode({ type: 'trigger', number: '1', title: 'List enrollment', subtitle: 'Recruiter enrolls candidates from one list', meta: 'Individual lifecycle starts per candidate' })}
-    ${steps.map((step, index) => `<div class="flow-connector"><span>${step.businessDay === 0 ? 'same business day' : `business day ${step.businessDay}`}${step.delay ? ` +${step.delay}h` : ''}</span></div><fieldset class="journey-step-card flow-node flow-action flow-${step.channel}" data-step-index="${index}">
+  return `<div class="flow-designer">
+    <div class="flow-designer-topbar">
+      <div class="flow-designer-title"><button class="button button-quiet icon-button" type="button" title="Journey builder" aria-label="Journey builder">${icon('workflow')}</button><strong>Journey designer</strong></div>
+      <div class="flow-tabs"><span class="active">${icon('workflow')}Builder</span><span>${icon('file')}Rules</span></div>
+      <div class="flow-designer-actions">${actionIconButton('plus', 'Add step', 'data-add-journey-step')}</div>
+    </div>
+    <div class="flow-canvas flow-builder-canvas">
+      ${journeyNode({ type: 'trigger', number: '1', title: 'List enrollment', subtitle: 'Recruiter enrolls candidates from one list', meta: 'Individual lifecycle starts per candidate' })}
+      ${steps.map((step, index) => `<div class="flow-connector"><span>${step.businessDay === 0 ? 'same business day' : `business day ${step.businessDay}`}${step.delay ? ` +${step.delay}h` : ''}</span><button class="flow-inline-add" type="button" data-insert-journey-step="${index}" title="Insert step here" aria-label="Insert step here">${icon('plus')}</button></div><fieldset class="journey-step-card flow-node flow-action flow-${step.channel}" data-step-index="${index}">
       <legend>Journey step ${index + 1}</legend>
       <span class="flow-number">${index + 2}</span>
       <div class="flow-icon">${esc(channelIcon(step.channel))}</div>
       <div class="flow-node-copy"><strong>${esc(channelTitle(step.channel))}</strong><span>Only if this candidate has not completed the test</span><small>${esc(actionMeta(step.channel))}</small></div>
       <div class="flow-node-actions">${actionIconButton('up', 'Move step up', `data-move-journey-step="${index}" data-direction="-1" ${index === 0 ? 'disabled' : ''}`)}${actionIconButton('down', 'Move step down', `data-move-journey-step="${index}" data-direction="1" ${index === steps.length - 1 ? 'disabled' : ''}`)}${actionIconButton('x', 'Remove step', `data-remove-journey-step="${index}" ${steps.length <= 1 ? 'disabled' : ''}`, true)}</div>
+      <details class="flow-config">
+      <summary>Configure step</summary>
       <div class="flow-controls">
         <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${esc(step.delay)}"></label>
         <label class="field"><span>Business day</span><input class="input journey-business-day-offset" type="number" min="0" max="30" step="1" value="${esc(step.businessDay)}"><small>0 is same business day; weekends are skipped.</small></label>
@@ -612,10 +620,12 @@ function journeyStepInputs() {
         <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
         <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
       </div>
+      </details>
     </fieldset>`).join('')}
-    <button class="button button-secondary flow-add-step" type="button" data-add-journey-step>${icon('plus')}Add step</button>
-    <div class="flow-connector"><span>candidate completes</span></div>
-    ${journeyNode({ type: 'goal', number: steps.length + 2, title: 'Stop reminders', subtitle: 'Pending events close immediately when the assessment is completed', meta: 'Remaining steps become skipped, not sent' })}
+      <div class="flow-connector"><span>candidate completes</span><button class="flow-inline-add" type="button" data-add-journey-step title="Add final step" aria-label="Add final step">${icon('plus')}</button></div>
+      ${journeyNode({ type: 'goal', number: steps.length + 2, title: 'Stop reminders', subtitle: 'Pending events close immediately when the assessment is completed', meta: 'Remaining steps become skipped, not sent' })}
+    </div>
+    <div class="flow-designer-footer"><span>Last modified now</span><button class="button button-secondary" type="button" data-add-journey-step>${icon('plus')}Add another action</button></div>
   </div>`;
 }
 
@@ -1671,6 +1681,23 @@ function addJourneyStep() {
   render();
 }
 
+function insertJourneyStep(index) {
+  syncJourneyDraftFromDom();
+  const source = state.journeyDraftSteps?.[Number(index)] || defaultJourneySteps()[0];
+  state.journeyDraftSteps.splice(Number(index) + 1, 0, {
+    delay: 0,
+    businessDay: Number(source.businessDay || 0),
+    channel: 'email',
+    template: '',
+    apiMethod: 'POST',
+    apiUrl: '',
+    apiHeadersJson: '',
+    en: 'Hi {{name}}, quick follow-up from {{brand}} about your assessment for {{role}}: {{link}}',
+    es: 'Hola {{name}}, seguimiento breve de {{brand}} sobre tu evaluación para {{role}}: {{link}}',
+  });
+  render();
+}
+
 function removeJourneyStep(index) {
   syncJourneyDraftFromDom();
   if ((state.journeyDraftSteps || []).length <= 1) return;
@@ -1995,6 +2022,7 @@ function bindEvents() {
   document.querySelectorAll('[data-enroll-journey]').forEach((button) => button.addEventListener('click', () => enrollContactabilityJourney(button.dataset.enrollJourney)));
   document.querySelectorAll('[data-journey-status]').forEach((button) => button.addEventListener('click', () => updateContactabilityJourneyStatus(button.dataset.journeyStatus, button.dataset.status)));
   document.querySelectorAll('[data-add-journey-step]').forEach((button) => button.addEventListener('click', addJourneyStep));
+  document.querySelectorAll('[data-insert-journey-step]').forEach((button) => button.addEventListener('click', () => insertJourneyStep(button.dataset.insertJourneyStep)));
   document.querySelectorAll('[data-remove-journey-step]').forEach((button) => button.addEventListener('click', () => removeJourneyStep(button.dataset.removeJourneyStep)));
   document.querySelectorAll('[data-move-journey-step]').forEach((button) => button.addEventListener('click', () => moveJourneyStep(button.dataset.moveJourneyStep, button.dataset.direction)));
   document.querySelectorAll('.journey-channel').forEach((select) => select.addEventListener('change', () => changeJourneyStepChannel(select.closest('.journey-step-card')?.dataset.stepIndex, select.value)));
