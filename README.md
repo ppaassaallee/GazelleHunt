@@ -125,18 +125,23 @@ Implementation references: [send transactional email](https://developers.brevo.c
 
 ## Journeys
 
-The **Journeys** workspace lets recruiters and administrators design persistence flows for a candidate list. A journey has a list, a test, a default language, and ordered steps such as:
+The **Journeys** workspace lets recruiters and administrators design persistence flows for a candidate list. The builder supports adding, removing, and reordering steps before publishing. A journey has a list, a test, a default language, and ordered steps such as:
 
 ```text
 0 hours: email invitation
 3 hours: WhatsApp reminder
 24 hours: email reminder
 48 hours: SMS reminder
+72 hours: API webhook to request a phone call
 ```
 
 Each enrolled candidate receives scheduled journey events. The Worker cron checks due events every minute. If the candidate completes the selected test, remaining queued events are skipped. If the provider is not configured or rejects a send, the event is marked failed with the exact error code; it is not displayed as delivered or silently ignored.
 
+Publishing is guarded by server-side validation. Active journeys are saved only when every selected provider is configured, every WhatsApp step points to an approved/active Template manager record, and every API webhook step has a valid HTTPS URL plus valid JSON headers when headers are provided.
+
 The workspace includes a Template manager. Admins and super admins can create reusable templates by company; recruiters can use approved/active templates when building journeys. Email steps use the existing Brevo Transactional Email configuration and can remain editable because every assessment link is unique. WhatsApp steps are stricter: proactive outbound WhatsApp must use a Meta/Infobip-approved template stored as approved or active in Gazelle before the journey can be created.
+
+API webhook steps are generic integration nodes inspired by tools like n8n. They do not create a new assessment invitation or consume a test attempt; they call the configured HTTPS endpoint with candidate, test, journey, event, and suggested message metadata. The external system should return any 2xx response to mark the step accepted. Non-2xx responses are stored as `api_webhook_rejected`.
 
 WhatsApp and SMS steps can use Brevo or Infobip. Production is configured to prefer Infobip for WhatsApp/SMS:
 

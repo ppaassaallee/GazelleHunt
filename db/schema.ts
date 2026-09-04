@@ -1,4 +1,4 @@
-export const schemaVersion = '0014_message_templates_and_journey_funnel';
+export const schemaVersion = '0015_journey_flow_builder_api_steps';
 
 export type CandidateRecord = {
   id: string;
@@ -46,7 +46,7 @@ export type CandidateListRecord = {
   status: 'active' | 'archived';
 };
 
-export type ContactChannel = 'email' | 'whatsapp' | 'sms';
+export type ContactChannel = 'email' | 'whatsapp' | 'sms' | 'api';
 export type MessageTemplateStatus = 'draft' | 'approved' | 'active' | 'paused' | 'rejected' | 'archived';
 export type MessageTemplateProvider = 'brevo' | 'infobip' | 'custom';
 
@@ -98,6 +98,9 @@ export type ContactJourneyStepRecord = {
   subject_es: string | null;
   message_en: string;
   message_es: string;
+  api_url: string | null;
+  api_method: 'POST' | 'PUT' | 'PATCH' | null;
+  api_headers_json: string | null;
   created_at: string;
 };
 

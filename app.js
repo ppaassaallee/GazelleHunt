@@ -23,6 +23,9 @@ const icons = {
   alert: '<path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
+  up: '<path d="m18 15-6-6-6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   briefcase: '<rect width="20" height="14" x="2" y="7" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M2 12h20"/>',
   calendar: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   headphones: '<path d="M4 14a8 8 0 0 1 16 0"/><path d="M18 19c0 1.7-1.3 3-3 3h-3"/><path d="M4 14v4a2 2 0 0 0 2 2h1v-8H6a2 2 0 0 0-2 2ZM20 14v4a2 2 0 0 1-2 2h-1v-8h1a2 2 0 0 1 2 2Z"/>',
@@ -64,6 +67,7 @@ const state = {
   outcomes: [], calibration: { summaries: [], assessments: [] }, calibrationTestId: 'all',
   stages: [], referrals: [], journeyCandidateId: null,
   deliveryChecks: {},
+  journeyDraftSteps: null,
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
   csv: null, reportResultId: null, reportSearch: '', reportTestId: 'all', reportScope: 'all', reportRole: 'all', reportListId: 'all', previewReport: null, runner: null,
   directSendReceipt: null, emailDiagnostics: null,
@@ -574,7 +578,7 @@ function actionIconButton(iconName, label, attrs = '', danger = false) {
 }
 
 function channelIcon(channel) {
-  return channel === 'whatsapp' ? 'WA' : channel === 'sms' ? 'SMS' : 'EM';
+  return channel === 'whatsapp' ? 'WA' : channel === 'sms' ? 'SMS' : channel === 'api' ? 'API' : 'EM';
 }
 
 function journeyNode({ type = 'action', number = '', title, subtitle, channel = '', meta = '', controls = '' }) {
@@ -589,7 +593,34 @@ function journeyNode({ type = 'action', number = '', title, subtitle, channel = 
 function journeyStepInputs() {
   const approvedWhatsappTemplates = state.templates.filter((template) => template.channel === 'whatsapp' && ['approved', 'active'].includes(template.status));
   const whatsappOptionsFor = (defaultTemplate) => approvedWhatsappTemplates.map((template, index) => `<option value="${esc(template.id)}" ${template.provider_template_name === defaultTemplate || (!defaultTemplate && index === 0) ? 'selected' : ''}>${esc(template.provider_template_name || template.name)} · ${esc(template.language)}</option>`).join('');
-  const defaults = [
+  const steps = ensureJourneyDraftSteps();
+  const channelTitle = (channel) => channel === 'email' ? 'Send email' : channel === 'whatsapp' ? 'Send WhatsApp' : channel === 'sms' ? 'Send SMS' : 'Call API webhook';
+  const actionMeta = (channel) => channel === 'api' ? 'External action tracked per candidate' : 'Provider acceptance is tracked per person';
+  return `<div class="flow-canvas flow-builder-canvas">
+    ${journeyNode({ type: 'trigger', number: '1', title: 'List enrollment', subtitle: 'Recruiter enrolls candidates from one list', meta: 'Individual lifecycle starts per candidate' })}
+    ${steps.map((step, index) => `<div class="flow-connector"><span>${step.businessDay === 0 ? 'same business day' : `business day ${step.businessDay}`}${step.delay ? ` +${step.delay}h` : ''}</span></div><fieldset class="journey-step-card flow-node flow-action flow-${step.channel}" data-step-index="${index}">
+      <legend>Journey step ${index + 1}</legend>
+      <span class="flow-number">${index + 2}</span>
+      <div class="flow-icon">${esc(channelIcon(step.channel))}</div>
+      <div class="flow-node-copy"><strong>${esc(channelTitle(step.channel))}</strong><span>Only if this candidate has not completed the test</span><small>${esc(actionMeta(step.channel))}</small></div>
+      <div class="flow-node-actions">${actionIconButton('up', 'Move step up', `data-move-journey-step="${index}" data-direction="-1" ${index === 0 ? 'disabled' : ''}`)}${actionIconButton('down', 'Move step down', `data-move-journey-step="${index}" data-direction="1" ${index === steps.length - 1 ? 'disabled' : ''}`)}${actionIconButton('x', 'Remove step', `data-remove-journey-step="${index}" ${steps.length <= 1 ? 'disabled' : ''}`, true)}</div>
+      <div class="flow-controls">
+        <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${esc(step.delay)}"></label>
+        <label class="field"><span>Business day</span><input class="input journey-business-day-offset" type="number" min="0" max="30" step="1" value="${esc(step.businessDay)}"><small>0 is same business day; weekends are skipped.</small></label>
+        <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option><option value="api" ${step.channel === 'api' ? 'selected' : ''}>API webhook</option></select></label>
+        ${step.channel === 'api' ? `<label class="field"><span>Method</span><select class="select journey-api-method"><option value="POST" ${step.apiMethod === 'POST' ? 'selected' : ''}>POST</option><option value="PUT" ${step.apiMethod === 'PUT' ? 'selected' : ''}>PUT</option><option value="PATCH" ${step.apiMethod === 'PATCH' ? 'selected' : ''}>PATCH</option></select></label><label class="field form-wide"><span>Webhook URL</span><input class="input journey-api-url" type="url" placeholder="https://your-system.com/gazelle/action" value="${esc(step.apiUrl || '')}"><small>Must be HTTPS. Gazelle sends candidate/test/journey metadata and suggested copy.</small></label><label class="field form-wide"><span>Headers JSON</span><textarea class="textarea journey-api-headers" maxlength="1000" placeholder='{"Authorization":"Bearer token"}'>${esc(step.apiHeadersJson || '')}</textarea></label>` : `<label class="field"><span>${step.channel === 'whatsapp' ? 'Approved WhatsApp template' : 'Reusable template reference'}</span>${step.channel === 'whatsapp' ? `<select class="select journey-template"><option value="">Choose approved template</option>${whatsappOptionsFor(step.template)}</select><small>WhatsApp cannot send without an approved Infobip template.</small>` : `<input class="input journey-template" placeholder="Optional internal template name" maxlength="120" value="${esc(step.template || '')}">`}</label>`}
+        <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
+        <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
+      </div>
+    </fieldset>`).join('')}
+    <button class="button button-secondary flow-add-step" type="button" data-add-journey-step>${icon('plus')}Add step</button>
+    <div class="flow-connector"><span>candidate completes</span></div>
+    ${journeyNode({ type: 'goal', number: steps.length + 2, title: 'Stop reminders', subtitle: 'Pending events close immediately when the assessment is completed', meta: 'Remaining steps become skipped, not sent' })}
+  </div>`;
+}
+
+function defaultJourneySteps() {
+  return [
     { delay: 0, businessDay: 0, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, {{brand}} invites you to complete your assessment for {{role}}. It takes about 10 minutes. Open it here: {{link}}', es: 'Hola {{name}}, {{brand}} te invita a completar tu evaluación para {{role}}. Toma unos 10 minutos. Entra aquí: {{link}}' },
     { delay: 1, businessDay: 0, channel: 'email', en: 'Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here when you have a quiet moment: {{link}}', es: 'Hola {{name}}, tu evaluación de {{brand}} para {{role}} está lista. Cuando tengas un momento tranquilo, complétala aquí: {{link}}' },
     { delay: 0, businessDay: 1, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, friendly reminder from {{brand}}. Your assessment for {{role}} is still open and takes about 10 minutes: {{link}}', es: 'Hola {{name}}, recordatorio cordial de {{brand}}. Tu evaluación para {{role}} sigue abierta y toma unos 10 minutos: {{link}}' },
@@ -597,24 +628,11 @@ function journeyStepInputs() {
     { delay: 0, businessDay: 3, channel: 'email', en: 'Hi {{name}}, your assessment link for {{role}} remains available. Please complete it today if you are still interested: {{link}}', es: 'Hola {{name}}, tu enlace de evaluación para {{role}} sigue disponible. Si aún estás interesado, por favor complétala hoy: {{link}}' },
     { delay: 0, businessDay: 4, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, final reminder from {{brand}} for your {{role}} assessment. You can still complete it here: {{link}}', es: 'Hola {{name}}, último recordatorio de {{brand}} para tu evaluación de {{role}}. Aún puedes completarla aquí: {{link}}' },
   ];
-  return `<div class="flow-canvas flow-builder-canvas">
-    ${journeyNode({ type: 'trigger', number: '1', title: 'List enrollment', subtitle: 'Recruiter enrolls candidates from one list', meta: 'Individual lifecycle starts per candidate' })}
-    ${defaults.map((step, index) => `<div class="flow-connector"><span>${step.businessDay === 0 ? 'same business day' : `business day ${step.businessDay}`}${step.delay ? ` +${step.delay}h` : ''}</span></div><fieldset class="journey-step-card flow-node flow-action flow-${step.channel}">
-      <span class="flow-number">${index + 2}</span>
-      <div class="flow-icon">${esc(channelIcon(step.channel))}</div>
-      <div class="flow-node-copy"><strong>${step.channel === 'email' ? 'Send email' : step.channel === 'whatsapp' ? 'Send WhatsApp' : 'Send SMS'}</strong><span>Only if this candidate has not completed the test</span><small>Provider acceptance is tracked per person</small></div>
-      <div class="flow-controls">
-        <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${step.delay}"></label>
-        <label class="field"><span>Business day</span><input class="input journey-business-day-offset" type="number" min="0" max="30" step="1" value="${step.businessDay}"><small>0 is same business day; weekends are skipped.</small></label>
-        <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option></select></label>
-        <label class="field"><span>${step.channel === 'whatsapp' ? 'Approved WhatsApp template' : 'Reusable template reference'}</span>${step.channel === 'whatsapp' ? `<select class="select journey-template"><option value="">Choose approved template</option>${whatsappOptionsFor(step.template)}</select><small>WhatsApp cannot send without an approved Infobip template.</small>` : `<input class="input journey-template" placeholder="Optional internal template name" maxlength="120" value="${esc(step.template || '')}">`}</label>
-        <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
-        <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
-      </div>
-    </fieldset>`).join('')}
-    <div class="flow-connector"><span>candidate completes</span></div>
-    ${journeyNode({ type: 'goal', number: defaults.length + 2, title: 'Stop reminders', subtitle: 'Pending events close immediately when the assessment is completed', meta: 'Remaining steps become skipped, not sent' })}
-  </div>`;
+}
+
+function ensureJourneyDraftSteps() {
+  if (!state.journeyDraftSteps?.length) state.journeyDraftSteps = defaultJourneySteps().map((step) => ({ ...step }));
+  return state.journeyDraftSteps;
 }
 
 function journeyFlowPreview(journey) {
@@ -698,7 +716,7 @@ function renderContactability() {
   return `<div class="stack">${pageIntro('Automation flows', 'Journeys', 'Design persistence flows across email, WhatsApp, and SMS. Each candidate is tracked independently and stops receiving reminders after completing the selected test.', `<div class="toolbar">${whatsappGuard}${actionIconButton('refresh', 'Refresh', 'data-action="reload"')}</div>`)}
     <section class="core-flow-strip"><div>${icon('upload')}<strong>Upload list</strong><span>CSV or existing candidates</span></div><div>${icon('list')}<strong>Manage list</strong><span>Members and tests</span></div><div>${icon('calendar')}<strong>Schedule/send</strong><span>Batch invitations</span></div><div>${icon('workflow')}<strong>Assign journey</strong><span>Persistence flow</span></div><div>${icon('chart')}<strong>Track funnel</strong><span>Performance and traceability</span></div></section>
     <section class="grid grid-4">${metric('Active journeys', activeJourneys, 'Running flows', 'workflow')}${metric('Scheduled events', queued, 'Waiting for trigger time', 'clock')}${metric('Provider accepted', accepted, 'Real sends accepted', 'send')}${metric('Needs attention', failed, 'Failed provider or config', 'alert')}</section>
-    <section class="grid grid-3">${channelStatusCard('email', { configured: state.health.email?.configured, provider: 'Brevo Transactional Email', missing: state.health.email?.configured ? [] : ['BREVO_API_KEY', 'BREVO_SENDER_EMAIL', 'BREVO_WEBHOOK_TOKEN'] })}${channelStatusCard('whatsapp', messaging.whatsapp)}${channelStatusCard('sms', messaging.sms)}</section>
+    <section class="grid grid-4">${channelStatusCard('email', { configured: state.health.email?.configured, provider: 'Brevo Transactional Email', missing: state.health.email?.configured ? [] : ['BREVO_API_KEY', 'BREVO_SENDER_EMAIL', 'BREVO_WEBHOOK_TOKEN'] })}${channelStatusCard('whatsapp', messaging.whatsapp)}${channelStatusCard('sms', messaging.sms)}${channelStatusCard('api', { configured: true, provider: 'Generic API webhooks' })}</section>
     ${renderJourneyFunnel()}
     <section class="card journey-builder"><div class="card-header"><div><h3>Create a journey</h3><p>Use <code>{{name}}</code>, <code>{{brand}}</code>, <code>{{role}}</code>, and <code>{{link}}</code>. WhatsApp steps must choose an approved Infobip template from Template manager.</p></div>${icon('workflow')}</div>
       <form class="card-body stack" id="journey-form">
@@ -709,8 +727,9 @@ function renderContactability() {
           <label class="field"><span>Default language</span><select class="select" id="journey-locale"><option value="es">Español</option><option value="en">English</option></select></label>
         </div>
         <div class="journey-step-grid">${journeyStepInputs()}</div>
-        <div class="notice notice-info"><strong>Execution rule:</strong> a candidate is skipped automatically once they complete the selected test. Every sent step uses one released attempt, exactly like manual resend.</div>
-        <button class="button button-primary" type="submit" ${!state.lists.length || !activeTests.length || state.busy ? 'disabled' : ''}>${icon('plus')}Create journey</button>
+        <div class="notice notice-info"><strong>Publication guard:</strong> active journeys validate every step before saving. Email, SMS, and WhatsApp require configured providers; WhatsApp requires an approved template; API steps require a valid HTTPS endpoint.</div>
+        <div class="notice notice-info"><strong>Execution rule:</strong> a candidate is skipped automatically once they complete the selected test. Email, SMS, and WhatsApp create auditable invitations; API webhooks trigger external systems without consuming a test attempt.</div>
+        <button class="button button-primary" type="submit" ${!state.lists.length || !activeTests.length || state.busy ? 'disabled' : ''}>${icon('plus')}Publish journey</button>
       </form>
     </section>
     ${renderTemplateManager()}
@@ -1610,9 +1629,76 @@ function journeyFormSteps() {
     businessDayOffset: card.querySelector('.journey-business-day-offset')?.value || '',
     channel: card.querySelector('.journey-channel')?.value || 'email',
     brevoTemplateId: card.querySelector('.journey-template')?.value || '',
+    apiMethod: card.querySelector('.journey-api-method')?.value || 'POST',
+    apiUrl: card.querySelector('.journey-api-url')?.value || '',
+    apiHeadersJson: card.querySelector('.journey-api-headers')?.value || '',
     messageEn: card.querySelector('.journey-message-en')?.value || '',
     messageEs: card.querySelector('.journey-message-es')?.value || '',
   })).filter((step) => step.messageEn.trim() && step.messageEs.trim());
+}
+
+function syncJourneyDraftFromDom() {
+  const cards = [...document.querySelectorAll('.journey-step-card')];
+  if (!cards.length) return;
+  state.journeyDraftSteps = cards.map((card) => ({
+    delay: Number(card.querySelector('.journey-delay')?.value || 0),
+    businessDay: Number(card.querySelector('.journey-business-day-offset')?.value || 0),
+    channel: card.querySelector('.journey-channel')?.value || 'email',
+    template: card.querySelector('.journey-template')?.value || '',
+    apiMethod: card.querySelector('.journey-api-method')?.value || 'POST',
+    apiUrl: card.querySelector('.journey-api-url')?.value || '',
+    apiHeadersJson: card.querySelector('.journey-api-headers')?.value || '',
+    en: card.querySelector('.journey-message-en')?.value || '',
+    es: card.querySelector('.journey-message-es')?.value || '',
+  }));
+}
+
+function addJourneyStep() {
+  syncJourneyDraftFromDom();
+  const previous = ensureJourneyDraftSteps().at(-1) || defaultJourneySteps()[0];
+  const nextBusinessDay = Math.min(30, Number(previous.businessDay || 0) + 1);
+  state.journeyDraftSteps.push({
+    delay: 0,
+    businessDay: nextBusinessDay,
+    channel: 'email',
+    template: '',
+    apiMethod: 'POST',
+    apiUrl: '',
+    apiHeadersJson: '',
+    en: 'Hi {{name}}, friendly reminder from {{brand}} about your assessment for {{role}}: {{link}}',
+    es: 'Hola {{name}}, recordatorio cordial de {{brand}} sobre tu evaluación para {{role}}: {{link}}',
+  });
+  render();
+}
+
+function removeJourneyStep(index) {
+  syncJourneyDraftFromDom();
+  if ((state.journeyDraftSteps || []).length <= 1) return;
+  state.journeyDraftSteps.splice(Number(index), 1);
+  render();
+}
+
+function moveJourneyStep(index, direction) {
+  syncJourneyDraftFromDom();
+  const from = Number(index);
+  const to = from + Number(direction);
+  if (!state.journeyDraftSteps?.[from] || !state.journeyDraftSteps?.[to]) return;
+  const [step] = state.journeyDraftSteps.splice(from, 1);
+  state.journeyDraftSteps.splice(to, 0, step);
+  render();
+}
+
+function changeJourneyStepChannel(index, channel) {
+  syncJourneyDraftFromDom();
+  const step = state.journeyDraftSteps?.[Number(index)];
+  if (!step) return;
+  step.channel = channel;
+  if (channel === 'api') {
+    step.apiMethod = step.apiMethod || 'POST';
+    step.en = step.en || 'External follow-up requested for {{name}}, {{role}} at {{brand}}.';
+    step.es = step.es || 'Seguimiento externo solicitado para {{name}}, {{role}} en {{brand}}.';
+  }
+  render();
 }
 
 async function createContactabilityJourney(event) {
@@ -1630,6 +1716,7 @@ async function createContactabilityJourney(event) {
   try {
     const response = await fetchJson('/api/journeys', { method: 'POST', body: JSON.stringify(payload) });
     state.journeys = response.journeys || [];
+    state.journeyDraftSteps = null;
     toast('Journey created and activated.');
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
@@ -1907,6 +1994,10 @@ function bindEvents() {
   document.querySelectorAll('[data-batch-list]').forEach((button) => button.addEventListener('click', () => sendBatch(button.dataset.batchList)));
   document.querySelectorAll('[data-enroll-journey]').forEach((button) => button.addEventListener('click', () => enrollContactabilityJourney(button.dataset.enrollJourney)));
   document.querySelectorAll('[data-journey-status]').forEach((button) => button.addEventListener('click', () => updateContactabilityJourneyStatus(button.dataset.journeyStatus, button.dataset.status)));
+  document.querySelectorAll('[data-add-journey-step]').forEach((button) => button.addEventListener('click', addJourneyStep));
+  document.querySelectorAll('[data-remove-journey-step]').forEach((button) => button.addEventListener('click', () => removeJourneyStep(button.dataset.removeJourneyStep)));
+  document.querySelectorAll('[data-move-journey-step]').forEach((button) => button.addEventListener('click', () => moveJourneyStep(button.dataset.moveJourneyStep, button.dataset.direction)));
+  document.querySelectorAll('.journey-channel').forEach((select) => select.addEventListener('change', () => changeJourneyStepChannel(select.closest('.journey-step-card')?.dataset.stepIndex, select.value)));
   document.querySelectorAll('[data-template-status]').forEach((button) => button.addEventListener('click', () => updateMessageTemplateStatus(button.dataset.templateStatus, button.dataset.status)));
   document.querySelectorAll('[data-approve-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.approveUser, 'active')));
   document.querySelectorAll('[data-reject-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.rejectUser, 'rejected')));
