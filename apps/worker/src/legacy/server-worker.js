@@ -770,10 +770,57 @@ function assetHeaders(contentType, cacheControl = 'no-cache', html = false) {
   return headers;
 }
 
+function marketingHtmlHeaders() {
+  const headers = assetHeaders('text/html; charset=utf-8', 'no-cache', false);
+  headers['content-security-policy'] = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self'; connect-src 'self'";
+  return headers;
+}
+
 function ryvoShellContentType(path) {
   if (path.endsWith('.css')) return 'text/css; charset=utf-8';
   if (path.endsWith('.js')) return 'text/javascript; charset=utf-8';
+  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg';
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.webp')) return 'image/webp';
+  if (path.endsWith('.svg')) return 'image/svg+xml';
+  if (path.endsWith('.woff2')) return 'font/woff2';
+  if (path.endsWith('.woff')) return 'font/woff';
   return 'text/html; charset=utf-8';
+}
+
+function marketingLandingsReady() {
+  return Boolean(typeof marketingHtmlAsset !== 'undefined' && marketingHtmlAsset);
+}
+
+function serveMarketingLanding() {
+  return new Response(marketingHtmlAsset, { headers: marketingHtmlHeaders() });
+}
+
+function serveMarketingAsset(url) {
+  const path = url.pathname;
+  if (typeof marketingBinaryAssets !== 'undefined' && marketingBinaryAssets[path]) {
+    return new Response(decodeAsset(marketingBinaryAssets[path]), {
+      headers: assetHeaders(ryvoShellContentType(path), 'public, max-age=31536000, immutable'),
+    });
+  }
+  if (typeof marketingTextAssets !== 'undefined' && marketingTextAssets[path]) {
+    const isHtml = path.endsWith('.html') || path.endsWith('/');
+    return new Response(marketingTextAssets[path], {
+      headers: isHtml
+        ? marketingHtmlHeaders()
+        : assetHeaders(ryvoShellContentType(path), path.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'),
+    });
+  }
+  if (path === '/marketing' || path === '/marketing/') {
+    return serveMarketingLanding();
+  }
+  return new Response('Not found', { status: 404 });
+}
+
+function isMarketingBrandPath(pathname) {
+  return pathname === '/recupero' || pathname === '/recupero/'
+    || pathname === '/recupera' || pathname === '/recupera/'
+    || pathname === '/meikapen' || pathname === '/meikapen/';
 }
 
 function meikapenShellEnabled(env) {
@@ -2110,6 +2157,46 @@ async function requestPasswordReset(request, env) {
   const target = email ? await env.DB.prepare(`SELECT id, email, name, status FROM users WHERE email = ? COLLATE NOCASE`).bind(email).first() : null;
   if (target?.status === 'active') await issuePasswordReset(request, env, target).catch(() => null);
   return json({ accepted: true, message: 'If an active account exists, a password reset link has been sent.' }, 202);
+}
+
+async function handleMarketingContact(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const name = cleanText(body.name, 120);
+  const company = cleanText(body.company, 160);
+  const email = cleanEmail(body.email);
+  const note = cleanText(body.note, 2000);
+  const source = cleanText(body.source, 40).toLowerCase() || 'meikapen';
+  if (!name || !company || !email) {
+    return json({ error: 'Name, company, and email are required.', code: 'invalid_contact' }, 422);
+  }
+  if (!await rateLimit(env, request, 'marketing_contact', email, 5, 60 * 60)) {
+    return json({ error: 'Too many messages. Try again later.', code: 'rate_limited' }, 429);
+  }
+  const destination = cleanEmail(env.MARKETING_CONTACT_EMAIL) || cleanEmail(env.BREVO_SENDER_EMAIL) || OWNER_EMAIL;
+  const subject = `Meikapen contact · ${source} · ${company}`;
+  const text = [
+    `Source: ${source}`,
+    `Name: ${name}`,
+    `Company: ${company}`,
+    `Email: ${email}`,
+    '',
+    note || '(no note)',
+  ].join('\n');
+  try {
+    await sendBrevo(env, {
+      to: destination,
+      toName: 'Meikapen',
+      subject,
+      text,
+      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#202628"><p><strong>Source:</strong> ${escapeHtml(source)}</p><p><strong>Name:</strong> ${escapeHtml(name)}</p><p><strong>Company:</strong> ${escapeHtml(company)}</p><p><strong>Email:</strong> ${escapeHtml(email)}</p><p style="white-space:pre-wrap">${escapeHtml(note || '(no note)')}</p></div>`,
+      tag: 'marketing-contact',
+    });
+    await audit(env, email, 'marketing_contact_sent', 'marketing', source, { company, destination });
+    return json({ ok: true });
+  } catch (error) {
+    await audit(env, email, 'marketing_contact_failed', 'marketing', source, { company, errorCode: cleanText(error?.message, 100) });
+    return json({ error: 'Could not send right now.', code: 'contact_delivery_failed' }, 502);
+  }
 }
 
 async function confirmPasswordReset(request, env) {
@@ -4426,6 +4513,7 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/auth/logout' && request.method === 'POST') return logOut(request, env);
   if (url.pathname === '/api/auth/password-reset/request' && request.method === 'POST') return requestPasswordReset(request, env);
   if (url.pathname === '/api/auth/password-reset/confirm' && request.method === 'POST') return confirmPasswordReset(request, env);
+  if (url.pathname === '/api/marketing/contact' && request.method === 'POST') return handleMarketingContact(request, env);
   if (url.pathname === '/api/candidate/portal' && request.method === 'GET') return candidatePortalData(request, env);
   if (url.pathname === '/api/candidate/auth/signup' && request.method === 'POST') return candidateSignUp(request, env);
   if (url.pathname === '/api/candidate/auth/login' && request.method === 'POST') return candidateLogIn(request, env);
@@ -4609,9 +4697,21 @@ export default {
       }
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, context);
       if (url.pathname.startsWith('/p/')) return handleRecuperaPublicPortal(request, env, url);
-      if (url.pathname === '/recupera' || url.pathname === '/recupera/') return serveRecuperaLanding(env);
-      if (url.pathname === '/meikapen' || url.pathname === '/meikapen/') return serveMeikapenHub(env);
-      if (url.pathname === '/gazellehunt' || url.pathname === '/gazellehunt/') return serveGazelleHtml(url);
+      if (url.pathname === '/marketing' || url.pathname.startsWith('/marketing/')) {
+        if (!marketingLandingsReady()) return new Response('Not found', { status: 404 });
+        return serveMarketingAsset(url);
+      }
+      if (isMarketingBrandPath(url.pathname)) {
+        if (marketingLandingsReady()) return serveMarketingLanding();
+        if (url.pathname === '/recupera' || url.pathname === '/recupera/' || url.pathname === '/recupero' || url.pathname === '/recupero/') {
+          return serveRecuperaLanding(env);
+        }
+        return serveMeikapenHub(env);
+      }
+      if (url.pathname === '/gazellehunt' || url.pathname === '/gazellehunt/') {
+        if (meikapenPlatformRoot(env, url) && marketingLandingsReady()) return serveMarketingLanding();
+        return serveGazelleHtml(url);
+      }
       if (meikapenShellEnabled(env) && (url.pathname === '/ryvo' || url.pathname.startsWith('/ryvo/'))) {
         return serveRyvoShell(url);
       }
@@ -4624,7 +4724,10 @@ export default {
       if (url.pathname === '/og.png' && ogAsset) return new Response(decodeAsset(ogAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
       if (url.pathname === '/candidate-welcome.png' && candidateWelcomeAsset) return new Response(decodeAsset(candidateWelcomeAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
       if (url.pathname === '/') {
-        if (meikapenPlatformRoot(env, url)) return serveMeikapenHub(env);
+        if (meikapenPlatformRoot(env, url)) {
+          if (marketingLandingsReady()) return serveMarketingLanding();
+          return serveMeikapenHub(env);
+        }
         return serveGazelleHtml(url);
       }
       if (!url.pathname.includes('.')) return serveGazelleHtml(url);

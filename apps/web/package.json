@@ -6,7 +6,9 @@
   "description": "React+Vite RYVO shell. Phase E+ (strangler over legacy app.js).",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build --config vite.landing.config.ts",
+    "build:shell": "tsc -b && vite build",
+    "build:landing": "vite build --config vite.landing.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

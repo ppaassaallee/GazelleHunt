@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -93,7 +93,49 @@ async function loadRyvoShellAssets() {
   return assets;
 }
 
+const BINARY_ASSET_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.ico', '.woff', '.woff2']);
+
+async function walkMarketingDist(dir, urlBase, textAssets, binaryAssets) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    const urlPath = `${urlBase}/${entry.name}`.replace(/\/+/g, '/');
+    if (entry.isDirectory()) {
+      await walkMarketingDist(full, urlPath, textAssets, binaryAssets);
+      continue;
+    }
+    if (BINARY_ASSET_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+      binaryAssets[urlPath] = (await readFile(full)).toString('base64');
+    } else {
+      textAssets[urlPath] = await readFile(full, 'utf8');
+    }
+  }
+}
+
+async function loadMarketingAssets() {
+  const dist = resolve(root, '../web/dist-landing');
+  const indexPath = resolve(dist, 'landing.html');
+  if (!existsSync(indexPath)) {
+    console.log('Marketing landings: apps/web/dist-landing not found; embed skipped (run pnpm build:web first).');
+    return { html: '', text: {}, binary: {} };
+  }
+
+  const text = {};
+  const binary = {};
+  const indexHtml = await readFile(indexPath, 'utf8');
+  text['/marketing/'] = indexHtml;
+  text['/marketing/index.html'] = indexHtml;
+  text['/marketing/landing.html'] = indexHtml;
+  await walkMarketingDist(dist, '/marketing', text, binary);
+
+  // Avoid double-encoding landing.html under /marketing/landing.html from walk + alias above.
+  text['/marketing/landing.html'] = indexHtml;
+
+  console.log(`Marketing landings: embedded ${Object.keys(text).length} text + ${Object.keys(binary).length} binary assets.`);
+  return { html: indexHtml, text, binary };
+}
+
 const ryvoShellAssets = await loadRyvoShellAssets();
+const marketingAssets = await loadMarketingAssets();
 
 const workerSource = `
 import { connect as connectSocket } from 'cloudflare:sockets';
@@ -107,6 +149,9 @@ const appAsset = ${JSON.stringify(app)};
 const ogAsset = ${JSON.stringify(ogBase64)};
 const candidateWelcomeAsset = ${JSON.stringify(candidateWelcomeBase64)};
 const ryvoShellAssets = ${JSON.stringify(ryvoShellAssets)};
+const marketingHtmlAsset = ${JSON.stringify(marketingAssets.html)};
+const marketingTextAssets = ${JSON.stringify(marketingAssets.text)};
+const marketingBinaryAssets = ${JSON.stringify(marketingAssets.binary)};
 function decodeAsset(base64) {
   const binary = atob(base64);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
