@@ -248,21 +248,22 @@ context.fetch = async (url, options) => {
   }
   return { ok: true, status: 200, async json() { return { messages: [{ messageId: 'infobip-wa-fallback-1' }] }; } };
 };
-const infobipWhatsAppFallback = await brevo.sendInfobipWhatsApp(infobipEnv, {
-  toPhone: '50248048638',
-  candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
-  link: 'https://example.com/candidate?invite=abc',
-  buttonToken: 'abc',
-  idempotencyKey: 'wa-event-fallback-1',
-});
-assert.equal(infobipWhatsAppFallback.id, 'infobip-wa-fallback-1');
-assert.equal(fetchCalls.at(-1).url, 'https://abc123.api.infobip.com/whatsapp/1/message/template');
+await assert.rejects(
+  brevo.sendInfobipWhatsApp(infobipEnv, {
+    toPhone: '50248048638',
+    candidate: { name: 'Candidate Name', candidate_brand_name: 'Allied Global', role: 'Bilingual Customer Care' },
+    link: 'https://example.com/candidate?invite=abc',
+    buttonToken: 'abc',
+    idempotencyKey: 'wa-event-fallback-1',
+  }),
+  /whatsapp_template_validation_unavailable/,
+);
 context.fetch = originalFetch;
 
 context.fetch = async (url, options) => {
   fetchCalls.push({ url: String(url), options });
   if (String(url).includes('/whatsapp/2/senders/') && String(url).endsWith('/templates')) {
-    return { ok: false, status: 401, async json() { return { requestError: { serviceException: { text: 'Invalid login details' } } }; } };
+    return { ok: true, status: 200, async json() { return { templates: [{ name: 'gazelle_assessment_invitation', language: 'es', status: 'APPROVED' }] }; } };
   }
   return {
     ok: true,

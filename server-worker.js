@@ -482,6 +482,27 @@ const schemaStatements = [
     FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
     FOREIGN KEY (invitation_id) REFERENCES invitations(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS message_templates (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    name TEXT NOT NULL,
+    provider_template_name TEXT,
+    provider_template_id TEXT,
+    language TEXT NOT NULL DEFAULT 'es',
+    status TEXT NOT NULL DEFAULT 'draft',
+    subject_en TEXT,
+    subject_es TEXT,
+    message_en TEXT NOT NULL,
+    message_es TEXT NOT NULL,
+    created_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (company_id, channel, provider, provider_template_name, language),
+    FOREIGN KEY (company_id) REFERENCES companies(id),
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+  )`,
   `CREATE TABLE IF NOT EXISTS candidate_test_access (
     candidate_id TEXT NOT NULL,
     test_id TEXT NOT NULL,
@@ -592,6 +613,7 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS contact_journeys_scope_idx ON contact_journeys(company_id, list_id, status, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS contact_journey_events_due_idx ON contact_journey_events(status, scheduled_at, updated_at)`,
   `CREATE INDEX IF NOT EXISTS contact_journey_enrollments_status_idx ON contact_journey_enrollments(journey_id, status)`,
+  `CREATE INDEX IF NOT EXISTS message_templates_scope_idx ON message_templates(company_id, channel, status, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_scope_idx ON assessment_outcomes(company_id, test_id, outcome_date DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_assessment_idx ON assessment_outcomes(assessment_id, created_at DESC)`,
 ];
@@ -818,7 +840,10 @@ async function ensureSchema(env) {
   ]);
   await env.DB.batch(postMigrationStatements.map((statement) => env.DB.prepare(statement)));
   const companies = await env.DB.prepare(`SELECT id FROM companies WHERE status = 'active'`).all();
-  for (const company of companies.results || []) await ensureDefaultStages(env, company.id);
+  for (const company of companies.results || []) {
+    await ensureDefaultStages(env, company.id);
+    await ensureDefaultMessageTemplates(env, company.id);
+  }
   schemaReady = true;
 }
 
@@ -837,6 +862,33 @@ async function ensureDefaultStages(env, companyId) {
     INSERT OR IGNORE INTO recruitment_stages (id, company_id, stage_key, name_en, name_es, stage_order, is_terminal, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
   `).bind(crypto.randomUUID(), companyId, key, nameEn, nameEs, order, terminal, now, now)));
+}
+
+async function ensureDefaultMessageTemplates(env, companyId) {
+  const now = new Date().toISOString();
+  const contact = contactabilityConfig(env);
+  const statements = [
+    env.DB.prepare(`
+      INSERT OR IGNORE INTO message_templates
+        (id, company_id, channel, provider, name, provider_template_name, provider_template_id, language, status, subject_en, subject_es, message_en, message_es, created_at, updated_at)
+      VALUES (?, ?, 'email', 'brevo', 'Default assessment invitation email', 'gazelle_email_invitation', NULL, 'es', 'active',
+        'Your assessment is ready', 'Tu evaluación está lista',
+        'Hi {{name}}, {{brand}} invites you to complete your assessment for {{role}}. It takes about 10 minutes. Open it here: {{link}}',
+        'Hola {{name}}, {{brand}} te invita a completar tu evaluación para {{role}}. Toma unos 10 minutos. Entra aquí: {{link}}',
+        ?, ?)
+    `).bind(`tpl_email_default_${companyId}`, companyId, now, now),
+  ];
+  if (contact.whatsapp.providerKey === 'infobip' && contact.whatsapp.templateName) {
+    statements.push(env.DB.prepare(`
+      INSERT OR IGNORE INTO message_templates
+        (id, company_id, channel, provider, name, provider_template_name, provider_template_id, language, status, subject_en, subject_es, message_en, message_es, created_at, updated_at)
+      VALUES (?, ?, 'whatsapp', 'infobip', 'Gazelle assessment invitation WhatsApp', ?, ?, ?, 'approved', NULL, NULL,
+        'Hi {{name}}, {{brand}} invites you to complete your assessment for {{role}}. Open it here: {{link}}',
+        'Hola {{name}}, {{brand}} te invita a completar tu evaluación para {{role}}. Entra aquí: {{link}}',
+        ?, ?)
+    `).bind(`tpl_whatsapp_${companyId}_${contact.whatsapp.templateName}`, companyId, contact.whatsapp.templateName, contact.whatsapp.templateId || null, contact.whatsapp.templateLanguage || 'es', now, now));
+  }
+  await env.DB.batch(statements);
 }
 
 async function ensureCandidatePipeline(env, candidateId, companyId) {
@@ -1117,6 +1169,16 @@ function listScope(user, alias = 'l') {
   if (isSuperAdmin(user)) return { sql: '1 = 1', bindings: [] };
   if (user.role === 'admin') return { sql: `${alias}.company_id = ?`, bindings: [user.companyId] };
   return { sql: `${alias}.owner_user_id = ?`, bindings: [user.id] };
+}
+
+function companyAssetScope(user, alias = '') {
+  const prefix = alias ? `${alias}.` : '';
+  if (isSuperAdmin(user)) return { sql: '1 = 1', bindings: [] };
+  return { sql: `${prefix}company_id = ?`, bindings: [user.companyId] };
+}
+
+function canManageCompanyAssets(user) {
+  return isSuperAdmin(user) || user?.role === 'admin';
 }
 
 async function signUp(request, env) {
@@ -2396,18 +2458,12 @@ async function sendInfobipWhatsApp(env, message) {
     error: cleanText(error.providerMessage || error.message || 'Infobip template status could not be checked before sending.', 300),
   }));
   if (!templateStatus.sendable) {
-    if (templateStatus.validationUnavailable) {
-      console.warn('Infobip template status check failed; attempting direct WhatsApp send.', {
-        templateName,
-        language,
-        error: templateStatus.error,
-      });
-    } else {
-      const error = new Error('whatsapp_template_not_approved');
-      error.providerStatus = 422;
-      error.providerMessage = `Infobip template ${templateName} is ${templateStatus.status || 'not approved'} and cannot be sent yet.`;
-      throw error;
-    }
+    const error = new Error(templateStatus.validationUnavailable ? 'whatsapp_template_validation_unavailable' : 'whatsapp_template_not_approved');
+    error.providerStatus = 422;
+    error.providerMessage = templateStatus.validationUnavailable
+      ? `Infobip template ${templateName} could not be validated before sending: ${templateStatus.error || 'validation unavailable'}.`
+      : `Infobip template ${templateName} is ${templateStatus.status || 'not approved'} and cannot be sent yet.`;
+    throw error;
   }
   const providerMessageId = cleanText(message.idempotencyKey, 100) || crypto.randomUUID();
   const body = await infobipApiRequest(config, '/whatsapp/1/message/template', {
@@ -4547,6 +4603,97 @@ async function listSendBatches(env, user) {
   return (result.results || []).map((batch) => ({ ...batch, status: batchDeliveryStatus(batch) }));
 }
 
+async function listMessageTemplates(env, user) {
+  const scope = companyAssetScope(user, 'mt');
+  const rows = await env.DB.prepare(`
+    SELECT mt.*, c.name AS company_name, u.name AS created_by_name
+    FROM message_templates mt
+    JOIN companies c ON c.id = mt.company_id
+    LEFT JOIN users u ON u.id = mt.created_by_user_id
+    WHERE ${scope.sql}
+    ORDER BY mt.channel, mt.status = 'active' DESC, mt.status = 'approved' DESC, mt.updated_at DESC
+  `).bind(...scope.bindings).all();
+  return rows.results || [];
+}
+
+async function messageTemplateByReference(env, user, companyId, channel, reference, language = 'es') {
+  const cleanReference = cleanText(reference, 140);
+  if (!cleanReference) return null;
+  const scope = companyAssetScope(user, 'mt');
+  return env.DB.prepare(`
+    SELECT mt.* FROM message_templates mt
+    WHERE mt.company_id = ? AND mt.channel = ? AND ${scope.sql}
+      AND mt.status IN ('approved', 'active')
+      AND (mt.id = ? OR mt.provider_template_name = ? OR mt.provider_template_id = ? OR mt.name = ?)
+      AND (? = '' OR mt.language = ? OR mt.language = 'es')
+    ORDER BY mt.status = 'active' DESC, mt.updated_at DESC LIMIT 1
+  `).bind(companyId, channel, ...scope.bindings, cleanReference, cleanReference, cleanReference, cleanReference, cleanText(language, 20), cleanText(language, 20)).first();
+}
+
+async function createMessageTemplate(request, env, user) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Admin access is required to manage templates.', code: 'admin_required' }, 403);
+  const body = await request.json().catch(() => ({}));
+  const channel = ['email', 'whatsapp', 'sms'].includes(body.channel) ? body.channel : '';
+  const requestedProvider = ['brevo', 'infobip', 'custom'].includes(body.provider) ? body.provider : 'custom';
+  const provider = channel === 'email' ? 'brevo' : channel === 'whatsapp' ? 'infobip' : requestedProvider;
+  const companyId = isSuperAdmin(user) ? cleanText(body.companyId || user.companyId, 100) : user.companyId;
+  const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
+  const name = cleanText(body.name, 140);
+  const language = body.language === 'en' ? 'en' : 'es';
+  const requestedStatus = cleanText(body.status, 30);
+  const status = ['draft', 'approved', 'active', 'paused', 'rejected'].includes(requestedStatus) ? requestedStatus : channel === 'whatsapp' ? 'draft' : 'active';
+  const providerTemplateName = cleanText(body.providerTemplateName, 140) || (channel === 'email' ? cleanText(body.name, 140).toLowerCase().replace(/[^a-z0-9]+/g, '_') : '');
+  const providerTemplateId = cleanText(body.providerTemplateId, 140) || null;
+  const messageEn = cleanText(body.messageEn, 1200);
+  const messageEs = cleanText(body.messageEs, 1200);
+  if (!company || !channel || !name || !messageEn || !messageEs) return json({ error: 'Company, channel, name, English message, and Spanish message are required.', code: 'invalid_template' }, 422);
+  if (channel === 'whatsapp' && provider !== 'infobip') return json({ error: 'WhatsApp templates must use Infobip in this workspace.', code: 'invalid_whatsapp_provider' }, 422);
+  if (channel === 'whatsapp' && !providerTemplateName) return json({ error: 'WhatsApp requires the approved Infobip template name.', code: 'whatsapp_template_name_required' }, 422);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  try {
+    await env.DB.prepare(`
+      INSERT INTO message_templates
+        (id, company_id, channel, provider, name, provider_template_name, provider_template_id, language, status, subject_en, subject_es, message_en, message_es, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, company.id, channel, provider, name, providerTemplateName || null, providerTemplateId, language, status, cleanText(body.subjectEn, 180) || null, cleanText(body.subjectEs, 180) || null, messageEn, messageEs, user.id, now, now).run();
+  } catch {
+    return json({ error: 'A template with that provider name and language already exists for this company.', code: 'template_exists' }, 409);
+  }
+  await audit(env, user.email, 'message_template_created', 'message_template', id, { companyId: company.id, channel, provider, status, providerTemplateName });
+  return json({ templateId: id, templates: await listMessageTemplates(env, user) }, 201);
+}
+
+async function updateMessageTemplate(request, env, user, templateId) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Admin access is required to manage templates.', code: 'admin_required' }, 403);
+  const scope = companyAssetScope(user, 'mt');
+  const template = await env.DB.prepare(`SELECT mt.* FROM message_templates mt WHERE mt.id = ? AND ${scope.sql}`).bind(templateId, ...scope.bindings).first();
+  if (!template) return json({ error: 'Template not found.', code: 'template_not_found' }, 404);
+  const body = await request.json().catch(() => ({}));
+  const status = ['draft', 'approved', 'active', 'paused', 'rejected', 'archived'].includes(body.status) ? body.status : template.status;
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    UPDATE message_templates
+    SET name = ?, provider_template_name = ?, provider_template_id = ?, language = ?, status = ?,
+      subject_en = ?, subject_es = ?, message_en = ?, message_es = ?, updated_at = ?
+    WHERE id = ?
+  `).bind(
+    cleanText(body.name ?? template.name, 140),
+    cleanText(body.providerTemplateName ?? template.provider_template_name, 140) || null,
+    cleanText(body.providerTemplateId ?? template.provider_template_id, 140) || null,
+    body.language === 'en' ? 'en' : body.language === 'es' ? 'es' : template.language,
+    status,
+    cleanText(body.subjectEn ?? template.subject_en, 180) || null,
+    cleanText(body.subjectEs ?? template.subject_es, 180) || null,
+    cleanText(body.messageEn ?? template.message_en, 1200) || template.message_en,
+    cleanText(body.messageEs ?? template.message_es, 1200) || template.message_es,
+    now,
+    template.id,
+  ).run();
+  await audit(env, user.email, 'message_template_updated', 'message_template', template.id, { status });
+  return json({ templates: await listMessageTemplates(env, user) });
+}
+
 function normalizedJourneySteps(inputSteps) {
   const fallback = [
     { delayHours: 0, businessDayOffset: 0, channel: 'whatsapp' },
@@ -4593,8 +4740,14 @@ async function listContactJourneys(env, user) {
   const rows = await env.DB.prepare(`
     SELECT j.*, l.name AS list_name, c.name AS company_name, t.name_en AS test_name_en, t.name_es AS test_name_es, u.name AS created_by_name,
       (SELECT COUNT(*) FROM contact_journey_steps s WHERE s.journey_id = j.id) AS step_count,
+      (SELECT COUNT(*) FROM candidate_list_members lm WHERE lm.list_id = j.list_id) AS list_member_count,
       (SELECT COUNT(*) FROM contact_journey_enrollments e WHERE e.journey_id = j.id) AS enrollment_count,
       (SELECT COUNT(*) FROM contact_journey_enrollments e WHERE e.journey_id = j.id AND e.status = 'completed') AS completed_count,
+      (SELECT COUNT(*) FROM contact_journey_enrollments e WHERE e.journey_id = j.id AND e.status = 'active') AS active_enrollment_count,
+      (SELECT COUNT(DISTINCT ev.candidate_id) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status IN ('accepted', 'failed', 'skipped')) AS touched_candidate_count,
+      (SELECT COUNT(DISTINCT ev.candidate_id) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'accepted') AS contacted_candidate_count,
+      (SELECT COUNT(DISTINCT ev.candidate_id) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'failed') AS failed_candidate_count,
+      (SELECT COUNT(DISTINCT a.candidate_id) FROM assessments a JOIN contact_journey_enrollments e ON e.candidate_id = a.candidate_id AND e.test_id = a.test_id WHERE e.journey_id = j.id) AS assessment_completed_count,
       (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'queued') AS queued_event_count,
       (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'accepted') AS accepted_event_count,
       (SELECT COUNT(*) FROM contact_journey_events ev JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id WHERE e.journey_id = j.id AND ev.status = 'skipped') AS skipped_event_count,
@@ -4624,10 +4777,23 @@ async function createContactJourney(request, env, user) {
   if (!name || !list) return json({ error: 'Journey name and a valid candidate list are required.', code: 'invalid_journey' }, 422);
   if (!test) return json({ error: 'Select an active executable test for this journey.', code: 'test_not_executable' }, 422);
   const steps = normalizedJourneySteps(body.steps);
+  const locale = body.locale === 'es' ? 'es' : 'en';
   if (!steps.length) return json({ error: 'Add at least one journey step.', code: 'journey_steps_required' }, 422);
+  for (const step of steps) {
+    if (step.channel !== 'whatsapp') continue;
+    const template = await messageTemplateByReference(env, user, list.company_id, 'whatsapp', step.brevo_template_id || step.template_name, locale);
+    if (!template) {
+      return json({ error: 'Every WhatsApp step must use an approved active template from Template manager.', code: 'whatsapp_template_not_approved' }, 422);
+    }
+    step.template_name = template.name;
+    step.brevo_template_id = template.provider_template_name || template.provider_template_id || template.id;
+    step.subject_en = template.subject_en;
+    step.subject_es = template.subject_es;
+    step.message_en = template.message_en;
+    step.message_es = template.message_es;
+  }
   const journeyId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const locale = body.locale === 'es' ? 'es' : 'en';
   const status = body.status === 'active' ? 'active' : 'draft';
   const statements = [env.DB.prepare(`
     INSERT INTO contact_journeys (id, company_id, list_id, test_id, created_by_user_id, name, status, locale, goal_event, created_at, updated_at)
@@ -5335,6 +5501,10 @@ async function handleApi(request, env, context) {
   if (listMatch && request.method === 'DELETE') return deleteCandidateList(request, env, user, cleanText(listMatch[1], 100));
   if (url.pathname === '/api/journeys' && request.method === 'GET') return json({ journeys: await listContactJourneys(env, user) });
   if (url.pathname === '/api/journeys' && request.method === 'POST') return createContactJourney(request, env, user);
+  if (url.pathname === '/api/templates' && request.method === 'GET') return json({ templates: await listMessageTemplates(env, user) });
+  if (url.pathname === '/api/templates' && request.method === 'POST') return createMessageTemplate(request, env, user);
+  const templateMatch = url.pathname.match(/^\/api\/templates\/([^/]+)$/);
+  if (templateMatch && request.method === 'PATCH') return updateMessageTemplate(request, env, user, cleanText(templateMatch[1], 100));
   const journeyEnrollMatch = url.pathname.match(/^\/api\/journeys\/([^/]+)\/enroll$/);
   if (journeyEnrollMatch && request.method === 'POST') return enrollContactJourney(request, env, user, cleanText(journeyEnrollMatch[1], 100), context);
   const journeyMatch = url.pathname.match(/^\/api\/journeys\/([^/]+)$/);

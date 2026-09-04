@@ -42,7 +42,7 @@ const icons = {
 const baseNavItems = [
   ['home', 'Overview', 'home'], ['tests', 'Test catalog', 'layers'], ['lists', 'Candidate lists', 'list'],
   ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'], ['send', 'Direct send', 'send'],
-  ['progress', 'Send progress', 'clock'], ['journeys', 'Contactability', 'workflow'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['calibration', 'Calibration', 'chart'], ['settings', 'Settings', 'settings'],
+  ['progress', 'Send progress', 'clock'], ['journeys', 'Journeys', 'workflow'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['calibration', 'Calibration', 'chart'], ['settings', 'Settings', 'settings'],
 ];
 
 function navItems() {
@@ -60,7 +60,7 @@ const state = {
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
   resetToken: '', passwordResetSent: false, passwordResetComplete: false,
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
-  tests: [], lists: [], batches: [], journeys: [], users: [], companies: [], selectedListId: null, listCandidateSearch: '', importTargetListId: '',
+  tests: [], lists: [], batches: [], journeys: [], templates: [], users: [], companies: [], selectedListId: null, listCandidateSearch: '', importTargetListId: '',
   outcomes: [], calibration: { summaries: [], assessments: [] }, calibrationTestId: 'all',
   stages: [], referrals: [], journeyCandidateId: null,
   deliveryChecks: {},
@@ -131,9 +131,9 @@ async function loadWorkspace({ silent = false } = {}) {
     const auth = await fetchJson('/api/auth/me');
     state.user = auth.user;
     state.adminAuthenticated = true;
-    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/journeys'), fetchJson('/api/stages'), fetchJson('/api/referrals'), fetchJson('/api/outcomes')];
+    const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/journeys'), fetchJson('/api/templates'), fetchJson('/api/stages'), fetchJson('/api/referrals'), fetchJson('/api/outcomes')];
     if (state.user.role === 'super_admin') requests.push(fetchJson('/api/admin/users'));
-    const [health, candidates, results, tests, lists, batches, journeys, stages, referrals, outcomes, team] = await Promise.all(requests);
+    const [health, candidates, results, tests, lists, batches, journeys, templates, stages, referrals, outcomes, team] = await Promise.all(requests);
     state.health = health;
     state.candidates = candidates.candidates || [];
     state.results = results.results || [];
@@ -141,6 +141,7 @@ async function loadWorkspace({ silent = false } = {}) {
     state.lists = lists.lists || [];
     state.batches = batches.batches || [];
     state.journeys = journeys.journeys || [];
+    state.templates = templates.templates || [];
     state.stages = stages.stages || [];
     state.referrals = referrals.referrals || [];
     state.outcomes = outcomes.outcomes || [];
@@ -269,8 +270,8 @@ function renderLists() {
       : !Number(selected?.test_count || 0)
         ? 'Select at least one active test before sending.'
         : '';
-  const editor = selected ? `<section class="list-editor"><div class="list-editor-head"><div><p class="eyebrow">${esc(selected.company_name)}</p><h3>${esc(selected.name)}</h3><p>${esc(selected.description || 'No description')}</p></div><div class="list-head-actions"><span class="badge badge-neutral">${Number(selected.member_count)} candidates · ${Number(selected.test_count)} tests</span><button class="button button-secondary" data-action="import-selected-list" type="button">${icon('upload')}Import into list</button><button class="button button-secondary" data-archive-list="${selected.id}" type="button">${icon('archive')}Archive</button><button class="button button-secondary danger" data-delete-list="${selected.id}" type="button" ${selected.can_delete ? '' : 'disabled'}>${icon('trash')}Delete</button></div></div><div class="list-flow"><div class="${Number(selected.member_count) ? 'done' : 'active'}"><span>1</span><strong>Add candidates</strong><small>Pick existing people or import CSV into this list.</small></div><div class="${Number(selected.test_count) ? 'done' : ''}"><span>2</span><strong>Select tests</strong><small>Choose the assessment set for this cohort.</small></div><div class="${Number(selected.member_count) && Number(selected.test_count) ? 'active' : ''}"><span>3</span><strong>Send batch</strong><small>Create tracked invitations with provider evidence.</small></div><div><span>4</span><strong>Contactability</strong><small>Enroll this list in reminder journeys.</small></div></div><form id="list-editor-form"><div class="list-editor-grid"><div class="selection-panel"><div class="selection-title"><div><h4>Candidates</h4><p>A candidate can belong to multiple lists.</p></div><span>${companyCandidates.length} shown</span></div><div class="selection-tools"><div class="search">${icon('search')}<input class="input" id="list-candidate-search" value="${esc(state.listCandidateSearch || '')}" placeholder="Search candidates to add"></div><button class="button button-secondary" data-action="import-selected-list" type="button">${icon('upload')}Import CSV</button></div><div class="check-list">${companyCandidates.map((candidate) => `<label><input type="checkbox" name="list-candidate" value="${candidate.id}" ${selected.member_ids.includes(candidate.id) ? 'checked' : ''}><span><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}</small></span></label>`).join('') || '<div class="empty-panel compact"><h3>No candidates found</h3><p>Import a CSV into this list or clear the search.</p></div>'}</div></div><div class="selection-panel"><div class="selection-title"><div><h4>Tests</h4><p>Select one or more active tests for this list.</p></div><span>${activeTests.length} active</span></div><div class="check-list">${activeTests.map((test) => `<label><input type="checkbox" name="list-test" value="${test.id}" ${selected.test_ids.includes(test.id) ? 'checked' : ''}><span><strong>${esc(test.name_en)}</strong><small>${esc(test.name_es)} · ${Number(test.estimated_minutes)} min</small></span></label>`).join('')}</div></div></div><div class="list-actions"><div class="list-action-note"><strong>${selected.can_delete ? 'Unused list' : 'Audit protected'}</strong><span>${esc(deleteHint)}</span></div><button class="button button-secondary" type="submit">${icon('check')}Save candidates and tests</button><label class="compact-select"><span>Email language</span><select class="select" id="batch-locale"><option value="en">English</option><option value="es">Español</option></select></label><button class="button button-primary" type="button" data-batch-list="${selected.id}" ${sendDisabledReason || state.busy ? 'disabled' : ''}>${icon('send')}Send selected tests</button><button class="button button-secondary" type="button" data-nav="journeys">${icon('workflow')}Assign contactability flow</button></div>${sendDisabledReason ? `<p class="field-help list-help">${esc(sendDisabledReason)}</p>` : ''}</form></section>` : `<div class="empty-panel"><h3>Create the first candidate list</h3><p>Lists connect candidates, tests, and batch delivery.</p></div>`;
-  return `<div class="stack">${pageIntro('Core workflow', 'Candidate lists', 'Create reusable cohorts, assign tests, schedule sends, and enroll contactability journeys.', '')}<div class="lists-layout"><aside class="lists-rail"><form class="card card-body list-create" id="list-form"><h3>New list</h3><label class="field"><span>Name</span><input class="input" id="list-name" required placeholder="July customer care cohort"></label><label class="field"><span>Description</span><textarea class="textarea" id="list-description" maxlength="500"></textarea></label>${companyChoice}<button class="button button-primary" type="submit">${icon('plus')}Create list</button></form><div class="list-nav">${state.lists.map((list) => `<button class="list-nav-item ${selected?.id === list.id ? 'active' : ''}" data-list-id="${list.id}"><span><strong>${esc(list.name)}</strong><small>${esc(list.company_name)} · ${Number(list.member_count)} candidates · ${Number(list.batch_count || 0)} sends</small></span><span>${Number(list.test_count)}</span></button>`).join('')}</div></aside>${editor}</div></div>`;
+  const editor = selected ? `<section class="list-editor"><div class="list-editor-head"><div><p class="eyebrow">${esc(selected.company_name)}</p><h3>${esc(selected.name)}</h3><p>${esc(selected.description || 'No description')}</p></div><div class="list-head-actions"><span class="badge badge-neutral">${Number(selected.member_count)} candidates · ${Number(selected.test_count)} tests</span>${actionIconButton('upload', 'Import into list', 'data-action="import-selected-list"')}${actionIconButton('archive', 'Archive list', `data-archive-list="${selected.id}"`)}${actionIconButton('trash', 'Delete unused list', `data-delete-list="${selected.id}" ${selected.can_delete ? '' : 'disabled'}`, true)}</div></div><div class="list-flow"><div class="${Number(selected.member_count) ? 'done' : 'active'}"><span>1</span><strong>Add candidates</strong><small>Pick existing people or import CSV into this list.</small></div><div class="${Number(selected.test_count) ? 'done' : ''}"><span>2</span><strong>Select tests</strong><small>Choose the assessment set for this cohort.</small></div><div class="${Number(selected.member_count) && Number(selected.test_count) ? 'active' : ''}"><span>3</span><strong>Send batch</strong><small>Create tracked invitations with provider evidence.</small></div><div><span>4</span><strong>Journeys</strong><small>Enroll this list in reminder journeys.</small></div></div><form id="list-editor-form"><div class="list-editor-grid"><div class="selection-panel"><div class="selection-title"><div><h4>Candidates</h4><p>A candidate can belong to multiple lists.</p></div><span>${companyCandidates.length} shown</span></div><div class="selection-tools"><div class="search">${icon('search')}<input class="input" id="list-candidate-search" value="${esc(state.listCandidateSearch || '')}" placeholder="Search candidates to add"></div>${actionIconButton('upload', 'Import CSV', 'data-action="import-selected-list"')}</div><div class="check-list">${companyCandidates.map((candidate) => `<label><input type="checkbox" name="list-candidate" value="${candidate.id}" ${selected.member_ids.includes(candidate.id) ? 'checked' : ''}><span><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}</small></span></label>`).join('') || '<div class="empty-panel compact"><h3>No candidates found</h3><p>Import a CSV into this list or clear the search.</p></div>'}</div></div><div class="selection-panel"><div class="selection-title"><div><h4>Tests</h4><p>Select one or more active tests for this list.</p></div><span>${activeTests.length} active</span></div><div class="check-list">${activeTests.map((test) => `<label><input type="checkbox" name="list-test" value="${test.id}" ${selected.test_ids.includes(test.id) ? 'checked' : ''}><span><strong>${esc(test.name_en)}</strong><small>${esc(test.name_es)} · ${Number(test.estimated_minutes)} min</small></span></label>`).join('')}</div></div></div><div class="list-actions"><div class="list-action-note"><strong>${selected.can_delete ? 'Unused list' : 'Audit protected'}</strong><span>${esc(deleteHint)}</span></div><button class="button button-secondary" type="submit">${icon('check')}Save candidates and tests</button><label class="compact-select"><span>Email language</span><select class="select" id="batch-locale"><option value="en">English</option><option value="es">Español</option></select></label><button class="button button-primary" type="button" data-batch-list="${selected.id}" ${sendDisabledReason || state.busy ? 'disabled' : ''}>${icon('send')}Send selected tests</button>${actionIconButton('workflow', 'Assign journey', 'data-nav="journeys"')}</div>${sendDisabledReason ? `<p class="field-help list-help">${esc(sendDisabledReason)}</p>` : ''}</form></section>` : `<div class="empty-panel"><h3>Create the first candidate list</h3><p>Lists connect candidates, tests, and batch delivery.</p></div>`;
+  return `<div class="stack">${pageIntro('Core workflow', 'Candidate lists', 'Create reusable cohorts, assign tests, schedule sends, and enroll journeys.', '')}<div class="lists-layout"><aside class="lists-rail"><form class="card card-body list-create" id="list-form"><h3>New list</h3><label class="field"><span>Name</span><input class="input" id="list-name" required placeholder="July customer care cohort"></label><label class="field"><span>Description</span><textarea class="textarea" id="list-description" maxlength="500"></textarea></label>${companyChoice}<button class="button button-primary" type="submit">${icon('plus')}Create list</button></form><div class="list-nav">${state.lists.map((list) => `<button class="list-nav-item ${selected?.id === list.id ? 'active' : ''}" data-list-id="${list.id}"><span><strong>${esc(list.name)}</strong><small>${esc(list.company_name)} · ${Number(list.member_count)} candidates · ${Number(list.batch_count || 0)} sends</small></span><span>${Number(list.test_count)}</span></button>`).join('')}</div></aside>${editor}</div></div>`;
 }
 
 function renderTeam() {
@@ -568,6 +569,10 @@ function channelStatusCard(channel, config = {}) {
   return `<article class="card channel-card"><div class="channel-card-head"><span class="channel-pill ${channel}">${channel}</span>${statusBadge(badge)}</div><strong>${esc(config.provider || (channel === 'email' ? 'Brevo Email' : channel))}</strong><p>${ready && templateReady ? esc(readyText) : esc(blockedText || `Missing ${missing || 'provider configuration'}. Steps can be designed, but sends will fail clearly until configured.`)}</p></article>`;
 }
 
+function actionIconButton(iconName, label, attrs = '', danger = false) {
+  return `<button class="button icon-button material-action ${danger ? 'danger' : ''}" type="button" ${attrs} title="${esc(label)}" aria-label="${esc(label)}">${icon(iconName)}</button>`;
+}
+
 function channelIcon(channel) {
   return channel === 'whatsapp' ? 'WA' : channel === 'sms' ? 'SMS' : 'EM';
 }
@@ -582,6 +587,8 @@ function journeyNode({ type = 'action', number = '', title, subtitle, channel = 
 }
 
 function journeyStepInputs() {
+  const approvedWhatsappTemplates = state.templates.filter((template) => template.channel === 'whatsapp' && ['approved', 'active'].includes(template.status));
+  const whatsappOptionsFor = (defaultTemplate) => approvedWhatsappTemplates.map((template, index) => `<option value="${esc(template.id)}" ${template.provider_template_name === defaultTemplate || (!defaultTemplate && index === 0) ? 'selected' : ''}>${esc(template.provider_template_name || template.name)} · ${esc(template.language)}</option>`).join('');
   const defaults = [
     { delay: 0, businessDay: 0, channel: 'whatsapp', template: 'gazelle_assessment_invitation', en: 'Hi {{name}}, {{brand}} invites you to complete your assessment for {{role}}. It takes about 10 minutes. Open it here: {{link}}', es: 'Hola {{name}}, {{brand}} te invita a completar tu evaluación para {{role}}. Toma unos 10 minutos. Entra aquí: {{link}}' },
     { delay: 1, businessDay: 0, channel: 'email', en: 'Hi {{name}}, your {{brand}} assessment for {{role}} is ready. Please complete it here when you have a quiet moment: {{link}}', es: 'Hola {{name}}, tu evaluación de {{brand}} para {{role}} está lista. Cuando tengas un momento tranquilo, complétala aquí: {{link}}' },
@@ -600,7 +607,7 @@ function journeyStepInputs() {
         <label class="field"><span>Wait hours</span><input class="input journey-delay" type="number" min="0" max="720" step="0.5" value="${step.delay}"></label>
         <label class="field"><span>Business day</span><input class="input journey-business-day-offset" type="number" min="0" max="30" step="1" value="${step.businessDay}"><small>0 is same business day; weekends are skipped.</small></label>
         <label class="field"><span>Channel</span><select class="select journey-channel"><option value="email" ${step.channel === 'email' ? 'selected' : ''}>Email</option><option value="whatsapp" ${step.channel === 'whatsapp' ? 'selected' : ''}>WhatsApp</option><option value="sms" ${step.channel === 'sms' ? 'selected' : ''}>SMS</option></select></label>
-        <label class="field"><span>Provider template</span><input class="input journey-template" placeholder="Infobip template name or Brevo ID" maxlength="120" value="${esc(step.template || '')}"></label>
+        <label class="field"><span>${step.channel === 'whatsapp' ? 'Approved WhatsApp template' : 'Reusable template reference'}</span>${step.channel === 'whatsapp' ? `<select class="select journey-template"><option value="">Choose approved template</option>${whatsappOptionsFor(step.template)}</select><small>WhatsApp cannot send without an approved Infobip template.</small>` : `<input class="input journey-template" placeholder="Optional internal template name" maxlength="120" value="${esc(step.template || '')}">`}</label>
         <label class="field form-wide"><span>English message</span><textarea class="textarea journey-message-en" maxlength="800">${esc(step.en)}</textarea></label>
         <label class="field form-wide"><span>Spanish message</span><textarea class="textarea journey-message-es" maxlength="800">${esc(step.es)}</textarea></label>
       </div>
@@ -620,6 +627,61 @@ function journeyFlowPreview(journey) {
   </div>`;
 }
 
+function templateStatusTone(status) {
+  return ['approved', 'active'].includes(status) ? 'teal' : status === 'rejected' ? 'red' : 'orange';
+}
+
+function renderTemplateManager() {
+  const canManage = ['admin', 'super_admin'].includes(state.user?.role);
+  const companyOptions = state.companies.map((company) => `<option value="${esc(company.id)}">${esc(company.name)}</option>`).join('');
+  const rows = state.templates.map((template) => `<article class="template-card">
+    <div class="template-card-head"><span class="channel-pill ${esc(template.channel)}">${esc(template.channel)}</span><span class="badge badge-${templateStatusTone(template.status)}">${esc(template.status)}</span></div>
+    <strong>${esc(template.name)}</strong>
+    <p>${esc(template.provider)}${template.provider_template_name ? ` · ${esc(template.provider_template_name)}` : ''}${template.provider_template_id ? ` · ID ${esc(template.provider_template_id)}` : ''}</p>
+    <small>${esc(template.company_name)} · ${esc(template.language)} · ${template.channel === 'whatsapp' ? 'Provider-approved template required' : 'Editable content allowed'}</small>
+    ${canManage ? `<div class="template-actions">${['draft', 'approved', 'active', 'paused', 'archived'].map((status) => actionIconButton(status === 'archived' ? 'archive' : status === 'active' || status === 'approved' ? 'check' : status === 'paused' ? 'clock' : 'file', status, `data-template-status="${esc(template.id)}" data-status="${status}"`, false)).join('')}</div>` : ''}
+  </article>`).join('');
+  const form = canManage ? `<section class="card template-create"><div class="card-header"><div><h3>Template manager</h3><p>WhatsApp must use an approved Infobip template. Email uses Brevo and can remain editable.</p></div>${icon('file')}</div>
+    <form class="card-body form-grid" id="template-form">
+      ${state.user?.role === 'super_admin' ? `<label class="field"><span>Company</span><select class="select" id="template-company">${companyOptions}</select></label>` : ''}
+      <label class="field"><span>Channel</span><select class="select" id="template-channel"><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="sms">SMS</option></select></label>
+      <label class="field"><span>Provider</span><select class="select" id="template-provider"><option value="infobip">Infobip</option><option value="brevo">Brevo</option><option value="custom">Custom</option></select></label>
+      <label class="field"><span>Status</span><select class="select" id="template-status"><option value="draft">Draft</option><option value="approved">Approved</option><option value="active">Active</option><option value="paused">Paused</option></select></label>
+      <label class="field"><span>Name</span><input class="input" id="template-name" required placeholder="Assessment invitation WhatsApp"></label>
+      <label class="field"><span>Language</span><select class="select" id="template-language"><option value="es">Español</option><option value="en">English</option></select></label>
+      <label class="field"><span>Provider template name</span><input class="input" id="template-provider-name" placeholder="gazelle_assessment_invitation"></label>
+      <label class="field"><span>Provider template ID</span><input class="input" id="template-provider-id" placeholder="1723626188858185"></label>
+      <label class="field"><span>English subject</span><input class="input" id="template-subject-en" placeholder="Your assessment is ready"></label>
+      <label class="field"><span>Spanish subject</span><input class="input" id="template-subject-es" placeholder="Tu evaluación está lista"></label>
+      <label class="field form-wide"><span>English message</span><textarea class="textarea" id="template-message-en" required>Hi {{name}}, {{brand}} invites you to complete your assessment for {{role}}. It takes about 10 minutes. Open it here: {{link}}</textarea></label>
+      <label class="field form-wide"><span>Spanish message</span><textarea class="textarea" id="template-message-es" required>Hola {{name}}, {{brand}} te invita a completar tu evaluación para {{role}}. Toma unos 10 minutos. Entra aquí: {{link}}</textarea></label>
+      <div class="form-span template-create-actions"><button class="button button-primary" type="submit" ${state.busy ? 'disabled' : ''}>${icon('plus')}Create template</button><p class="field-help">For WhatsApp, mark approved only after Infobip has approved the exact template name/language.</p></div>
+    </form></section>` : `<section class="card card-body"><h3>Template manager</h3><p class="empty-value">Admins manage templates. Recruiters can use approved active templates in journeys.</p></section>`;
+  return `${form}<section class="template-grid">${rows || '<div class="empty-panel"><h3>No templates yet</h3><p>Create approved WhatsApp templates and reusable email/SMS content before building journeys.</p></div>'}</section>`;
+}
+
+function renderJourneyFunnel() {
+  const rows = state.journeys.map((journey) => {
+    const members = Number(journey.list_member_count || 0);
+    const enrolled = Number(journey.enrollment_count || 0);
+    const contacted = Number(journey.contacted_candidate_count || 0);
+    const completed = Number(journey.assessment_completed_count || journey.completed_count || 0);
+    const failed = Number(journey.failed_candidate_count || 0);
+    const pending = Math.max(0, enrolled - completed - failed);
+    const stages = [
+      ['List', members],
+      ['Enrolled', enrolled],
+      ['Contacted', contacted],
+      ['Completed', completed],
+      ['Pending', pending],
+      ['Failed', failed],
+    ];
+    const max = Math.max(1, ...stages.map(([, value]) => value));
+    return `<article class="journey-funnel-row"><div><strong>${esc(journey.name)}</strong><span>${esc(journey.list_name)} · ${esc(journey.test_name_en)}</span></div><div class="journey-funnel-bars">${stages.map(([label, value]) => `<label><span>${esc(label)}</span><i><em style="width:${Math.max(5, Math.round((value / max) * 100))}%"></em></i><b>${value}</b></label>`).join('')}</div></article>`;
+  }).join('');
+  return `<section class="card"><div class="card-header"><div><h3>Journey funnel</h3><p>Track where each list stands inside its journey lifecycle.</p></div>${icon('chart')}</div><div class="card-body journey-funnel">${rows || '<div class="empty-panel compact"><h3>No journey funnel yet</h3><p>Create and enroll a journey to see list progress.</p></div>'}</div></section>`;
+}
+
 function renderContactability() {
   const messaging = state.health.messaging || {};
   const activeTests = state.tests.filter((test) => test.status === 'active' && test.engine_key === 'tenure_potential');
@@ -627,12 +689,18 @@ function renderContactability() {
   const queued = state.journeys.reduce((sum, journey) => sum + Number(journey.queued_event_count || 0), 0);
   const accepted = state.journeys.reduce((sum, journey) => sum + Number(journey.accepted_event_count || 0), 0);
   const failed = state.journeys.reduce((sum, journey) => sum + Number(journey.failed_event_count || 0), 0);
+  const approvedWhatsapp = state.templates.filter((template) => template.channel === 'whatsapp' && ['approved', 'active'].includes(template.status)).length;
   const listOptions = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} · ${esc(list.company_name)} · ${Number(list.member_count)} candidates</option>`).join('');
   const testOptions = activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('');
-  return `<div class="stack">${pageIntro('Automation flows', 'Contactability journeys', 'Design persistence flows across email, WhatsApp, and SMS. Each step creates a real provider send or a clear failed event if that channel is not configured.', `<button class="button button-secondary" data-action="reload">${icon('refresh')}Refresh</button>`)}
+  const whatsappGuard = approvedWhatsapp
+    ? `<span class="badge badge-teal">${approvedWhatsapp} approved WhatsApp template${approvedWhatsapp === 1 ? '' : 's'}</span>`
+    : `<span class="badge badge-red">WhatsApp blocked until template is approved</span>`;
+  return `<div class="stack">${pageIntro('Automation flows', 'Journeys', 'Design persistence flows across email, WhatsApp, and SMS. Each candidate is tracked independently and stops receiving reminders after completing the selected test.', `<div class="toolbar">${whatsappGuard}${actionIconButton('refresh', 'Refresh', 'data-action="reload"')}</div>`)}
+    <section class="core-flow-strip"><div>${icon('upload')}<strong>Upload list</strong><span>CSV or existing candidates</span></div><div>${icon('list')}<strong>Manage list</strong><span>Members and tests</span></div><div>${icon('calendar')}<strong>Schedule/send</strong><span>Batch invitations</span></div><div>${icon('workflow')}<strong>Assign journey</strong><span>Persistence flow</span></div><div>${icon('chart')}<strong>Track funnel</strong><span>Performance and traceability</span></div></section>
     <section class="grid grid-4">${metric('Active journeys', activeJourneys, 'Running flows', 'workflow')}${metric('Scheduled events', queued, 'Waiting for trigger time', 'clock')}${metric('Provider accepted', accepted, 'Real sends accepted', 'send')}${metric('Needs attention', failed, 'Failed provider or config', 'alert')}</section>
     <section class="grid grid-3">${channelStatusCard('email', { configured: state.health.email?.configured, provider: 'Brevo Transactional Email', missing: state.health.email?.configured ? [] : ['BREVO_API_KEY', 'BREVO_SENDER_EMAIL', 'BREVO_WEBHOOK_TOKEN'] })}${channelStatusCard('whatsapp', messaging.whatsapp)}${channelStatusCard('sms', messaging.sms)}</section>
-    <section class="card journey-builder"><div class="card-header"><div><h3>Create a contactability flow</h3><p>Use <code>{{name}}</code>, <code>{{brand}}</code>, <code>{{role}}</code>, and <code>{{link}}</code> in email/SMS messages. WhatsApp uses the approved provider template with the candidate link as a placeholder.</p></div>${icon('workflow')}</div>
+    ${renderJourneyFunnel()}
+    <section class="card journey-builder"><div class="card-header"><div><h3>Create a journey</h3><p>Use <code>{{name}}</code>, <code>{{brand}}</code>, <code>{{role}}</code>, and <code>{{link}}</code>. WhatsApp steps must choose an approved Infobip template from Template manager.</p></div>${icon('workflow')}</div>
       <form class="card-body stack" id="journey-form">
         <div class="form-grid">
           <label class="field"><span>Journey name</span><input class="input" id="journey-name" required value="Email + WhatsApp persistence"></label>
@@ -645,13 +713,14 @@ function renderContactability() {
         <button class="button button-primary" type="submit" ${!state.lists.length || !activeTests.length || state.busy ? 'disabled' : ''}>${icon('plus')}Create journey</button>
       </form>
     </section>
+    ${renderTemplateManager()}
     <section class="card"><div class="card-header"><div><h3>Saved journeys</h3><p>Enroll a list when the flow is ready. The scheduled Worker checks due events every minute.</p></div></div>
       <div class="journey-flow-list">${state.journeys.map((journey) => `<article class="journey-flow-card">
         <div class="journey-flow-head"><div><strong>${esc(journey.name)}</strong><span>${esc(journey.company_name)} · ${esc(journey.test_name_en)}</span></div>${statusBadge(journey.status)}</div>
         ${journeyFlowPreview(journey)}
         <div class="flow-stats"><span>${Number(journey.enrollment_count || 0)} enrolled</span><span>${Number(journey.completed_count || 0)} completed</span><span>${Number(journey.queued_event_count || 0)} queued</span><span>${Number(journey.accepted_event_count || 0)} accepted</span><span>${Number(journey.skipped_event_count || 0)} skipped</span><span>${Number(journey.failed_event_count || 0)} failed</span></div>
-        <div class="journey-flow-actions"><button class="button button-secondary" data-journey-status="${journey.id}" data-status="${journey.status === 'active' ? 'paused' : 'active'}">${journey.status === 'active' ? 'Pause' : 'Activate'}</button><button class="button button-primary" data-enroll-journey="${journey.id}" ${journey.status !== 'active' || state.busy ? 'disabled' : ''}>Enroll list</button></div>
-      </article>`).join('') || '<div class="empty-panel"><h3>No contactability journeys yet</h3><p>Create the first flow before enrolling candidates.</p></div>'}</div>
+        <div class="journey-flow-actions">${actionIconButton(journey.status === 'active' ? 'clock' : 'check', journey.status === 'active' ? 'Pause journey' : 'Activate journey', `data-journey-status="${journey.id}" data-status="${journey.status === 'active' ? 'paused' : 'active'}"`)}<button class="button button-primary" data-enroll-journey="${journey.id}" ${journey.status !== 'active' || state.busy ? 'disabled' : ''}>${icon('users')}Enroll list</button></div>
+      </article>`).join('') || '<div class="empty-panel"><h3>No journeys yet</h3><p>Create the first flow before enrolling candidates.</p></div>'}</div>
     </section></div>`;
 }
 
@@ -1561,7 +1630,48 @@ async function createContactabilityJourney(event) {
   try {
     const response = await fetchJson('/api/journeys', { method: 'POST', body: JSON.stringify(payload) });
     state.journeys = response.journeys || [];
-    toast('Contactability journey created and activated.');
+    toast('Journey created and activated.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function createMessageTemplate(event) {
+  event.preventDefault();
+  const payload = {
+    companyId: document.getElementById('template-company')?.value,
+    channel: document.getElementById('template-channel')?.value,
+    provider: document.getElementById('template-provider')?.value,
+    status: document.getElementById('template-status')?.value,
+    name: document.getElementById('template-name')?.value,
+    language: document.getElementById('template-language')?.value,
+    providerTemplateName: document.getElementById('template-provider-name')?.value,
+    providerTemplateId: document.getElementById('template-provider-id')?.value,
+    subjectEn: document.getElementById('template-subject-en')?.value,
+    subjectEs: document.getElementById('template-subject-es')?.value,
+    messageEn: document.getElementById('template-message-en')?.value,
+    messageEs: document.getElementById('template-message-es')?.value,
+  };
+  state.busy = true; render();
+  try {
+    const response = await fetchJson('/api/templates', { method: 'POST', body: JSON.stringify(payload) });
+    state.templates = response.templates || [];
+    toast('Template created.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function updateMessageTemplateStatus(templateId, status) {
+  const template = state.templates.find((entry) => entry.id === templateId);
+  if (!template) return;
+  if (template.channel === 'whatsapp' && ['approved', 'active'].includes(status)) {
+    const ok = typeof globalThis.confirm !== 'function' || globalThis.confirm(`Confirm Infobip has approved "${template.provider_template_name || template.name}" for language ${template.language}?`);
+    if (!ok) return;
+  }
+  state.busy = true; render();
+  try {
+    const response = await fetchJson(`/api/templates/${encodeURIComponent(templateId)}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    state.templates = response.templates || [];
+    toast(`Template ${status}.`);
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
 }
@@ -1786,6 +1896,7 @@ function bindEvents() {
   document.getElementById('candidate-stage-create-form')?.addEventListener('submit', createJourneyStage);
   document.getElementById('candidate-communication-form')?.addEventListener('submit', publishCandidateCommunication);
   document.getElementById('journey-form')?.addEventListener('submit', createContactabilityJourney);
+  document.getElementById('template-form')?.addEventListener('submit', createMessageTemplate);
   document.getElementById('list-form')?.addEventListener('submit', createList);
   document.getElementById('list-editor-form')?.addEventListener('submit', updateList);
   document.getElementById('test-form')?.addEventListener('submit', createTest);
@@ -1796,6 +1907,7 @@ function bindEvents() {
   document.querySelectorAll('[data-batch-list]').forEach((button) => button.addEventListener('click', () => sendBatch(button.dataset.batchList)));
   document.querySelectorAll('[data-enroll-journey]').forEach((button) => button.addEventListener('click', () => enrollContactabilityJourney(button.dataset.enrollJourney)));
   document.querySelectorAll('[data-journey-status]').forEach((button) => button.addEventListener('click', () => updateContactabilityJourneyStatus(button.dataset.journeyStatus, button.dataset.status)));
+  document.querySelectorAll('[data-template-status]').forEach((button) => button.addEventListener('click', () => updateMessageTemplateStatus(button.dataset.templateStatus, button.dataset.status)));
   document.querySelectorAll('[data-approve-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.approveUser, 'active')));
   document.querySelectorAll('[data-reject-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.rejectUser, 'rejected')));
   document.querySelectorAll('[data-save-user]').forEach((button) => button.addEventListener('click', () => updateUserAccess(button.dataset.saveUser, 'managed')));

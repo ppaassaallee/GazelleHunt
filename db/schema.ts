@@ -1,4 +1,4 @@
-export const schemaVersion = '0013_outcomes_calibration';
+export const schemaVersion = '0014_message_templates_and_journey_funnel';
 
 export type CandidateRecord = {
   id: string;
@@ -47,6 +47,28 @@ export type CandidateListRecord = {
 };
 
 export type ContactChannel = 'email' | 'whatsapp' | 'sms';
+export type MessageTemplateStatus = 'draft' | 'approved' | 'active' | 'paused' | 'rejected' | 'archived';
+export type MessageTemplateProvider = 'brevo' | 'infobip' | 'custom';
+
+export type MessageTemplateRecord = {
+  id: string;
+  company_id: string;
+  channel: ContactChannel;
+  provider: MessageTemplateProvider;
+  name: string;
+  provider_template_name: string | null;
+  provider_template_id: string | null;
+  language: 'en' | 'es';
+  status: MessageTemplateStatus;
+  subject_en: string | null;
+  subject_es: string | null;
+  message_en: string;
+  message_es: string;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ContactJourneyStatus = 'draft' | 'active' | 'paused' | 'archived';
 export type ContactJourneyEventStatus = 'queued' | 'sending' | 'accepted' | 'failed' | 'skipped';
 

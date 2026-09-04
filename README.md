@@ -34,7 +34,7 @@ It does not claim to predict that a candidate will stay. The current `TP-0.2.1` 
 - Item-level scoring trace with raw response, transformation, timing, and inclusion rule
 - Persistent candidate, invitation, assessment, response, audit, and email-event records
 - Brevo Transactional Email API integration with idempotency keys and secret-header-authenticated delivery webhooks
-- Contactability journeys with scheduled email, WhatsApp, and SMS persistence steps
+- Journeys with scheduled email, WhatsApp, and SMS persistence steps
 - OpenAI Responses API integration with strict structured outputs and `store: false`
 - CSV import and authenticated user attribution
 
@@ -123,9 +123,9 @@ Recommended setup order:
 
 Implementation references: [send transactional email](https://developers.brevo.com/docs/send-a-transactional-email), [transactional webhook events](https://developers.brevo.com/docs/transactional-webhooks), and [secure webhooks](https://developers.brevo.com/docs/secured-webhooks).
 
-## Contactability journeys
+## Journeys
 
-The **Contactability** workspace lets recruiters and administrators design persistence flows for a candidate list. A journey has a list, a test, a default language, and ordered steps such as:
+The **Journeys** workspace lets recruiters and administrators design persistence flows for a candidate list. A journey has a list, a test, a default language, and ordered steps such as:
 
 ```text
 0 hours: email invitation
@@ -136,7 +136,9 @@ The **Contactability** workspace lets recruiters and administrators design persi
 
 Each enrolled candidate receives scheduled journey events. The Worker cron checks due events every minute. If the candidate completes the selected test, remaining queued events are skipped. If the provider is not configured or rejects a send, the event is marked failed with the exact error code; it is not displayed as delivered or silently ignored.
 
-Email steps use the existing Brevo Transactional Email configuration. WhatsApp and SMS steps can use Brevo or Infobip. Production is configured to prefer Infobip for WhatsApp/SMS:
+The workspace includes a Template manager. Admins and super admins can create reusable templates by company; recruiters can use approved/active templates when building journeys. Email steps use the existing Brevo Transactional Email configuration and can remain editable because every assessment link is unique. WhatsApp steps are stricter: proactive outbound WhatsApp must use a Meta/Infobip-approved template stored as approved or active in Gazelle before the journey can be created.
+
+WhatsApp and SMS steps can use Brevo or Infobip. Production is configured to prefer Infobip for WhatsApp/SMS:
 
 - `WHATSAPP_PROVIDER=infobip`
 - `SMS_PROVIDER=infobip`
@@ -153,11 +155,11 @@ Email steps use the existing Brevo Transactional Email configuration. WhatsApp a
 
 For Infobip WhatsApp, proactive outbound messages use a Meta-approved template. With the default button URL template, Gazelle passes three body placeholders in this order: candidate name, candidate-facing brand, and role. It also passes the unique invite token as the `URL` button parameter, so the approved button URL should be `https://gazelle-assessment.gazellehunt.workers.dev/candidate?invite={{1}}`. If a future template puts the full link in the message body instead, set `INFOBIP_WHATSAPP_LINK_PLACEMENT=body` and Gazelle will send the full link as a fourth body placeholder.
 
-Before sending a WhatsApp step through Infobip, Gazelle checks the configured sender's template list and only sends when the configured template/language is returned as approved or active. If the template is pending, rejected, paused, missing, or cannot be verified, the journey event fails with `whatsapp_template_not_approved` instead of attempting a blind send.
+Before sending a WhatsApp step through Infobip, Gazelle checks the selected template against the configured sender's template list and only sends when the selected template/language is returned as approved or active. If the template is pending, rejected, paused, missing, or cannot be verified, the journey event fails with `whatsapp_template_not_approved` or `whatsapp_template_validation_unavailable` instead of attempting a blind send.
 
-Inbound candidate replies should be configured in Infobip to POST to `https://gazelle-assessment.gazellehunt.workers.dev/api/infobip/webhook`. If `INFOBIP_WEBHOOK_TOKEN` is set, send it either as `Authorization: Bearer TOKEN`, `X-Gazelle-Webhook-Token: TOKEN`, or as `?token=TOKEN`. Gazelle matches replies to candidates by normalized phone number, stores the WhatsApp reply on the candidate timeline, audits the event, and stops pending contactability reminders for that candidate with `candidate_replied`.
+Inbound candidate replies should be configured in Infobip to POST to `https://gazelle-assessment.gazellehunt.workers.dev/api/infobip/webhook`. If `INFOBIP_WEBHOOK_TOKEN` is set, send it either as `Authorization: Bearer TOKEN`, `X-Gazelle-Webhook-Token: TOKEN`, or as `?token=TOKEN`. Gazelle matches replies to candidates by normalized phone number, stores the WhatsApp reply on the candidate timeline, audits the event, and stops pending journey reminders for that candidate with `candidate_replied`.
 
-The default contactability preset starts in Spanish-first WhatsApp and skips weekends for every configured business-day step:
+The default journey preset starts in Spanish-first WhatsApp and skips weekends for every configured business-day step:
 
 1. Same business day: WhatsApp invitation.
 2. Same business day + 1 hour: email reminder.

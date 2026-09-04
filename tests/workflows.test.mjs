@@ -53,6 +53,7 @@ const context = {
       if (url === '/api/lists') return { lists: [] };
       if (url === '/api/batches') return { batches: [] };
       if (url === '/api/journeys') return { journeys: [] };
+      if (url === '/api/templates') return { templates: [] };
       if (url === '/api/outcomes') return { outcomes: [], summaries: [], assessments: [] };
       if (url === '/api/admin/users') return { users: [], companies: [{ id: 'org_legacy', name: 'Gazelle Platform' }] };
       return { database: true, email: { configured: false, sendingConfigured: false, webhookConfigured: false, provider: 'Brevo', senderEmail: null, senderName: 'Gazelle Assessment' }, messaging: { defaultCountryCode: '502', whatsapp: { configured: false, missing: ['BREVO_WHATSAPP_SENDER_NUMBER'] }, sms: { configured: false, missing: ['BREVO_SMS_SENDER'] } }, ai: { configured: true, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-5.5' } };
@@ -138,6 +139,7 @@ assert.match(progressHtml, /0 delivered/);
 
 csvApi.state.health.messaging = { defaultCountryCode: '502', whatsapp: { configured: false, provider: 'Brevo WhatsApp', missing: ['BREVO_WHATSAPP_SENDER_NUMBER'] }, sms: { configured: true, provider: 'Brevo Transactional SMS', sender: 'Gazelle', missing: [] } };
 csvApi.state.lists = [{ id: 'list-care', name: 'Customer Care', company_name: 'Allied Global', member_count: 25 }];
+csvApi.state.templates = [{ id: 'template-whatsapp', channel: 'whatsapp', provider: 'infobip', name: 'Gazelle invitation', provider_template_name: 'gazelle_assessment_invitation', language: 'es', status: 'approved', company_name: 'Allied Global' }];
 csvApi.state.journeys = [{
   id: 'journey-1', name: 'Email WhatsApp SMS', status: 'active', list_id: 'list-care', list_name: 'Customer Care', company_name: 'Allied Global',
   test_name_en: 'Tenure Potential', enrollment_count: 25, queued_event_count: 50, accepted_event_count: 20, failed_event_count: 1,
@@ -145,11 +147,12 @@ csvApi.state.journeys = [{
   steps: [{ channel: 'whatsapp', delay_minutes: 0, business_day_offset: 0 }, { channel: 'email', delay_minutes: 60, business_day_offset: 0 }, { channel: 'whatsapp', delay_minutes: 0, business_day_offset: 1 }],
 }];
 const journeyHtml = csvApi.renderContactability();
-assert.match(journeyHtml, /Contactability journeys/);
+assert.match(journeyHtml, /Journeys/);
 assert.match(journeyHtml, /WhatsApp/);
 assert.match(journeyHtml, /BREVO_WHATSAPP_SENDER_NUMBER/);
-assert.match(journeyHtml, /Provider template/);
-assert.match(journeyHtml, /approved provider template/);
+assert.match(journeyHtml, /Template manager/);
+assert.match(journeyHtml, /approved Infobip template/);
+assert.match(journeyHtml, /Journey funnel/);
 assert.match(journeyHtml, /Enroll list/);
 assert.match(journeyHtml, /same business day/);
 assert.match(journeyHtml, /business day 1/);
@@ -158,8 +161,10 @@ assert.match(journeyHtml, /Stop reminders/);
 assert.match(journeyHtml, /No more reminders after completed test/);
 assert.match(journeyHtml, /6 skipped/);
 assert.match(appSource, /\/api\/journeys/);
+assert.match(appSource, /\/api\/templates/);
 assert.match(appSource, /flow-canvas/);
 assert.match(appSource, /journey-step-card/);
+assert.match(serverSource, /whatsapp_template_not_approved/);
 assert.match(serverSource, /UPDATE contact_journey_events[\s\S]+assessment_completed/);
 
 csvApi.state.calibration = {
