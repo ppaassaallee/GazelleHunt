@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
+  activateObligation,
   getInstallation,
   importObligations,
   installRecupera,
   listObligations,
+  markObligationPaid,
   type RecuperaInstallation,
   type RecuperaObligation,
 } from "@/lib/recupera";
@@ -50,6 +52,7 @@ export function RecuperaPage({ onBack }: Props) {
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [reference, setReference] = useState("");
+  const [actionId, setActionId] = useState<string | null>(null);
 
   async function refresh() {
     setError("");
@@ -117,6 +120,32 @@ export function RecuperaPage({ onBack }: Props) {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onActivate(obligationId: string) {
+    setActionId(obligationId);
+    setError("");
+    try {
+      await activateObligation(obligationId);
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function onMarkPaid(obligationId: string) {
+    setActionId(obligationId);
+    setError("");
+    try {
+      await markObligationPaid(obligationId);
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setActionId(null);
     }
   }
 
@@ -242,17 +271,40 @@ export function RecuperaPage({ onBack }: Props) {
               obligations.slice(0, 50).map((row) => (
                 <article
                   key={row.id}
-                  className="flex items-baseline justify-between gap-4 border-b border-[var(--border)] py-3"
+                  className="flex flex-col gap-2 border-b border-[var(--border)] py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
                     <p className="font-medium">{row.payerName}</p>
                     <p className="text-sm text-[var(--text-secondary)]">
                       {row.reference || "Sin referencia"} · {row.stageKey}
+                      {row.status !== "open" ? ` · ${row.status}` : ""}
                     </p>
                   </div>
-                  <p className="text-sm font-medium">
-                    {formatMoney(row.balanceCents, row.currency)}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm font-medium">
+                      {formatMoney(row.balanceCents, row.currency)}
+                    </p>
+                    {row.status === "open" ? (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={busy || actionId === row.id}
+                          onClick={() => void onActivate(row.id)}
+                          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                        >
+                          {actionId === row.id ? "…" : "Activar seguimiento"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || actionId === row.id}
+                          onClick={() => void onMarkPaid(row.id)}
+                          className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                        >
+                          Marcar pagado
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </article>
               ))
             )}

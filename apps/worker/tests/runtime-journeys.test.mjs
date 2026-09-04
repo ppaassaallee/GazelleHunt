@@ -102,11 +102,46 @@ assert.equal(journeys.isRetryableJourneyError({ message: 'provider_timeout' }), 
 assert.equal(journeys.isRetryableJourneyError({ message: 'whatsapp_template_not_approved' }), false);
 assert.equal(journeys.isRetryableJourneyError({ message: 'invalid_email', providerStatus: 422 }), false);
 
+const paymentDb = {
+  links: [],
+  obligations: [{ id: 'obl-1', subject_candidate_id: 'cand-1', status: 'open' }],
+  payments: [],
+  prepare(sql) {
+    const query = String(sql).replace(/\s+/g, ' ').trim();
+    return {
+      bind(...bindings) {
+        return {
+          async first() {
+            if (query.includes('FROM obligation_journey_links WHERE enrollment_id')) {
+              return paymentDb.links.find((row) => row.enrollment_id === bindings[0]) || null;
+            }
+            if (query.includes('FROM obligations WHERE subject_candidate_id')) {
+              return paymentDb.obligations.find((row) => row.subject_candidate_id === bindings[0] && row.status === 'open') || null;
+            }
+            if (query.includes('FROM payments WHERE obligation_id')) {
+              return paymentDb.payments.find((row) => row.obligation_id === bindings[0] && row.status === 'completed') || null;
+            }
+            return null;
+          },
+        };
+      },
+    };
+  },
+};
+assert.equal(await journeys.journeyGoalReached({ DB: paymentDb }, { goal_event: 'payment_received', enrollment_id: 'enr-1', candidate_id: 'cand-1' }), false);
+paymentDb.payments.push({ obligation_id: 'obl-1', status: 'completed' });
+assert.equal(await journeys.journeyGoalReached({ DB: paymentDb }, { goal_event: 'payment_received', enrollment_id: 'enr-1', candidate_id: 'cand-1' }), true);
+paymentDb.payments.length = 0;
+paymentDb.links.push({ obligation_id: 'obl-1', enrollment_id: 'enr-2' });
+assert.equal(await journeys.journeyGoalReached({ DB: paymentDb }, { goal_event: 'payment_received', enrollment_id: 'enr-2', candidate_id: 'cand-2' }), false);
+paymentDb.payments.push({ obligation_id: 'obl-1', status: 'completed' });
+assert.equal(await journeys.journeyGoalReached({ DB: paymentDb }, { goal_event: 'payment_received', enrollment_id: 'enr-2', candidate_id: 'cand-2' }), true);
+
 const journeysSource = await readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8');
 assert.match(journeysSource, /async function journeyGoalReached/);
 assert.match(journeysSource, /case 'assessment_completed':/);
 assert.match(journeysSource, /case 'payment_received':/);
-assert.match(journeysSource, /Recupera wires obligation payment check at enrollment layer later/);
+assert.match(journeysSource, /obligation_journey_links/);
 assert.match(journeysSource, /goal_event, stop_on_reply/);
 assert.match(journeysSource, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, 'assessment_completed', 1, \?, \?\)/);
 assert.match(journeysSource, /j\.goal_event, j\.stop_on_reply, j\.stop_events_json/);

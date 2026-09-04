@@ -82,7 +82,7 @@ Retry, contactabilidad, batch size, `ryvo_staff`.
 - [x] `processDueJourneyEvents` SELECT includes `goal_event`, `stop_on_reply`, `stop_events_json`
 - [x] Infobip inbound respects per-journey `stop_on_reply` (0 = store message, keep enrollment active)
 - [ ] Rename `candidates` → `subjects` + compatibility views
-- [x] Recupera `payment_received` goal path (stub in `journeyGoalReached`; wired at enrollment layer later)
+- [x] Recupera `payment_received` goal path (obligation link + payments check in `journeyGoalReached`)
 - [ ] Journey-por-etapa / playbook-specific stop events from `stop_events_json`
 
 ## §8.E — Recupera scaffold (en progreso)
@@ -103,6 +103,12 @@ API HTTP mínima detrás de feature flag; sin UI ni cablear Recupera en producci
 - [x] `playbooks/recupera/stage.js` + `playbooks/recupera/api.js` — API HTTP detrás de feature flag (`RECUPERA_ENABLED` o `playbooks_enabled_json`)
 - [x] Rutas: `POST /api/recupera/install`, `GET /api/recupera/installation`, `GET /api/recupera/obligations`, `POST /api/recupera/obligations/import`
 - [x] Test `apps/worker/tests/recupera-api.test.mjs` en `pnpm test`
+- [x] Migración `0021_obligation_journey_links.sql` — enlaza obligación ↔ enrollment sin romper UNIQUE Gazelle
+- [x] `POST /api/recupera/obligations/:id/activate` — candidato + lista Recupera + journey email-only + enrollment (`RECUPERA_ACTIVATE_ENABLED` ≠ `false`)
+- [x] `POST /api/recupera/obligations/:id/mark-paid` — demo local (`RECUPERA_MARK_PAID_ENABLED=true`)
+- [x] `journeyGoalReached` `payment_received` — pagos vía `obligation_journey_links` o `subject_candidate_id`
+- [x] `test_recupera_obligation` catalog seed + `executableTest` acepta `recupera_obligation`
+- [x] UI Recupera: Activar seguimiento / Marcar pagado
 - [ ] Rocío AI employee wiring
 
 ## §8.F — Shell React (scaffold)
@@ -116,6 +122,7 @@ Shell mínimo (rail desktop, tab bar móvil, tokens light/dark). Sin integració
 - [x] Nav: Inicio, Playbooks, Trabajo, Insights (+ Ajustes solo desktop)
 - [x] Stubs: Home ("Buenos días" + métrica), Playbooks (Recupera / Sube / Monetiza)
 - [x] UI Recupera: instalar + listar + agregar obligación (`/api/recupera/*`, proxy Vite → `:8787`)
+- [x] UI Recupera: activar seguimiento + marcar pagado (demo)
 - [ ] Servir desde Worker / strangler sobre `app.js`
 - [ ] Auth unificada en UI (hoy: cookies Gazelle vía proxy)
 

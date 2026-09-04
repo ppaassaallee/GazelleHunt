@@ -9,6 +9,7 @@
     "build:web": "pnpm --filter @ryvo/web build",
     "deploy:cloudflare": "pnpm --filter @ryvo/worker deploy:cloudflare",
     "dev:web": "pnpm --filter @ryvo/web dev",
+    "dev:worker": "pnpm build && pnpm --filter @ryvo/worker exec wrangler dev --local --port 8787",
     "test": "pnpm --filter @ryvo/worker test"
   },
   "engines": {

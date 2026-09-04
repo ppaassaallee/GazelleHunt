@@ -635,6 +635,15 @@ const schemaStatements = [
     created_at TEXT NOT NULL,
     FOREIGN KEY (obligation_id) REFERENCES obligations(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS obligation_journey_links (
+    obligation_id TEXT NOT NULL,
+    enrollment_id TEXT NOT NULL,
+    journey_id TEXT NOT NULL,
+    stage_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (obligation_id, enrollment_id),
+    FOREIGN KEY (obligation_id) REFERENCES obligations(id) ON DELETE CASCADE
+  )`,
 ];
 
 const runtimeColumnMigrations = [
@@ -689,6 +698,7 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS message_templates_scope_idx ON message_templates(company_id, channel, status, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_scope_idx ON assessment_outcomes(company_id, test_id, outcome_date DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_assessment_idx ON assessment_outcomes(assessment_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS obligation_journey_links_enrollment_idx ON obligation_journey_links(enrollment_id)`,
 ];
 
 let schemaReady = false;
@@ -906,6 +916,7 @@ async function ensureSchema(env) {
     env.DB.prepare(`UPDATE companies SET candidate_brand_name = COALESCE(candidate_brand_name, CASE WHEN id = 'org_legacy' THEN 'Allied Global' ELSE name END), referral_bonus_cents = COALESCE(referral_bonus_cents, 10000), candidate_portal_enabled = COALESCE(candidate_portal_enabled, 1)`),
     env.DB.prepare(`INSERT OR IGNORE INTO assessment_tests (id, code, slug, name_en, name_es, description_en, description_es, engine_key, version, status, estimated_minutes, item_count, created_at, updated_at) VALUES ('test_tenure_potential', 'TP-001', 'tenure-potential', 'Tenure Potential', 'Potencial de Permanencia', 'Transparent assessment of role alignment, stay intention, and work reliability.', 'Evaluacion transparente de alineacion con el rol, intencion de permanencia y confiabilidad laboral.', 'tenure_potential', '2.0.1-pilot', 'active', 15, 27, ?, ?)`).bind(now, now),
     env.DB.prepare(`UPDATE assessment_tests SET version = '2.0.1-pilot', updated_at = ? WHERE id = 'test_tenure_potential' AND version <> '2.0.1-pilot'`).bind(now),
+    env.DB.prepare(`INSERT OR IGNORE INTO assessment_tests (id, code, slug, name_en, name_es, description_en, description_es, engine_key, version, status, estimated_minutes, item_count, created_at, updated_at) VALUES ('test_recupera_obligation', 'RECUPERA-OBL', 'recupera-obligation', 'Recupera obligation', 'Obligación Recupera', 'Recupera collection follow-up journey bridge.', 'Puente de journey para seguimiento de cobranza Recupera.', 'recupera_obligation', '0.1.0', 'active', 0, 0, ?, ?)`).bind(now, now),
     env.DB.prepare(`UPDATE candidates SET company_id = 'org_legacy' WHERE company_id IS NULL`),
     env.DB.prepare(`UPDATE invitations SET company_id = 'org_legacy' WHERE company_id IS NULL`),
     env.DB.prepare(`UPDATE invitations SET test_id = 'test_tenure_potential' WHERE test_id IS NULL`),
@@ -2744,7 +2755,9 @@ async function sendInvitationForCandidate({ env, user, candidate, test, locale, 
 
 async function executableTest(env, testId) {
   const test = await env.DB.prepare(`SELECT * FROM assessment_tests WHERE id = ? AND status = 'active'`).bind(testId || 'test_tenure_potential').first();
-  return test?.engine_key === 'tenure_potential' ? test : null;
+  if (!test) return null;
+  if (test.engine_key === 'tenure_potential' || test.engine_key === 'recupera_obligation') return test;
+  return null;
 }
 
 async function createInvitation(request, env, user) {

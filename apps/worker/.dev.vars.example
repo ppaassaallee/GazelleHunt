@@ -1,0 +1,4 @@
+# Local secrets for wrangler dev --local (do not commit real keys)
+RECUPERA_ENABLED=true
+AUTH_PEPPER=local-dev-pepper-at-least-32-characters-long
+# SUPER_ADMIN_BOOTSTRAP_TOKEN=change-me-if-bootstrapping-owner

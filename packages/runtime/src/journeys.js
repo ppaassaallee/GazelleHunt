@@ -152,8 +152,22 @@ async function journeyGoalReached(env, row) {
   switch (goalEvent) {
     case 'assessment_completed':
       return !!(await env.DB.prepare(`SELECT id FROM assessments WHERE candidate_id = ? AND test_id = ? LIMIT 1`).bind(row.candidate_id, row.test_id).first());
-    case 'payment_received':
-      return false; // Recupera wires obligation payment check at enrollment layer later
+    case 'payment_received': {
+      const enrollmentId = cleanText(row.enrollment_id, 100);
+      const candidateId = cleanText(row.candidate_id, 100);
+      let obligationId = null;
+      if (enrollmentId) {
+        const link = await env.DB.prepare(`SELECT obligation_id FROM obligation_journey_links WHERE enrollment_id = ? LIMIT 1`).bind(enrollmentId).first();
+        obligationId = link?.obligation_id || null;
+      }
+      if (!obligationId && candidateId) {
+        const obligation = await env.DB.prepare(`SELECT id FROM obligations WHERE subject_candidate_id = ? AND status = 'open' ORDER BY updated_at DESC LIMIT 1`).bind(candidateId).first();
+        obligationId = obligation?.id || null;
+      }
+      if (!obligationId) return false;
+      const payment = await env.DB.prepare(`SELECT id FROM payments WHERE obligation_id = ? AND status = 'completed' LIMIT 1`).bind(obligationId).first();
+      return !!payment;
+    }
     default:
       return false;
   }

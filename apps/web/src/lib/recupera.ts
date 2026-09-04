@@ -22,6 +22,7 @@ export type RecuperaObligation = {
   dueDate: string;
   stageKey: string;
   status: string;
+  subjectCandidateId?: string | null;
 };
 
 export type ObligationInput = {
@@ -62,5 +63,27 @@ export function importObligations(obligations: ObligationInput[]) {
       method: "POST",
       body: JSON.stringify({ obligations }),
     },
+  );
+}
+
+export type ActivateObligationResult = {
+  obligation: RecuperaObligation;
+  candidateId: string;
+  journeyId: string;
+  enrollmentId: string;
+  alreadyActive?: boolean;
+};
+
+export function activateObligation(obligationId: string) {
+  return apiFetch<ActivateObligationResult>(
+    `/api/recupera/obligations/${encodeURIComponent(obligationId)}/activate`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export function markObligationPaid(obligationId: string) {
+  return apiFetch<{ obligation: RecuperaObligation; paymentId: string }>(
+    `/api/recupera/obligations/${encodeURIComponent(obligationId)}/mark-paid`,
+    { method: "POST", body: "{}" },
   );
 }

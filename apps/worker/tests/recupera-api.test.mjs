@@ -20,10 +20,19 @@ for (const route of [
   '/api/recupera/installation',
   '/api/recupera/obligations',
   '/api/recupera/obligations/import',
+  '/api/recupera/obligations/',
 ]) {
   assert.match(apiSource, new RegExp(route.replaceAll('/', '\\/')));
   assert.match(serverSource, /handleRecuperaApi/);
 }
+
+assert.match(apiSource, /\/activate/);
+assert.match(apiSource, /mark-paid/);
+assert.match(apiSource, /obligation_journey_links/);
+assert.match(apiSource, /recupera_obligation_activated/);
+assert.match(apiSource, /RECUPERA_MARK_PAID_ENABLED/);
+assert.match(apiSource, /test_recupera_obligation/);
+assert.match(apiSource, /payment_received/);
 
 assert.match(apiSource, /playbook_disabled/);
 assert.match(apiSource, /RECUPERA_ENABLED === 'true'/);
@@ -52,6 +61,17 @@ const dbState = {
   companies: [{ id: 'co-1', status: 'active', playbooks_enabled_json: null }],
   playbook_installations: [],
   obligations: [],
+  candidates: [],
+  lists: [],
+  listMembers: [],
+  listTests: [],
+  tests: [{ id: 'test_recupera_obligation', status: 'active', engine_key: 'recupera_obligation' }],
+  journeys: [],
+  journeySteps: [],
+  enrollments: [],
+  journeyEvents: [],
+  obligationLinks: [],
+  payments: [],
 };
 const db = {
   prepare(sql) {
@@ -72,9 +92,45 @@ const db = {
             if (query.includes('FROM playbook_installations WHERE id = ?')) {
               return dbState.playbook_installations.find((row) => row.id === bindings[0]) || null;
             }
+            if (query.includes('FROM obligations WHERE id = ? AND company_id = ?')) {
+              return dbState.obligations.find((row) => row.id === bindings[0] && row.company_id === bindings[1]) || null;
+            }
+            if (query.includes('FROM obligation_journey_links ojl')) {
+              const link = dbState.obligationLinks.find((row) => row.obligation_id === bindings[0]);
+              if (!link) return null;
+              const enrollment = dbState.enrollments.find((row) => row.id === link.enrollment_id);
+              return enrollment ? { ...link, enrollment_status: enrollment.status } : null;
+            }
+            if (query.includes('FROM assessment_tests WHERE id = ? AND status')) {
+              return dbState.tests.find((row) => row.id === bindings[0] && row.status === 'active') || null;
+            }
+            if (query.includes('FROM candidates WHERE company_id = ? AND email = ?')) {
+              return dbState.candidates.find((row) => row.company_id === bindings[0] && row.email.toLowerCase() === String(bindings[1]).toLowerCase()) || null;
+            }
+            if (query.includes('FROM candidates WHERE id = ?')) {
+              return dbState.candidates.find((row) => row.id === bindings[0]) || null;
+            }
+            if (query.includes('FROM candidate_lists WHERE company_id = ? AND name = ?')) {
+              return dbState.lists.find((row) => row.company_id === bindings[0] && row.name === bindings[1] && row.status === 'active') || null;
+            }
+            if (query.includes('FROM contact_journeys j WHERE j.company_id = ? AND j.name = ?')) {
+              return dbState.journeys.find((row) => row.company_id === bindings[0] && row.name === bindings[1] && row.test_id === bindings[2] && row.list_id === bindings[3] && row.status === 'active') || null;
+            }
+            if (query.includes('FROM contact_journeys WHERE id = ?')) {
+              return dbState.journeys.find((row) => row.id === bindings[0]) || null;
+            }
+            if (query.includes('FROM contact_journey_enrollments WHERE journey_id = ? AND candidate_id = ?')) {
+              return dbState.enrollments.find((row) => row.journey_id === bindings[0] && row.candidate_id === bindings[1] && row.test_id === bindings[2]) || null;
+            }
+            if (query.includes('SELECT candidate_id FROM contact_journey_enrollments WHERE id = ?')) {
+              return dbState.enrollments.find((row) => row.id === bindings[0]) || null;
+            }
             return null;
           },
           async all() {
+            if (query.includes('FROM contact_journey_steps WHERE journey_id = ?')) {
+              return { results: dbState.journeySteps.filter((row) => row.journey_id === bindings[0]) };
+            }
             if (query.includes('FROM obligations WHERE company_id = ? ORDER BY')) {
               return { results: dbState.obligations.filter((row) => row.company_id === bindings[0]).slice(0, bindings[1]) };
             }
@@ -106,6 +162,7 @@ const db = {
               dbState.obligations.push({
                 id: bindings[0],
                 company_id: bindings[1],
+                subject_candidate_id: null,
                 payer_name: bindings[2],
                 payer_email: bindings[3],
                 payer_phone: bindings[4],
@@ -116,10 +173,69 @@ const db = {
                 balance_cents: bindings[9],
                 due_date: bindings[10],
                 stage_key: bindings[11],
-                strategy_key: bindings[12],
-                status: bindings[13],
-                created_at: bindings[14],
-                updated_at: bindings[15],
+                strategy_key: 'EQUILIBRADA',
+                status: 'open',
+                created_at: bindings[12],
+                updated_at: bindings[13],
+              });
+            }
+            if (query.startsWith('INSERT INTO candidates')) {
+              dbState.candidates.push({
+                id: bindings[0], company_id: bindings[1], owner_user_id: bindings[2], email: bindings[3],
+                name: bindings[4], phone: bindings[5], role: bindings[6],
+              });
+            }
+            if (query.startsWith('UPDATE candidates SET')) {
+              const candidate = dbState.candidates.find((row) => row.id === bindings[4]);
+              if (candidate) {
+                candidate.name = bindings[0];
+                candidate.phone = bindings[1];
+                candidate.role = bindings[2];
+              }
+            }
+            if (query.startsWith('UPDATE obligations SET subject_candidate_id')) {
+              const obligation = dbState.obligations.find((row) => row.id === bindings[2]);
+              if (obligation) {
+                obligation.subject_candidate_id = bindings[0];
+                obligation.updated_at = bindings[1];
+              }
+            }
+            if (query.startsWith('UPDATE obligations SET balance_cents = 0')) {
+              const obligation = dbState.obligations.find((row) => row.id === bindings[1]);
+              if (obligation) {
+                obligation.balance_cents = 0;
+                obligation.stage_key = 'PAID';
+                obligation.status = 'closed';
+                obligation.updated_at = bindings[0];
+              }
+            }
+            if (query.startsWith('INSERT INTO candidate_lists')) {
+              dbState.lists.push({ id: bindings[0], company_id: bindings[1], owner_user_id: bindings[2], name: bindings[3], status: 'active' });
+            }
+            if (query.startsWith('INSERT INTO contact_journeys')) {
+              dbState.journeys.push({
+                id: bindings[0], company_id: bindings[1], list_id: bindings[2], test_id: bindings[3],
+                created_by_user_id: bindings[4], name: bindings[5], status: 'active', goal_event: bindings[6],
+              });
+            }
+            if (query.startsWith('INSERT INTO contact_journey_steps')) {
+              dbState.journeySteps.push({
+                id: bindings[0], journey_id: bindings[1], step_order: bindings[2], delay_minutes: bindings[3], channel: bindings[5],
+              });
+            }
+            if (query.startsWith('INSERT OR IGNORE INTO contact_journey_enrollments')) {
+              dbState.enrollments.push({
+                id: bindings[0], journey_id: bindings[1], candidate_id: bindings[2], test_id: bindings[3], status: 'active',
+              });
+            }
+            if (query.startsWith('INSERT OR IGNORE INTO obligation_journey_links')) {
+              dbState.obligationLinks.push({
+                obligation_id: bindings[0], enrollment_id: bindings[1], journey_id: bindings[2], stage_key: bindings[3], created_at: bindings[4],
+              });
+            }
+            if (query.startsWith('INSERT INTO payments')) {
+              dbState.payments.push({
+                id: bindings[0], company_id: bindings[1], obligation_id: bindings[2], amount_cents: bindings[3], status: 'completed',
               });
             }
             return { success: true };
@@ -158,6 +274,35 @@ async function audit(env, actor, type, entityType, entityId, payload) {
   auditCalls.push({ actor, type, entityType, entityId, payload });
 }
 
+async function ensureSchema() {}
+
+function normalizedJourneySteps(steps) {
+  return (Array.isArray(steps) ? steps : []).map((step, index) => ({
+    id: `step-${index}`,
+    step_order: index + 1,
+    delay_minutes: Math.round((Number(step.delayHours) || 0) * 60),
+    business_day_offset: null,
+    channel: step.channel || 'email',
+    template_name: `Step ${index + 1}`,
+    brevo_template_id: null,
+    subject_en: step.subjectEn || 'Subject',
+    subject_es: step.subjectEs || 'Asunto',
+    message_en: step.messageEn || 'Message',
+    message_es: step.messageEs || 'Mensaje',
+    api_url: null,
+    api_method: 'POST',
+    api_headers_json: null,
+  }));
+}
+
+function scheduledJourneyStepDate(start, step) {
+  return new Date(start.getTime() + (Number(step.delay_minutes) || 0) * 60 * 1000);
+}
+
+async function processDueJourneyEvents() {
+  return { processed: 0 };
+}
+
 const apiContext = {
   globalThis: null,
   crypto: webcrypto,
@@ -177,6 +322,10 @@ const apiContext = {
   isSuperAdmin,
   canManageCompanyAssets,
   audit,
+  ensureSchema,
+  normalizedJourneySteps,
+  scheduledJourneyStepDate,
+  processDueJourneyEvents,
 };
 apiContext.globalThis = apiContext;
 vm.runInNewContext(`${stageSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled };`, apiContext);
@@ -231,5 +380,34 @@ assert.equal(await api.recuperaGloballyEnabled({ RECUPERA_ENABLED: 'true' }), tr
 assert.equal(await api.recuperaGloballyEnabled({ RECUPERA_ENABLED: 'false' }), false);
 assert.equal(api.recuperaParsePlaybooksEnabled(JSON.stringify(['recupera'])).includes('recupera'), true);
 assert.equal(api.recuperaParsePlaybooksEnabled('not-json').length, 0);
+
+const obligationId = importBody.imported[0].id;
+const activateRequest = new Request(`https://example.com/api/recupera/obligations/${obligationId}/activate`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: '{}',
+});
+const activateResponse = await api.handleRecuperaApi(activateRequest, enabledEnv, new URL(activateRequest.url), adminUser);
+assert.equal(activateResponse.status, 201);
+const activateBody = await activateResponse.json();
+assert.ok(activateBody.candidateId);
+assert.ok(activateBody.journeyId);
+assert.ok(activateBody.enrollmentId);
+assert.ok(auditCalls.some((entry) => entry.type === 'recupera_obligation_activated'));
+
+const markPaidDisabled = new Request(`https://example.com/api/recupera/obligations/${obligationId}/mark-paid`, {
+  method: 'POST',
+  body: '{}',
+});
+const markPaidDisabledResponse = await api.handleRecuperaApi(markPaidDisabled, enabledEnv, new URL(markPaidDisabled.url), adminUser);
+assert.equal(markPaidDisabledResponse.status, 404);
+
+const markPaidEnv = { ...enabledEnv, RECUPERA_MARK_PAID_ENABLED: 'true' };
+const markPaidResponse = await api.handleRecuperaApi(markPaidDisabled, markPaidEnv, new URL(markPaidDisabled.url), adminUser);
+assert.equal(markPaidResponse.status, 200);
+const markPaidBody = await markPaidResponse.json();
+assert.equal(markPaidBody.obligation.stageKey, 'PAID');
+assert.equal(markPaidBody.obligation.status, 'closed');
+assert.ok(auditCalls.some((entry) => entry.type === 'recupera_obligation_marked_paid'));
 
 console.log('recupera api tests passed');
