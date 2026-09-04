@@ -105,6 +105,8 @@ assert.equal(journeys.isRetryableJourneyError({ message: 'invalid_email', provid
 const journeysSource = await readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8');
 assert.match(journeysSource, /async function journeyGoalReached/);
 assert.match(journeysSource, /case 'assessment_completed':/);
+assert.match(journeysSource, /case 'payment_received':/);
+assert.match(journeysSource, /Recupera wires obligation payment check at enrollment layer later/);
 assert.match(journeysSource, /goal_event, stop_on_reply/);
 assert.match(journeysSource, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, 'assessment_completed', 1, \?, \?\)/);
 assert.match(journeysSource, /j\.goal_event, j\.stop_on_reply, j\.stop_events_json/);

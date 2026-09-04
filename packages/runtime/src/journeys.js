@@ -152,6 +152,8 @@ async function journeyGoalReached(env, row) {
   switch (goalEvent) {
     case 'assessment_completed':
       return !!(await env.DB.prepare(`SELECT id FROM assessments WHERE candidate_id = ? AND test_id = ? LIMIT 1`).bind(row.candidate_id, row.test_id).first());
+    case 'payment_received':
+      return false; // Recupera wires obligation payment check at enrollment layer later
     default:
       return false;
   }

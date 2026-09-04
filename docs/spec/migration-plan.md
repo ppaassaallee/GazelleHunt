@@ -82,12 +82,12 @@ Retry, contactabilidad, batch size, `ryvo_staff`.
 - [x] `processDueJourneyEvents` SELECT includes `goal_event`, `stop_on_reply`, `stop_events_json`
 - [x] Infobip inbound respects per-journey `stop_on_reply` (0 = store message, keep enrollment active)
 - [ ] Rename `candidates` → `subjects` + compatibility views
-- [ ] Recupera `payment_received` goal path
+- [x] Recupera `payment_received` goal path (stub in `journeyGoalReached`; wired at enrollment layer later)
 - [ ] Journey-por-etapa / playbook-specific stop events from `stop_events_json`
 
 ## §8.E — Recupera scaffold (en progreso)
 
-**Entregable:** paquete declarativo `playbooks/recupera/` + tabla `playbook_installations` (`0019`).
+**Entregable:** paquete declarativo `playbooks/recupera/` + tablas `playbook_installations` (`0019`) y obligaciones Recupera (`0020`).
 Sin rutas Worker, sin UI, sin cablear Recupera en producción.
 
 **En progreso:**
@@ -96,8 +96,11 @@ Sin rutas Worker, sin UI, sin cablear Recupera en producción.
 - [x] `playbooks/gazelle-hunt/manifest.js` — documenta Gazelle como Playbook #1
 - [x] Migración `0019_playbook_installations.sql` + `schemaStatements` / `runtimeColumnMigrations`
 - [x] Test `playbooks/recupera/tests/manifest.test.mjs` en `pnpm test`
+- [x] Migración `0020_recupera_obligations.sql` — `obligations`, `promises`, `disputes`, `payments` + `schemaStatements`
+- [x] `playbooks/recupera/engine.js` — funciones puras de etapa (DPD, promesa, pago)
+- [x] Test `playbooks/recupera/tests/engine.test.mjs` en `pnpm test`
+- [x] `journeyGoalReached` stub `payment_received` (sin tocar SELECT Gazelle)
 - [ ] Instalación por tenant vía API
-- [ ] Goal path `payment_received` en runtime
 - [ ] Rocío AI employee wiring
 
 ## §8.F–H
