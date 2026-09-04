@@ -562,6 +562,20 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS candidate_referrals_company_idx ON candidate_referrals(company_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_scope_idx ON assessment_outcomes(company_id, test_id, outcome_date DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_assessment_idx ON assessment_outcomes(assessment_id, created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS playbook_installations (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    playbook_key TEXT NOT NULL,
+    playbook_version TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    config_json TEXT,
+    installed_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(company_id, playbook_key),
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS playbook_installations_company_idx ON playbook_installations(company_id, status)`,
 ];
 
 const runtimeColumnMigrations = [
@@ -598,6 +612,7 @@ const runtimeColumnMigrations = [
   ['contact_journeys', 'goal_event', `ALTER TABLE contact_journeys ADD COLUMN goal_event TEXT NOT NULL DEFAULT 'assessment_completed'`],
   ['contact_journeys', 'stop_on_reply', `ALTER TABLE contact_journeys ADD COLUMN stop_on_reply INTEGER NOT NULL DEFAULT 1`],
   ['contact_journeys', 'stop_events_json', `ALTER TABLE contact_journeys ADD COLUMN stop_events_json TEXT`],
+  ['companies', 'playbooks_enabled_json', `ALTER TABLE companies ADD COLUMN playbooks_enabled_json TEXT`],
 ];
 
 const postMigrationStatements = [

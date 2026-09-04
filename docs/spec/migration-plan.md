@@ -85,8 +85,23 @@ Retry, contactabilidad, batch size, `ryvo_staff`.
 - [ ] Recupera `payment_received` goal path
 - [ ] Journey-por-etapa / playbook-specific stop events from `stop_events_json`
 
-## §8.E–H
+## §8.E — Recupera scaffold (en progreso)
 
-Recupera core → Pagos + Rocío texto → Voz + Control → Gazelle al shell React.
+**Entregable:** paquete declarativo `playbooks/recupera/` + tabla `playbook_installations` (`0019`).
+Sin rutas Worker, sin UI, sin cablear Recupera en producción.
+
+**En progreso:**
+
+- [x] `playbooks/recupera/` — manifest, states, strategies, policies (datos declarativos)
+- [x] `playbooks/gazelle-hunt/manifest.js` — documenta Gazelle como Playbook #1
+- [x] Migración `0019_playbook_installations.sql` + `schemaStatements` / `runtimeColumnMigrations`
+- [x] Test `playbooks/recupera/tests/manifest.test.mjs` en `pnpm test`
+- [ ] Instalación por tenant vía API
+- [ ] Goal path `payment_received` en runtime
+- [ ] Rocío AI employee wiring
+
+## §8.F–H
+
+Pagos + Rocío texto → Voz + Control → Gazelle al shell React.
 
 Ver Master Brief v3 completo en el prompt de producto / `docs/spec/` (añadir cuando se archive el brief).
