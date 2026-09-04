@@ -168,6 +168,16 @@ async function recuperaListObligations(request, env, user) {
   return json({ obligations: (rows.results || []).map(recuperaMapObligationRow) });
 }
 
+function recuperaImportObligationsFromBody(body) {
+  if (typeof body?.csv === 'string' && body.csv.trim()) {
+    const parsed = parseRecuperaObligationsCsv(body.csv);
+    if (parsed.error) return { error: parsed.error, code: 'invalid_csv' };
+    return { obligations: parsed.obligations };
+  }
+  if (Array.isArray(body?.obligations)) return { obligations: body.obligations };
+  return { error: 'obligations array or csv string is required.', code: 'invalid_body' };
+}
+
 async function recuperaImportObligations(request, env, user) {
   if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
   const url = new URL(request.url);
@@ -176,8 +186,9 @@ async function recuperaImportObligations(request, env, user) {
   if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
   const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
   if (!company) return json({ error: 'Company not found.', code: 'company_not_found' }, 404);
-  const obligations = Array.isArray(body.obligations) ? body.obligations : null;
-  if (!obligations) return json({ error: 'obligations array is required.', code: 'invalid_body' }, 422);
+  const parsedBody = recuperaImportObligationsFromBody(body);
+  if (parsedBody.error) return json({ error: parsedBody.error, code: parsedBody.code }, 422);
+  const obligations = parsedBody.obligations;
   if (obligations.length > RECUPERA_IMPORT_MAX_ROWS) {
     return json({ error: `An import can contain at most ${RECUPERA_IMPORT_MAX_ROWS} obligations.`, code: 'import_too_large' }, 422);
   }
@@ -206,7 +217,17 @@ async function recuperaImportObligations(request, env, user) {
   const rows = inserted.length
     ? (await env.DB.prepare(`SELECT * FROM obligations WHERE company_id = ? AND id IN (${inserted.map(() => '?').join(', ')}) ORDER BY created_at DESC`).bind(companyId, ...inserted.map((row) => row.id)).all()).results || []
     : [];
-  return json({ imported: rows.map(recuperaMapObligationRow) }, 201);
+  const autoActivate = body.autoActivate !== false;
+  const activationErrors = [];
+  if (autoActivate && recuperaActivateEnabled(env)) {
+    for (const row of inserted) {
+      const activation = await recuperaActivateObligation(env, user, row.id, companyId);
+      if (!activation.ok) activationErrors.push({ obligationId: row.id, code: activation.code });
+    }
+  }
+  const response = { imported: rows.map(recuperaMapObligationRow) };
+  if (activationErrors.length) response.activationErrors = activationErrors;
+  return json(response, 201);
 }
 
 function recuperaActivateEnabled(env) {
@@ -375,50 +396,97 @@ async function recuperaEnrollCandidateInJourney(env, journey, candidate, testId)
   return enrollment?.id || enrollmentId;
 }
 
-async function recuperaActivateObligation(request, env, user, obligationId) {
-  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
-  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
-  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
-  if (!recuperaActivateEnabled(env)) return json({ error: 'not_found', code: 'activate_disabled' }, 404);
-  const obligation = await recuperaLoadObligation(env, companyId, cleanText(obligationId, 100));
-  if (!obligation) return json({ error: 'Obligation not found.', code: 'obligation_not_found' }, 404);
-  if (obligation.status !== 'open') return json({ error: 'Only open obligations can be activated.', code: 'obligation_not_open' }, 422);
+async function recuperaActivateObligation(env, user, obligationId, companyId = null) {
+  const resolvedCompanyId = companyId || user.companyId;
+  const obligation = await recuperaLoadObligation(env, resolvedCompanyId, cleanText(obligationId, 100));
+  if (!obligation) return { ok: false, code: 'obligation_not_found' };
+  if (obligation.status !== 'open') return { ok: false, code: 'obligation_not_open' };
   const existing = await recuperaExistingActivation(env, obligation.id);
   if (existing?.enrollment_id) {
     const candidateId = obligation.subject_candidate_id || (await env.DB.prepare(`SELECT candidate_id FROM contact_journey_enrollments WHERE id = ?`).bind(existing.enrollment_id).first())?.candidate_id;
-    return json({
+    return {
+      ok: true,
       obligation: recuperaMapObligationRow(obligation),
       candidateId: candidateId || null,
       journeyId: existing.journey_id,
       enrollmentId: existing.enrollment_id,
       alreadyActive: true,
-    });
+    };
   }
   await ensureSchema(env);
   const testId = await recuperaEnsureTest(env);
-  const candidate = await recuperaUpsertCandidate(env, companyId, obligation, user.id);
+  const candidate = await recuperaUpsertCandidate(env, resolvedCompanyId, obligation, user.id);
   const now = new Date().toISOString();
   await env.DB.prepare(`UPDATE obligations SET subject_candidate_id = ?, updated_at = ? WHERE id = ?`).bind(candidate.id, now, obligation.id).run();
-  const listId = await recuperaEnsureList(env, companyId, user.id);
+  const listId = await recuperaEnsureList(env, resolvedCompanyId, user.id);
   await recuperaEnsureListMember(env, listId, candidate.id, user.id);
-  const journey = await recuperaEnsureJourney(env, companyId, user.id, obligation.stage_key, listId, testId);
+  const journey = await recuperaEnsureJourney(env, resolvedCompanyId, user.id, obligation.stage_key, listId, testId);
   const enrollmentId = await recuperaEnrollCandidateInJourney(env, journey, candidate, testId);
-  if (!enrollmentId) return json({ error: 'Journey has no steps.', code: 'journey_steps_required' }, 422);
+  if (!enrollmentId) return { ok: false, code: 'journey_steps_required' };
   await env.DB.prepare(`
     INSERT OR IGNORE INTO obligation_journey_links (obligation_id, enrollment_id, journey_id, stage_key, created_at)
     VALUES (?, ?, ?, ?, ?)
   `).bind(obligation.id, enrollmentId, journey.id, obligation.stage_key, now).run();
   processDueJourneyEvents(env).catch(() => {});
-  const updated = await recuperaLoadObligation(env, companyId, obligation.id);
+  const updated = await recuperaLoadObligation(env, resolvedCompanyId, obligation.id);
   await audit(env, user.email, 'recupera_obligation_activated', 'obligation', obligation.id, {
-    companyId, candidateId: candidate.id, journeyId: journey.id, enrollmentId, stageKey: obligation.stage_key,
+    companyId: resolvedCompanyId, candidateId: candidate.id, journeyId: journey.id, enrollmentId, stageKey: obligation.stage_key,
   });
-  return json({
+  return {
+    ok: true,
     obligation: recuperaMapObligationRow(updated),
     candidateId: candidate.id,
     journeyId: journey.id,
     enrollmentId,
+  };
+}
+
+async function recuperaActivateObligationRequest(request, env, user, obligationId) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  if (!recuperaActivateEnabled(env)) return json({ error: 'not_found', code: 'activate_disabled' }, 404);
+  const result = await recuperaActivateObligation(env, user, obligationId, companyId);
+  if (!result.ok) {
+    if (result.code === 'obligation_not_found') return json({ error: 'Obligation not found.', code: result.code }, 404);
+    if (result.code === 'obligation_not_open') return json({ error: 'Only open obligations can be activated.', code: result.code }, 422);
+    if (result.code === 'journey_steps_required') return json({ error: 'Journey has no steps.', code: result.code }, 422);
+    return json({ error: 'Activation failed.', code: result.code || 'activation_failed' }, 422);
+  }
+  if (result.alreadyActive) {
+    return json({
+      obligation: result.obligation,
+      candidateId: result.candidateId,
+      journeyId: result.journeyId,
+      enrollmentId: result.enrollmentId,
+      alreadyActive: true,
+    });
+  }
+  return json({
+    obligation: result.obligation,
+    candidateId: result.candidateId,
+    journeyId: result.journeyId,
+    enrollmentId: result.enrollmentId,
   }, 201);
+}
+
+async function recuperaCreatePortalLink(request, env, user, obligationId) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const obligation = await recuperaLoadObligation(env, companyId, cleanText(obligationId, 100));
+  if (!obligation) return json({ error: 'Obligation not found.', code: 'obligation_not_found' }, 404);
+  const token = randomToken();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const linkId = crypto.randomUUID();
+  const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '') || new URL(request.url).origin;
+  await env.DB.prepare(`
+    INSERT INTO obligation_portal_links (id, company_id, obligation_id, token_hash, expires_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(linkId, companyId, obligation.id, await sha256(token), expiresAt, now.toISOString()).run();
+  await audit(env, user.email, 'recupera_portal_link_created', 'obligation', obligation.id, { companyId, expiresAt });
+  return json({ url: `${origin}/p/${token}`, expiresAt });
 }
 
 async function recuperaMarkPaidObligation(request, env, user, obligationId) {
@@ -452,8 +520,10 @@ async function handleRecuperaApi(request, env, url, user) {
   if (url.pathname === '/api/recupera/obligations' && request.method === 'GET') return recuperaListObligations(request, env, user);
   if (url.pathname === '/api/recupera/obligations/import' && request.method === 'POST') return recuperaImportObligations(request, env, user);
   const activateMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/activate$/);
-  if (activateMatch && request.method === 'POST') return recuperaActivateObligation(request, env, user, activateMatch[1]);
+  if (activateMatch && request.method === 'POST') return recuperaActivateObligationRequest(request, env, user, activateMatch[1]);
   const markPaidMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/mark-paid$/);
   if (markPaidMatch && request.method === 'POST') return recuperaMarkPaidObligation(request, env, user, markPaidMatch[1]);
+  const portalLinkMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/portal-link$/);
+  if (portalLinkMatch && request.method === 'POST') return recuperaCreatePortalLink(request, env, user, portalLinkMatch[1]);
   return json({ error: 'not_found', code: 'playbook_disabled' }, 404);
 }

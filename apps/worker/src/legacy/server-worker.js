@@ -644,6 +644,17 @@ const schemaStatements = [
     PRIMARY KEY (obligation_id, enrollment_id),
     FOREIGN KEY (obligation_id) REFERENCES obligations(id) ON DELETE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS obligation_portal_links (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    obligation_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    last_used_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (obligation_id) REFERENCES obligations(id) ON DELETE CASCADE
+  )`,
 ];
 
 const runtimeColumnMigrations = [
@@ -699,6 +710,8 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_scope_idx ON assessment_outcomes(company_id, test_id, outcome_date DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_assessment_idx ON assessment_outcomes(assessment_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS obligation_journey_links_enrollment_idx ON obligation_journey_links(enrollment_id)`,
+  `CREATE INDEX IF NOT EXISTS obligation_portal_links_obligation_idx ON obligation_portal_links(obligation_id, expires_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS obligation_portal_links_token_idx ON obligation_portal_links(token_hash)`,
 ];
 
 let schemaReady = false;
@@ -4229,6 +4242,7 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, context);
+      if (url.pathname.startsWith('/p/')) return handleRecuperaPublicPortal(request, env, url);
       if (url.pathname === '/styles.css') return new Response(stylesAsset, { headers: assetHeaders('text/css; charset=utf-8') });
       if (url.pathname === '/assessment-engine.js') return new Response(engineAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
       if (url.pathname === '/ai-assessment.js') return new Response(aiAssessmentAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });

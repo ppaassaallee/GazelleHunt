@@ -123,6 +123,7 @@ Shell mínimo (rail desktop, tab bar móvil, tokens light/dark). Sin integració
 - [x] Stubs: Home ("Buenos días" + métrica), Playbooks (Recupera / Sube / Monetiza)
 - [x] UI Recupera: instalar + listar + agregar obligación (`/api/recupera/*`, proxy Vite → `:8787`)
 - [x] UI Recupera: activar seguimiento + marcar pagado (demo)
+- [x] Import CSV/paste + `autoActivate` en `POST /api/recupera/obligations/import` (`playbooks/recupera/csv.js`)
 - [ ] Servir desde Worker / strangler sobre `app.js`
 - [ ] Auth unificada en UI (hoy: cookies Gazelle vía proxy)
 

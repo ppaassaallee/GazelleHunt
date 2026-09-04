@@ -28,7 +28,9 @@ const [
   runtimeAi,
   runtimeWebhooks,
   recuperaStage,
+  recuperaCsv,
   recuperaApi,
+  recuperaPortalApi,
 ] = await Promise.all([
   readFile(resolve(legacy, 'index.html'), 'utf8'),
   readFile(resolve(legacy, 'styles.css'), 'utf8'),
@@ -48,7 +50,9 @@ const [
   readFile(resolve(runtimeRoot, 'ai.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'webhooks.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'stage.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'csv.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'api.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'portal-api.js'), 'utf8'),
 ]);
 
 const ogPath = resolve(root, 'public/og.png');
@@ -84,7 +88,9 @@ ${runtimePortal}
 ${runtimeAi}
 ${runtimeWebhooks}
 ${recuperaStage}
+${recuperaCsv}
 ${recuperaApi}
+${recuperaPortalApi}
 ${server}
 `;
 

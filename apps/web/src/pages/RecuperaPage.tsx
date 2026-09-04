@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   activateObligation,
+  createObligationPortalLink,
   getInstallation,
   importObligations,
   installRecupera,
@@ -52,7 +53,10 @@ export function RecuperaPage({ onBack }: Props) {
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [reference, setReference] = useState("");
+  const [csvText, setCsvText] = useState("");
+  const [importNotice, setImportNotice] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
+  const [portalUrl, setPortalUrl] = useState<string | null>(null);
 
   async function refresh() {
     setError("");
@@ -100,21 +104,53 @@ export function RecuperaPage({ onBack }: Props) {
     }
     setBusy(true);
     setError("");
+    setImportNotice("");
     try {
-      await importObligations([
-        {
-          payerName: payerName.trim(),
-          amountCents,
-          balanceCents: amountCents,
-          dueDate,
-          reference: reference.trim() || undefined,
-          currency: "GTQ",
-        },
-      ]);
+      await importObligations(
+        [
+          {
+            payerName: payerName.trim(),
+            amountCents,
+            balanceCents: amountCents,
+            dueDate,
+            reference: reference.trim() || undefined,
+            currency: "GTQ",
+          },
+        ],
+        { autoActivate: true },
+      );
       setPayerName("");
       setAmount("");
       setDueDate("");
       setReference("");
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onImportCsv() {
+    if (!csvText.trim()) {
+      setError("Pega un CSV con encabezados.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setImportNotice("");
+    try {
+      const result = await importObligations({ csv: csvText, autoActivate: true });
+      const count = result.imported?.length ?? 0;
+      const activationErrors = result.activationErrors ?? [];
+      if (activationErrors.length) {
+        setImportNotice(
+          `Importadas ${count}. ${activationErrors.length} no se activaron (${activationErrors.map((row) => row.code).join(", ")}).`,
+        );
+      } else {
+        setImportNotice(`Importadas ${count} obligaciones.`);
+      }
+      setCsvText("");
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -129,6 +165,23 @@ export function RecuperaPage({ onBack }: Props) {
     try {
       await activateObligation(obligationId);
       await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function onPortalLink(obligationId: string) {
+    setActionId(obligationId);
+    setPortalUrl(null);
+    setError("");
+    try {
+      const result = await createObligationPortalLink(obligationId);
+      setPortalUrl(result.url);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(result.url);
+      }
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -175,6 +228,21 @@ export function RecuperaPage({ onBack }: Props) {
       {error ? (
         <p className="mb-6 text-sm text-red-600 dark:text-red-400" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {importNotice ? (
+        <p className="mb-6 text-sm text-[var(--text-secondary)]" role="status">
+          {importNotice}
+        </p>
+      ) : null}
+
+      {portalUrl ? (
+        <p className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm">
+          Link de pago copiado:{" "}
+          <a href={portalUrl} className="break-all text-[var(--accent)]" target="_blank" rel="noreferrer">
+            {portalUrl}
+          </a>
         </p>
       ) : null}
 
@@ -262,6 +330,29 @@ export function RecuperaPage({ onBack }: Props) {
             </button>
           </form>
 
+          <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+            <h2 className="font-medium">Importar CSV</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Primera fila: encabezados. Montos en quetzales (ej. 4500).
+            </p>
+            <textarea
+              className="mt-4 min-h-28 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-xs"
+              placeholder={
+                "payerName,payerEmail,payerPhone,reference,amount,dueDate\nAna,,502555,FAC-1,4500,2026-09-01"
+              }
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+            />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onImportCsv()}
+              className="mt-4 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+            >
+              {busy ? "Importando…" : "Importar CSV"}
+            </button>
+          </section>
+
           <section className="flex flex-col gap-2">
             {obligations.length === 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">
@@ -285,7 +376,15 @@ export function RecuperaPage({ onBack }: Props) {
                       {formatMoney(row.balanceCents, row.currency)}
                     </p>
                     {row.status === "open" ? (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={busy || actionId === row.id}
+                          onClick={() => void onPortalLink(row.id)}
+                          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                        >
+                          {actionId === row.id ? "…" : "Link de pago"}
+                        </button>
                         <button
                           type="button"
                           disabled={busy || actionId === row.id}

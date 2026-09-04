@@ -37,6 +37,17 @@ export type ObligationInput = {
   currency?: string;
 };
 
+export type ImportObligationsOptions = {
+  obligations?: ObligationInput[];
+  csv?: string;
+  autoActivate?: boolean;
+};
+
+export type ImportObligationsResult = {
+  imported: RecuperaObligation[];
+  activationErrors?: Array<{ obligationId: string; code: string }>;
+};
+
 export function installRecupera() {
   return apiFetch<{ installation: RecuperaInstallation }>(
     "/api/recupera/install",
@@ -56,14 +67,18 @@ export function listObligations() {
   );
 }
 
-export function importObligations(obligations: ObligationInput[]) {
-  return apiFetch<{ imported: number; obligations: RecuperaObligation[] }>(
-    "/api/recupera/obligations/import",
-    {
-      method: "POST",
-      body: JSON.stringify({ obligations }),
-    },
-  );
+export function importObligations(
+  obligationsOrOptions: ObligationInput[] | ImportObligationsOptions,
+  options?: { autoActivate?: boolean },
+) {
+  const body =
+    Array.isArray(obligationsOrOptions)
+      ? { obligations: obligationsOrOptions, autoActivate: options?.autoActivate }
+      : obligationsOrOptions;
+  return apiFetch<ImportObligationsResult>("/api/recupera/obligations/import", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export type ActivateObligationResult = {
@@ -84,6 +99,13 @@ export function activateObligation(obligationId: string) {
 export function markObligationPaid(obligationId: string) {
   return apiFetch<{ obligation: RecuperaObligation; paymentId: string }>(
     `/api/recupera/obligations/${encodeURIComponent(obligationId)}/mark-paid`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export function createObligationPortalLink(obligationId: string) {
+  return apiFetch<{ url: string; expiresAt: string }>(
+    `/api/recupera/obligations/${encodeURIComponent(obligationId)}/portal-link`,
     { method: "POST", body: "{}" },
   );
 }

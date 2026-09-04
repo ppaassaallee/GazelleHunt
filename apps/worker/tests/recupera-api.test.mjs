@@ -4,8 +4,9 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
+const [stageSource, csvSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
+  readFile(new URL('csv.js', recuperaRoot), 'utf8'),
   readFile(new URL('api.js', recuperaRoot), 'utf8'),
   readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../build.mjs', import.meta.url), 'utf8'),
@@ -13,7 +14,7 @@ const [stageSource, apiSource, legacyServerSource, buildSource, auditSource, web
   readFile(new URL('../../../packages/runtime/src/webhooks.js', import.meta.url), 'utf8'),
 ]);
 
-const serverSource = `${stageSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
+const serverSource = `${stageSource}\n${csvSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
 
 for (const route of [
   '/api/recupera/install',
@@ -28,7 +29,8 @@ for (const route of [
 
 assert.match(apiSource, /\/activate/);
 assert.match(apiSource, /mark-paid/);
-assert.match(apiSource, /obligation_journey_links/);
+assert.match(apiSource, /portal-link/);
+assert.match(apiSource, /obligation_portal_links/);
 assert.match(apiSource, /recupera_obligation_activated/);
 assert.match(apiSource, /RECUPERA_MARK_PAID_ENABLED/);
 assert.match(apiSource, /test_recupera_obligation/);
@@ -39,10 +41,17 @@ assert.match(apiSource, /RECUPERA_ENABLED === 'true'/);
 assert.match(apiSource, /playbooks_enabled_json/);
 assert.match(apiSource, /playbook_installed/);
 assert.match(apiSource, /recupera_obligations_imported/);
+assert.match(apiSource, /autoActivate/);
+assert.match(apiSource, /activationErrors/);
+assert.match(apiSource, /parseRecuperaObligationsCsv/);
+assert.match(csvSource, /parseRecuperaObligationsCsv/);
+assert.match(csvSource, /recuperaCsvParseAmount/);
 assert.match(apiSource, /RECUPERA_IMPORT_MAX_ROWS = 500/);
 assert.match(buildSource, /recuperaRoot/);
 assert.match(buildSource, /recuperaStage/);
+assert.match(buildSource, /recuperaCsv/);
 assert.match(buildSource, /recuperaApi/);
+assert.match(buildSource, /recuperaPortalApi/);
 
 const NOW = new Date('2026-09-04T12:00:00.000Z');
 const stageContext = { globalThis: null, Date, Math, Number, String, Object, Array, JSON, console };
@@ -55,6 +64,19 @@ assert.equal(stage.recuperaStageFromDueDate('2026-08-28', NOW), 'DPD_1_7');
 assert.equal(stage.recuperaStageFromDueDate('2026-07-05', NOW), 'DPD_60_PLUS');
 assert.equal(stage.recuperaIsoDateValid('2026-09-01'), true);
 assert.equal(stage.recuperaIsoDateValid('09/01/2026'), false);
+
+const csvContext = { globalThis: null, String, Number, Math, Object, Array, JSON, console };
+csvContext.globalThis = csvContext;
+vm.runInNewContext(`${csvSource}\n;globalThis.__recuperaCsv = { parseRecuperaObligationsCsv };`, csvContext);
+const csv = csvContext.__recuperaCsv;
+const parsedCsv = csv.parseRecuperaObligationsCsv(
+  'payerName,payerEmail,payerPhone,reference,amount,dueDate\nAna,ana@example.com,502555,FAC-1,4500,2026-09-01',
+);
+assert.equal(parsedCsv.obligations.length, 1);
+assert.equal(parsedCsv.obligations[0].payerName, 'Ana');
+assert.equal(parsedCsv.obligations[0].amountCents, 450000);
+assert.equal(parsedCsv.obligations[0].dueDate, '2026-09-01');
+assert.equal(csv.parseRecuperaObligationsCsv('name,monto,vence\nLuis,125.50,2026-10-01').obligations[0].amountCents, 12550);
 
 const auditCalls = [];
 const dbState = {
@@ -328,7 +350,7 @@ const apiContext = {
   processDueJourneyEvents,
 };
 apiContext.globalThis = apiContext;
-vm.runInNewContext(`${stageSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled };`, apiContext);
+vm.runInNewContext(`${stageSource}\n${csvSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled, recuperaActivateObligation };`, apiContext);
 const api = apiContext.__recuperaApi;
 const adminUser = { id: 'admin-1', email: 'admin@example.com', role: 'admin', companyId: 'co-1', ryvoStaff: 0 };
 
@@ -367,6 +389,7 @@ const importRequest = new Request('https://example.com/api/recupera/obligations/
       dueDate: '2026-09-01',
       currency: 'GTQ',
     }],
+    autoActivate: false,
   }),
 });
 const importResponse = await api.handleRecuperaApi(importRequest, enabledEnv, new URL(importRequest.url), adminUser);
@@ -375,6 +398,22 @@ const importBody = await importResponse.json();
 assert.equal(importBody.imported.length, 1);
 assert.equal(importBody.imported[0].stageKey, 'DPD_1_7');
 assert.ok(auditCalls.some((entry) => entry.type === 'recupera_obligations_imported'));
+
+const csvImportRequest = new Request('https://example.com/api/recupera/obligations/import', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    csv: 'payerName,reference,amount,dueDate\nCarlos,FAC-2,1200,2026-09-10',
+    autoActivate: true,
+  }),
+});
+const csvImportResponse = await api.handleRecuperaApi(csvImportRequest, enabledEnv, new URL(csvImportRequest.url), adminUser);
+assert.equal(csvImportResponse.status, 201);
+const csvImportBody = await csvImportResponse.json();
+assert.equal(csvImportBody.imported.length, 1);
+assert.equal(csvImportBody.imported[0].payerName, 'Carlos');
+assert.equal(csvImportBody.imported[0].amountCents, 120000);
+assert.ok(auditCalls.some((entry) => entry.type === 'recupera_obligation_activated'));
 
 assert.equal(await api.recuperaGloballyEnabled({ RECUPERA_ENABLED: 'true' }), true);
 assert.equal(await api.recuperaGloballyEnabled({ RECUPERA_ENABLED: 'false' }), false);

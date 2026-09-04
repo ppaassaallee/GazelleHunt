@@ -39,11 +39,28 @@ Abre `http://127.0.0.1:5173` (Vite). El proxy manda `/api` → `:8787`.
 Flujo:
 1. Playbooks → **Recupera**
 2. **Instalar Recupera**
-3. Agregar una obligación
+3. Agregar una obligación o pegar CSV (**Importar CSV**; activa seguimiento si `autoActivate` no es `false`)
 4. **Activar seguimiento** (crea candidato + journey email-only + enrollment)
 5. **Marcar pagado** (demo local; requiere `RECUPERA_MARK_PAID_ENABLED=true`) detiene el journey por `payment_received`
+6. **Link de pago** en cada obligación → copia URL `/p/TOKEN` (portal público del pagador)
 
-## 3. Feature flag
+## 3. Portal del pagador (`/p/TOKEN`)
+
+Tras crear un link de pago desde la UI (o `POST /api/recupera/obligations/:id/portal-link`):
+
+```text
+http://127.0.0.1:8787/p/<token>
+```
+
+Acciones públicas (sin sesión):
+- **Pagar** — registra intención (modo manual hasta Recurrente)
+- **Ya pagué** — crea pago `pending_verification` (o `completed` si `RECUPERA_PORTAL_INSTANT_PAY=true`)
+- **Prometer pago** — `POST /p/:token/promise`
+- **Tengo un problema** — `POST /p/:token/dispute`
+
+JSON: `curl -H 'Accept: application/json' http://127.0.0.1:8787/p/TOKEN`
+
+## 4. Feature flag
 
 Recupera API responde solo si:
 - `RECUPERA_ENABLED=true` en `.dev.vars`, **o**
@@ -54,7 +71,9 @@ Si ves `playbook_disabled` / 404 → falta el flag o la sesión.
 `activate_disabled` → `RECUPERA_ACTIVATE_ENABLED=false`.  
 `mark_paid_disabled` → falta `RECUPERA_MARK_PAID_ENABLED=true`.
 
-## 4. Qué NO hacer
+`RECUPERA_PORTAL_INSTANT_PAY=true` → "Ya pagué" cierra la obligación al instante (solo local/demo).
+
+## 5. Qué NO hacer
 
 - `wrangler deploy` sin OK explícito
 - `wrangler dev` **sin** `--local` (apuntaría al D1 de producción)
