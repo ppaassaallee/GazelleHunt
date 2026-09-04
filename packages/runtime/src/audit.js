@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — audit events.
+ * Meikapen runtime — audit events.
  * Table name unchanged: audit_events (Gazelle production schema).
  * Move-only extraction from server-worker.js. Do not improve.
  */

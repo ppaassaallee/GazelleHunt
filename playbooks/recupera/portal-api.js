@@ -90,7 +90,7 @@ async function recuperaPortalInsertPayment(env, obligation, status) {
 
 function recuperaPortalHtml(view) {
   const money = escapeHtml(view.balanceLabel);
-  const company = escapeHtml(view.companyName || 'RYVO');
+  const company = escapeHtml(view.companyName || 'Meikapen');
   const reference = view.reference ? `<p class="meta">${escapeHtml(view.reference)}</p>` : '';
   const due = view.dueDate ? `<p class="meta">Vence ${escapeHtml(view.dueDate)} · Due ${escapeHtml(view.dueDate)}</p>` : '';
   const closed = view.isOpen ? '' : '<p class="status">Esta obligación ya está cerrada. · This obligation is closed.</p>';
@@ -141,6 +141,7 @@ function recuperaPortalHtml(view) {
     #message { margin-top: 16px; min-height: 1.2em; font-size: .9rem; color: var(--muted); }
     #message.ok { color: #248a3d; }
     #message.err { color: #d70015; }
+    .powered { margin: 20px 0 0; text-align: center; font-size: .75rem; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -153,6 +154,7 @@ function recuperaPortalHtml(view) {
     ${closed}
     ${actions}
     <p id="message" role="status" aria-live="polite"></p>
+    <p class="powered">powered by Meikapen</p>
   </main>
   <script>
     const token = ${JSON.stringify(view.token)};
@@ -189,6 +191,10 @@ function recuperaPortalHtml(view) {
         try {
           if (action === 'pay') {
             const data = await post('/pay', {});
+            if (data.url) {
+              window.location.href = data.url;
+              return;
+            }
             show(data.message || 'Intención registrada. · Intent registered.', 'ok');
           } else if (action === 'paid') {
             const data = await post('/paid', {});
@@ -347,6 +353,22 @@ async function recuperaPortalPostPay(request, env, token) {
   if (!access) return json({ error: 'not_found', code: 'portal_link_invalid' }, 404);
   if (access.obligation.status !== 'open') {
     return json({ mode: 'manual', message: 'Esta obligación ya está cerrada. · This obligation is already closed.' });
+  }
+  if (recurrenteConfigured(env) && recuperaPaymentsEnabled(env)) {
+    const origin = recuperaPortalOrigin(request, env);
+    const portalPath = `/p/${token}`;
+    const checkout = await recuperaCreateRecurrenteCheckout(env, {
+      obligation: access.obligation,
+      successUrl: `${origin}${portalPath}`,
+      cancelUrl: `${origin}${portalPath}`,
+    });
+    if (checkout.ok) {
+      await audit(env, RECUPERA_PORTAL_SOURCE, 'recupera_portal_pay_checkout', 'obligation', access.obligation.id, {
+        companyId: access.obligation.company_id,
+        checkoutId: checkout.checkoutId,
+      });
+      return json({ mode: 'recurrente', url: checkout.checkoutUrl });
+    }
   }
   await audit(env, RECUPERA_PORTAL_SOURCE, 'recupera_portal_pay_intent', 'obligation', access.obligation.id, {
     companyId: access.obligation.company_id,

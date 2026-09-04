@@ -1,9 +1,9 @@
 ---
-description: Obligatory Apple HIG design discipline for RYVO UI
+description: Obligatory Apple HIG design discipline for Meikapen UI
 globs: "**/*.tsx,**/*.jsx,**/*.css,apps/worker/src/legacy/**/*.{js,css,html}"
 ---
 
-# Apple Design — RYVO
+# Apple Design — Meikapen
 
 Priorizar claridad y jerarquía; minimalismo; progressive disclosure;
 navegación icon-first con tooltips/aria-label; evitar clutter y workflow spaghetti;

@@ -43,14 +43,32 @@ assert.match(apiSource, /payment-link/);
 assert.match(apiSource, /recuperaCreatePaymentLinkRequest/);
 assert.match(paymentsSource, /createPaymentLinkStub/);
 assert.match(paymentsSource, /recuperaHandlePaymentWebhook/);
+assert.match(paymentsSource, /recuperaHandleRecurrenteWebhook/);
+assert.match(paymentsSource, /verifyRecurrenteWebhook/);
+assert.match(paymentsSource, /recuperaCreateRecurrenteCheckout/);
+assert.match(paymentsSource, /https:\/\/app\.recurrente\.com\/api/);
+assert.match(paymentsSource, /recurrenteConfigured/);
 assert.match(paymentsSource, /RECUPERA_PAYMENTS_ENABLED/);
 assert.match(paymentsSource, /RECUPERA_PAYMENTS_WEBHOOK_SECRET/);
+assert.match(paymentsSource, /RECURRENTE_SECRET_KEY/);
 assert.match(paymentsSource, /X-Recupera-Payments-Secret/);
 assert.match(paymentsSource, /recupera_obligation_paid_via_webhook/);
+assert.match(paymentsSource, /recupera_checkouts/);
 assert.match(serverSource, /\/api\/recupera\/payments\/webhook/);
+assert.match(serverSource, /\/api\/recupera\/payments\/recurrente\/webhook/);
 assert.match(serverSource, /recuperaHandlePaymentWebhook/);
+assert.match(serverSource, /recuperaHandleRecurrenteWebhook/);
 assert.match(serverSource, /serveRecuperaLanding/);
-assert.match(serverSource, /Recupera más\. Persigue menos\./);
+assert.match(serverSource, /serveMeikapenHub/);
+assert.match(serverSource, /serveGazelleHtml/);
+assert.match(serverSource, /\/gazellehunt/);
+assert.match(serverSource, /MEIKAPEN_PLATFORM_ROOT/);
+assert.match(serverSource, /meikapen\.com/);
+assert.match(serverSource, /Instala\. Activa\. Sucede\./);
+assert.match(serverSource, /Recupera · by Meikapen/);
+assert.match(serverSource, /Entrar a Recupera|Entrar a Meikapen/);
+assert.match(serverSource, /one fold|min-height: 100dvh|overflow: hidden/);
+assert.match(serverSource, /meikapen\.com/);
 assert.match(serverSource, /\/recupera/);
 assert.match(buildSource, /recuperaPayments/);
 assert.match(apiSource, /obligation_portal_links/);
@@ -334,7 +352,7 @@ const db = {
                 playbook_key: bindings[2],
                 playbook_version: bindings[3],
                 status: 'active',
-                config_json: null,
+                config_json: bindings[4],
                 installed_by_user_id: bindings[5],
                 created_at: bindings[6],
                 updated_at: bindings[7],
@@ -359,10 +377,10 @@ const db = {
                 balance_cents: bindings[9],
                 due_date: bindings[10],
                 stage_key: bindings[11],
-                strategy_key: 'EQUILIBRADA',
+                strategy_key: bindings[12] || 'EQUILIBRADA',
                 status: 'open',
-                created_at: bindings[12],
-                updated_at: bindings[13],
+                created_at: bindings[13],
+                updated_at: bindings[14],
               });
             }
             if (query.startsWith('INSERT INTO candidates')) {
@@ -637,6 +655,7 @@ assert.equal(installResponse.status, 201);
 const installBody = await installResponse.json();
 assert.equal(installBody.installation.playbookKey, 'recupera');
 assert.equal(installBody.installation.playbookVersion, '0.1.0');
+assert.equal(installBody.installation.config?.strategyKey, 'EQUILIBRADA');
 assert.ok(auditCalls.some((entry) => entry.type === 'playbook_installed'));
 
 const importRequest = new Request('https://example.com/api/recupera/obligations/import', {

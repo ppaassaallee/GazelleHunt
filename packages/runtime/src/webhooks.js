@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — inbound provider webhooks (Brevo, Infobip).
+ * Meikapen runtime — inbound provider webhooks (Brevo, Infobip).
  * Move-only extraction from server-worker.js. Do not improve.
  */
 

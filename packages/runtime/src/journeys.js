@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — contact journeys (enrollment, events, API webhooks).
+ * Meikapen runtime — contact journeys (enrollment, events, API webhooks).
  * Move-only extraction from server-worker.js. Do not improve.
  */
 const JOURNEY_MAX_ATTEMPTS = 3;

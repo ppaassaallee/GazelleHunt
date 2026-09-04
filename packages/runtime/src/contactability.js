@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — subject contact policies (opt-out, quiet hours, frequency caps).
+ * Meikapen runtime — subject contact policies (opt-out, quiet hours, frequency caps).
  */
 function subjectDoNotContact(subject) {
   return Number(subject?.do_not_contact ?? subject?.doNotContact ?? 0) === 1;

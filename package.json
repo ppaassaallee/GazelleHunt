@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "RYVO — Playbook execution platform. Gazelle Hunt and Recupera run on the same runtime.",
+  "description": "Meikapen — Playbook execution platform (meikapen.com). Gazelle Hunt and Recupera run on the same runtime.",
   "scripts": {
     "build": "pnpm --filter @ryvo/worker build",
     "build:web": "pnpm --filter @ryvo/web build",
     "deploy:cloudflare": "pnpm --filter @ryvo/worker deploy:cloudflare",
+    "gcp:bootstrap": "./infra/gcp/scripts/bootstrap.sh",
+    "gcp:deploy": "./infra/gcp/scripts/deploy.sh",
     "dev:web": "pnpm --filter @ryvo/web dev",
     "dev:worker": "pnpm build && pnpm --filter @ryvo/worker exec wrangler dev --local --port 8787",
     "test": "pnpm --filter @ryvo/worker test"

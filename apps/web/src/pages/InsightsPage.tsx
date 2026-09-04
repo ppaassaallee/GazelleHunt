@@ -58,11 +58,11 @@ export function InsightsPage() {
   const agingWithBalance = insights?.aging.filter((row) => row.count > 0) ?? [];
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-4xl px-5 py-8 md:px-8 md:py-10">
       <header className="mb-10">
-        <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
+        <h1 className="text-[28px] font-semibold tracking-tight">Insights</h1>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          Tendencias y rendimiento
+          Recupera · rendimiento
         </p>
       </header>
 
@@ -76,9 +76,9 @@ export function InsightsPage() {
         </p>
       ) : (
         <div className="flex flex-col gap-8">
-          <section aria-label="Saldo pendiente">
-            <p className="text-sm text-[var(--text-secondary)]">Pendiente</p>
-            <p className="mt-2 text-4xl font-semibold tabular-nums tracking-tight">
+          <section aria-label="Saldo pendiente" className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-7 shadow-[var(--shadow-soft)]">
+            <p className="text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase">Pendiente</p>
+            <p className="mt-2 text-4xl font-semibold tabular-nums tracking-tight md:text-5xl">
               {formatMoney(insights.pendingCents)}
             </p>
             <p className="mt-2 text-sm text-[var(--text-secondary)]">

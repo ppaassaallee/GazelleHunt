@@ -1,6 +1,8 @@
-# Gazelle Hunt · by RYVO
+# Gazelle Hunt · by Meikapen
 
-> This repository is the **RYVO** monorepo. Gazelle Hunt (hiring assessments) runs as the first Playbook on the RYVO Worker. Recupera (collections) lands in later phases. See `AGENTS.md` and `docs/spec/migration-plan.md`.
+> Monorepo de **Meikapen** (meikapen.com). Gazelle Hunt y Recupera corren como Playbooks. Tagline: **Instala. Activa. Sucede.** Ver `AGENTS.md` y `docs/spec/copy.md`.
+>
+> Rutas internas pueden seguir el prefijo histórico `ryvo/`; la marca en producto es **Meikapen**.
 
 ---
 

@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — candidate portal links.
+ * Meikapen runtime — candidate portal links.
  * Table name unchanged: candidate_portal_links (Gazelle production schema).
  * Move-only extraction from server-worker.js. Do not improve.
  */

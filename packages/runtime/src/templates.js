@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — message templates (CRUD, defaults).
+ * Meikapen runtime — message templates (CRUD, defaults).
  * Table name unchanged: message_templates (Gazelle production schema).
  * Move-only extraction from server-worker.js. Do not improve.
  */

@@ -15,7 +15,7 @@ const RECUPERA_CSV_COLUMN_ALIASES = {
 };
 
 function recuperaCsvNormalizeHeader(value) {
-  return String(value || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return String(value || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[_\s-]+/g, '');
 }
 
 function recuperaCsvParseLine(line) {

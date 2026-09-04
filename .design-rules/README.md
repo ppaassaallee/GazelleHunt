@@ -1,6 +1,6 @@
 # Design rules
 
-Copy of Apple Design Skill for RYVO UI reviews.
+Copy of Apple Design Skill for Meikapen UI reviews.
 
 Install in a dedicated iteration:
 

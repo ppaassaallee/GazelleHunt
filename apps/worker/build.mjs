@@ -74,7 +74,7 @@ async function loadRyvoShellAssets() {
   const webDist = resolve(root, '../web/dist');
   const indexPath = resolve(webDist, 'index.html');
   if (!existsSync(indexPath)) {
-    console.log('RYVO shell: apps/web/dist not found; embed skipped (run pnpm build:web first).');
+    console.log('Meikapen shell: apps/web/dist not found; embed skipped (run pnpm build:web first).');
     return {};
   }
 
@@ -152,4 +152,4 @@ await esbuild.build({
 });
 
 await writeFile(resolve(root, 'dist/.openai/hosting.json'), hosting);
-console.log('Gazelle Hunt · by RYVO worker build created.');
+console.log('Gazelle Hunt · by Meikapen worker build created.');

@@ -4,8 +4,9 @@ import vm from 'node:vm';
 import { createHash, webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, apiSource, portalSource, legacyServerSource, buildSource] = await Promise.all([
+const [stageSource, paymentsSource, apiSource, portalSource, legacyServerSource, buildSource] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
+  readFile(new URL('payments.js', recuperaRoot), 'utf8'),
   readFile(new URL('api.js', recuperaRoot), 'utf8'),
   readFile(new URL('portal-api.js', recuperaRoot), 'utf8'),
   readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'),
@@ -17,6 +18,8 @@ assert.match(apiSource, /obligation_portal_links/);
 assert.match(portalSource, /handleRecuperaPublicPortal/);
 assert.match(portalSource, /recupera_portal_pay_intent/);
 assert.match(portalSource, /pending_verification/);
+assert.match(portalSource, /powered by Meikapen/);
+assert.match(portalSource, /companyName \|\| 'Meikapen'/);
 assert.match(legacyServerSource, /handleRecuperaPublicPortal/);
 assert.match(legacyServerSource, /obligation_portal_links/);
 assert.match(buildSource, /recuperaPortalApi/);
@@ -217,6 +220,15 @@ async function audit(env, actor, type, entityType, entityId, payload) {
   auditCalls.push({ actor, type, entityType, entityId, payload });
 }
 
+function constantTimeEqual(left, right) {
+  const a = typeof left === 'string' ? new TextEncoder().encode(left) : left;
+  const b = typeof right === 'string' ? new TextEncoder().encode(right) : right;
+  let mismatch = a.length ^ b.length;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) mismatch |= (a[index] || 0) ^ (b[index] || 0);
+  return mismatch === 0;
+}
+
 async function ensureSchema() {}
 
 const context = {
@@ -244,10 +256,12 @@ const context = {
   canManageCompanyAssets,
   audit,
   ensureSchema,
+  constantTimeEqual,
+  fetch: async () => new Response(JSON.stringify({ id: 'chk_portal', checkout_url: 'https://app.recurrente.com/checkout/chk_portal' }), { status: 201 }),
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${stageSource}\n${apiSource}\n${portalSource}\n;globalThis.__recupera = {
+vm.runInNewContext(`${stageSource}\n${paymentsSource}\n${apiSource}\n${portalSource}\n;globalThis.__recupera = {
   handleRecuperaApi,
   handleRecuperaPublicPortal,
   recuperaPlaybookEnabled,

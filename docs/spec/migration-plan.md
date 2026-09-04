@@ -1,23 +1,23 @@
-# RYVO migration plan (Master Brief v3 §8)
+# Meikapen migration plan (Master Brief v3 §8)
 
-Fuente de verdad para el strangler de Gazelle Hunt → RYVO Runtime + Playbooks.
+Fuente de verdad para el strangler de Gazelle Hunt → runtime Meikapen + Playbooks.
 
 ## Principio
 
 Cada fase termina con Gazelle Hunt en producción, tests verdes y una migración D1 aplicada.
-Nunca hay una rama "RYVO" que viva meses separada.
+Nunca hay una rama de plataforma que viva meses separada de Gazelle.
 
 ## §8.A — Monorepo (esta fase)
 
 **Entregable:** `ryvo/` con `apps/worker` = Gazelle tal cual; esbuild produce `dist/server/index.js` equivalente;
-tests movidos y verdes; footer/login/OG "Gazelle Hunt · by RYVO".
+tests movidos y verdes; footer/login/OG "Gazelle Hunt · by Meikapen".
 
 **Acceptance:**
 
 - [x] `pnpm test` verde
 - [x] `wrangler deploy --dry-run` OK desde `apps/worker`
 - [x] Diff funcional = 0 (mismo Worker, mismas rutas, mismo esquema)
-- [x] Branding: Gazelle Hunt · by RYVO en login, shell brand y OG
+- [x] Branding: Gazelle Hunt · by Meikapen en login, shell brand y OG
 
 Completado 2026-09-04 en este monorepo.
 
@@ -121,10 +121,19 @@ API HTTP mínima detrás de feature flag; sin UI ni cablear Recupera en producci
 - [x] UI Insights (`InsightsPage`) — hero pendiente + antigüedad + Rocío
 - [x] Home hero con `pendingCents` desde insights
 - [x] Landing estática `/recupera` — HTML mínimo en Worker (antes del SPA)
-- [x] `playbooks/recupera/payments.js` — stub PaymentProvider + webhook Recurrente placeholder
-- [x] `POST /api/recupera/obligations/:id/payment-link` — admin, devuelve link stub (reutiliza portal URL)
-- [x] `POST /api/recupera/payments/webhook` — público con header `X-Recupera-Payments-Secret` (`RECUPERA_PAYMENTS_ENABLED`)
-- [ ] Rocío LLM / voz
+- [x] `playbooks/recupera/payments.js` — Recurrente checkout + webhook Svix; stub fallback sin keys
+- [x] `POST /api/recupera/obligations/:id/payment-link` — admin; Recurrente si `RECURRENTE_SECRET_KEY`, si no stub/portal
+- [x] `POST /api/recupera/payments/webhook` — stub local (`X-Recupera-Payments-Secret`, `RECUPERA_PAYMENTS_ENABLED`)
+- [x] `POST /api/recupera/payments/recurrente/webhook` — Svix público (`RECURRENTE_WEBHOOK_SECRET`)
+- [x] Migración `0024_recupera_checkouts.sql` — mapeo checkout → obligación
+- [x] Portal **Pagar** redirige a Recurrente cuando está configurado
+- [x] Test `playbooks/recupera/tests/payments.test.mjs` en `pnpm test`
+- [x] Track GCP staging (`infra/gcp`, `docs/spec/gcp.md`) — Cloud Run + Scheduler; Gazelle CF intocado
+- [x] `POST /api/internal/cron` + `CRON_SECRET` (bridge Cloud Scheduler)
+- [x] AuthGate shell Meikapen (`/api/auth/me` → login Gazelle)
+- [x] Checklist cutover CF (`docs/spec/cutover-cloudflare.md`) — sin deploy prod
+- [ ] `gcloud auth` + proyecto + primer deploy staging (manual)
+- [ ] Cutover Worker `gazelle-assessment` (OK explícito)
 
 ## §8.F — Shell React (scaffold)
 

@@ -12,6 +12,12 @@ const RECUPERA_LIST_NAME = 'Recupera';
 const RECUPERA_JOURNEY_GOAL = 'payment_received';
 const RECUPERA_STOP_EVENTS_JSON = '["payment.received","dispute.opened","opt_out"]';
 const RECUPERA_CANDIDATE_ROLE = 'Recupera';
+const RECUPERA_STRATEGY_KEYS = ['AMABLE', 'EQUILIBRADA', 'FIRME'];
+
+function recuperaNormalizeStrategyKey(value) {
+  const key = String(value || '').trim().toUpperCase();
+  return RECUPERA_STRATEGY_KEYS.includes(key) ? key : null;
+}
 
 function recuperaParsePlaybooksEnabled(json) {
   if (!json) return [];
@@ -135,14 +141,21 @@ async function recuperaInstallPlaybook(request, env, user) {
   if (existing) return json({ installation: recuperaMapInstallationRow(existing) });
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
+  const strategyKey = recuperaNormalizeStrategyKey(body?.strategyKey) || 'EQUILIBRADA';
+  const config = {
+    strategyKey,
+    debtType: typeof body?.debtType === 'string' ? body.debtType.slice(0, 40) : null,
+    channels: body?.channels && typeof body.channels === 'object' ? body.channels : null,
+    onboardingCompletedAt: now,
+  };
   await env.DB.prepare(`
     INSERT INTO playbook_installations
       (id, company_id, playbook_key, playbook_version, status, config_json, installed_by_user_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'active', NULL, ?, ?, ?)
-  `).bind(id, companyId, RECUPERA_PLAYBOOK_KEY, RECUPERA_PLAYBOOK_VERSION, user.id, now, now).run();
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+  `).bind(id, companyId, RECUPERA_PLAYBOOK_KEY, RECUPERA_PLAYBOOK_VERSION, JSON.stringify(config), user.id, now, now).run();
   await recuperaMergePlaybooksEnabled(env, companyId);
   const installation = await env.DB.prepare(`SELECT * FROM playbook_installations WHERE id = ?`).bind(id).first();
-  await audit(env, user.email, 'playbook_installed', 'playbook_installation', id, { companyId, playbookKey: RECUPERA_PLAYBOOK_KEY, version: RECUPERA_PLAYBOOK_VERSION });
+  await audit(env, user.email, 'playbook_installed', 'playbook_installation', id, { companyId, playbookKey: RECUPERA_PLAYBOOK_KEY, version: RECUPERA_PLAYBOOK_VERSION, strategyKey });
   return json({ installation: recuperaMapInstallationRow(installation) }, 201);
 }
 
@@ -201,6 +214,19 @@ async function recuperaImportObligations(request, env, user) {
   }
   if (errors.length) return json({ error: 'Invalid obligations payload.', code: 'invalid_obligations', details: errors }, 422);
   const now = new Date().toISOString();
+  let strategyKey = recuperaNormalizeStrategyKey(body?.strategyKey);
+  if (!strategyKey) {
+    const installation = await env.DB.prepare(`SELECT config_json FROM playbook_installations WHERE company_id = ? AND playbook_key = ?`).bind(companyId, RECUPERA_PLAYBOOK_KEY).first();
+    if (installation?.config_json) {
+      try {
+        const config = JSON.parse(installation.config_json);
+        strategyKey = recuperaNormalizeStrategyKey(config?.strategyKey);
+      } catch {
+        strategyKey = null;
+      }
+    }
+  }
+  strategyKey = strategyKey || 'EQUILIBRADA';
   const inserted = [];
   const statements = validated.map((row) => {
     const id = crypto.randomUUID();
@@ -209,8 +235,8 @@ async function recuperaImportObligations(request, env, user) {
     return env.DB.prepare(`
       INSERT INTO obligations
         (id, company_id, payer_name, payer_email, payer_phone, reference, description, currency, amount_cents, balance_cents, due_date, stage_key, strategy_key, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EQUILIBRADA', 'open', ?, ?)
-    `).bind(id, companyId, row.payerName, row.payerEmail, row.payerPhone, row.reference, row.description, row.currency, row.amountCents, row.balanceCents, row.dueDate, stageKey, now, now);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
+    `).bind(id, companyId, row.payerName, row.payerEmail, row.payerPhone, row.reference, row.description, row.currency, row.amountCents, row.balanceCents, row.dueDate, stageKey, strategyKey, now, now);
   });
   if (statements.length) await env.DB.batch(statements);
   await audit(env, user.email, 'recupera_obligations_imported', 'company', companyId, { importedCount: inserted.length });
@@ -480,6 +506,22 @@ async function recuperaCreatePaymentLinkRequest(request, env, user, obligationId
   const portalResponse = await recuperaCreatePortalLink(request, env, user, obligationId);
   if (!portalResponse.ok) return portalResponse;
   const portalBody = await portalResponse.json();
+  if (recurrenteConfigured(env)) {
+    const checkout = await recuperaCreateRecurrenteCheckout(env, {
+      obligation,
+      successUrl: portalBody.url || null,
+      cancelUrl: portalBody.url || null,
+    });
+    if (checkout.ok) {
+      return json({
+        provider: 'recurrente',
+        url: checkout.checkoutUrl,
+        externalId: checkout.checkoutId,
+        portalUrl: portalBody.url || null,
+        expiresAt: portalBody.expiresAt || null,
+      });
+    }
+  }
   const link = createPaymentLinkStub({
     obligationId: obligation.id,
     amountCents: obligation.balance_cents,

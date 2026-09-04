@@ -383,6 +383,9 @@ assert.equal(brevo.normalizeCandidateEmail('candidate@@example.com').valid, fals
 assert.equal(brevo.isRetryableProviderError({ message: 'provider_timeout' }), true);
 assert.equal(brevo.isRetryableProviderError({ message: 'invalid_email', providerStatus: 422 }), false);
 assert.match(source, /async scheduled\(/);
+assert.match(source, /runScheduledMaintenance/);
+assert.match(source, /\/api\/internal\/cron/);
+assert.match(source, /CRON_SECRET/);
 assert.match(source, /processDueJourneyEvents/);
 assert.match(source, /\/api\/journeys/);
 assert.match(source, /idempotencyKey: row\.item_id/);

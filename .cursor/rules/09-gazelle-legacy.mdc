@@ -7,7 +7,7 @@ globs: apps/worker/src/legacy/**
 
 Código en `apps/worker/src/legacy/` es el strangler host.
 
-**No mejorar. Solo mover** (salvo branding "Gazelle Hunt · by RYVO" o fix de bug
+**No mejorar. Solo mover** (salvo branding "Gazelle Hunt · by Meikapen" o fix de bug
 explícitamente pedido en el prompt).
 
 Extracción a `packages/runtime` = Fase B, módulo a módulo, con test por módulo.

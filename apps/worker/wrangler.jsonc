@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "gazelle-assessment",
   "main": "dist/server/index.js",
-  "compatibility_date": "2026-07-22",
+  "compatibility_date": "2026-07-21",
   "workers_dev": true,
   "preview_urls": false,
     "observability": {
@@ -20,7 +20,7 @@
   ],
   "vars": {
     "AI_PROVIDER": "openai",
-    "APP_BASE_URL": "https://gazelle-assessment.gazellehunt.workers.dev",
+    "APP_BASE_URL": "https://gazellehunt.meikapen.com",
     "BREVO_EMAIL_TRANSPORT": "api",
     "BREVO_SENDER_EMAIL": "assesment@gazellehunt.com",
     "BREVO_SENDER_NAME": "Gazelle Assessment",
@@ -37,6 +37,12 @@
     "SMS_PROVIDER": "infobip",
     "WHATSAPP_PROVIDER": "infobip",
     "OPENAI_MODEL": "gpt-4.1-mini",
-    "SUPER_ADMIN_EMAIL": "david.alejandro.pa@gmail.com"
-  }
+    "SUPER_ADMIN_EMAIL": "david.alejandro.pa@gmail.com",
+    "RYVO_SHELL_ENABLED": "true",
+    "MEIKAPEN_PLATFORM_ROOT": "false",
+    "RECUPERA_ENABLED": "false"
+  },
+  "routes": [
+    { "pattern": "gazellehunt.meikapen.com", "custom_domain": true }
+  ]
 }

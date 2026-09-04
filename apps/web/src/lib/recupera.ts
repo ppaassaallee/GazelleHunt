@@ -1,11 +1,19 @@
 import { apiFetch } from "@/lib/api";
 
+export type StrategyKey = "AMABLE" | "EQUILIBRADA" | "FIRME";
+
 export type RecuperaInstallation = {
   id: string;
   companyId: string;
   playbookKey: string;
   playbookVersion: string;
   status: string;
+  config?: {
+    strategyKey?: StrategyKey;
+    debtType?: string | null;
+    channels?: Record<string, boolean>;
+    onboardingCompletedAt?: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -37,10 +45,17 @@ export type ObligationInput = {
   currency?: string;
 };
 
+export type InstallRecuperaOptions = {
+  strategyKey?: StrategyKey;
+  debtType?: string | null;
+  channels?: Record<string, boolean>;
+};
+
 export type ImportObligationsOptions = {
   obligations?: ObligationInput[];
   csv?: string;
   autoActivate?: boolean;
+  strategyKey?: StrategyKey;
 };
 
 export type ImportObligationsResult = {
@@ -48,10 +63,10 @@ export type ImportObligationsResult = {
   activationErrors?: Array<{ obligationId: string; code: string }>;
 };
 
-export function installRecupera() {
+export function installRecupera(options: InstallRecuperaOptions = {}) {
   return apiFetch<{ installation: RecuperaInstallation }>(
     "/api/recupera/install",
-    { method: "POST", body: "{}" },
+    { method: "POST", body: JSON.stringify(options) },
   );
 }
 

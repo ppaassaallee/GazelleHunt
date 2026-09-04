@@ -3,14 +3,28 @@ AUTH_PEPPER=local-dev-pepper-at-least-32-characters-long
 
 # Recupera feature flags (local / demo only)
 RECUPERA_ENABLED=true
-# RECUPERA_MARK_PAID_ENABLED=true
+RECUPERA_MARK_PAID_ENABLED=true
 # RECUPERA_PORTAL_INSTANT_PAY=true
 # RECUPERA_ROCIO_INBOUND=true
 # RECUPERA_SELF_SERVE=true
-# RECUPERA_PAYMENTS_ENABLED=true
+RECUPERA_PAYMENTS_ENABLED=true
 # RECUPERA_PAYMENTS_WEBHOOK_SECRET=local-dev-payments-webhook-secret
+# Recurrente (Guatemala) — real checkout when RECURRENTE_SECRET_KEY is set; stub fallback otherwise
+# RECURRENTE_PUBLIC_KEY=
+# RECURRENTE_SECRET_KEY=
+# RECURRENTE_WEBHOOK_SECRET=
 
-# RYVO React shell at /ryvo/ (requires pnpm build:web)
-# RYVO_SHELL_ENABLED=true
+# Meikapen platform (local)
+# Shell UI at /ryvo/ (requires pnpm build:web)
+RYVO_SHELL_ENABLED=true
+# MEIKAPEN_SHELL_ENABLED=true
+# Hub Meikapen at / (Gazelle moves to /gazellehunt). Leave false on Gazelle prod host.
+MEIKAPEN_PLATFORM_ROOT=true
+
+# GCP / Cloud Scheduler bridge (optional; required on Cloud Run staging)
+# CRON_SECRET=local-dev-cron-secret
 
 # SUPER_ADMIN_BOOTSTRAP_TOKEN=change-me-if-bootstrapping-owner
+
+# Local absolute URLs (portal links, etc.)
+APP_BASE_URL=http://127.0.0.1:8787

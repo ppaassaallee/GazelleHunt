@@ -6,13 +6,14 @@ import type { NavItem } from "@/components/nav";
 interface ShellProps {
   active: NavItem;
   onNavigate: (item: NavItem) => void;
+  onOpenCommand?: () => void;
   children: ReactNode;
 }
 
-export function Shell({ active, onNavigate, children }: ShellProps) {
+export function Shell({ active, onNavigate, onOpenCommand, children }: ShellProps) {
   return (
     <div className="flex min-h-dvh bg-[var(--background)] text-[var(--text-primary)]">
-      <NavRail active={active} onNavigate={onNavigate} />
+      <NavRail active={active} onNavigate={onNavigate} onOpenCommand={onOpenCommand} />
       <div className="flex min-h-dvh flex-1 flex-col md:pl-[60px]">
         <main className="flex-1 overflow-y-auto pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
           {children}

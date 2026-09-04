@@ -1,4 +1,4 @@
-# Probar RYVO / Recupera en local
+# Probar Meikapen / Recupera en local
 
 **Importante:** no uses el D1 de producción. Siempre `--local`.
 
@@ -28,7 +28,7 @@ Abre la URL que imprime wrangler (suele ser `http://127.0.0.1:8787`).
 3. Si es el primer owner, usa el bootstrap con `SUPER_ADMIN_EMAIL` + `SUPER_ADMIN_BOOTSTRAP_TOKEN` si aplica.
 4. Confirma que eres admin (o `ryvo_staff`).
 
-## 2. Shell React (UI RYVO)
+## 2. Shell React (UI Meikapen)
 
 ### Opción A — Vite dev (recomendado para iterar UI)
 
@@ -57,16 +57,28 @@ Añade a `apps/worker/.dev.vars`:
 RYVO_SHELL_ENABLED=true
 ```
 
-Arranca el worker (`wrangler dev --local --port 8787`) y abre `http://127.0.0.1:8787/ryvo/`.
+Arranca el worker (`wrangler dev --local --port 8787`) y abre:
 
-Gazelle sigue en `/` sin cambios. Con `RYVO_SHELL_ENABLED` ausente o `false`, `/ryvo/*` no se sirve desde el shell React.
+- Hub Meikapen: `http://127.0.0.1:8787/` (`MEIKAPEN_PLATFORM_ROOT=true`)
+- Gazelle Hunt: `http://127.0.0.1:8787/gazellehunt`
+- Shell autenticado: `http://127.0.0.1:8787/ryvo/` (misma cookie que Gazelle; **preferir esto** frente a Vite para sesión)
+- Recupera landing: `http://127.0.0.1:8787/recupera`
 
-Landing Recupera (sin auth): `http://127.0.0.1:8787/recupera` — CTA a `/ryvo/` si el shell está activo, si no a `/` (login Gazelle).
+Vite (`:5173`) sirve para UI sin cookie compartida: el AuthGate redirige el login al Worker.
+
+Añade a `apps/worker/.dev.vars`:
+
+```text
+RYVO_SHELL_ENABLED=true
+MEIKAPEN_PLATFORM_ROOT=true
+RECUPERA_ENABLED=true
+APP_BASE_URL=http://127.0.0.1:8787
+```
 
 Flujo:
 1. Playbooks → **Recupera**
 2. **Instalar Recupera**
-3. Agregar una obligación o pegar CSV (**Importar CSV**; activa seguimiento si `autoActivate` no es `false`)
+3. Agregar una obligación o pegar CSV (**Importar CSV**; columnas tipo `name,email,amount,due_date,reference`; `due_date` / `dueDate` / `vence` OK)
 4. **Activar seguimiento** (crea candidato + journey email-only + enrollment)
 5. **Marcar pagado** (demo local; requiere `RECUPERA_MARK_PAID_ENABLED=true`) detiene el journey por `payment_received`
 6. **Link de pago** en cada obligación → copia URL `/p/TOKEN` (portal público del pagador)
@@ -104,9 +116,16 @@ Si ves `playbook_disabled` / 404 → falta el flag o la sesión.
 
 `RECUPERA_SELF_SERVE=true` → signup con `playbookIntent=recupera` crea org + admin activo + install Recupera sin cola de aprobación (solo local/demo).
 
-`RECUPERA_PAYMENTS_ENABLED=true` + `RECUPERA_PAYMENTS_WEBHOOK_SECRET` → stub de pagos:
-- Admin: `POST /api/recupera/obligations/:id/payment-link` (devuelve link stub; URL del portal como `successUrl`)
-- Webhook público: `POST /api/recupera/payments/webhook` con header `X-Recupera-Payments-Secret` y body `{ obligationId, amountCents, providerPaymentId, status: "completed" }`
+`RECUPERA_PAYMENTS_ENABLED=true` + `RECUPERA_PAYMENTS_WEBHOOK_SECRET` → pagos (stub local o Recurrente real):
+
+**Sin Recurrente** (sin `RECURRENTE_SECRET_KEY`):
+- Admin: `POST /api/recupera/obligations/:id/payment-link` → link stub + URL del portal
+- Webhook stub: `POST /api/recupera/payments/webhook` con header `X-Recupera-Payments-Secret` y body `{ obligationId, amountCents, providerPaymentId, status: "completed" }`
+
+**Con Recurrente** (`RECURRENTE_SECRET_KEY` + opcional `RECURRENTE_PUBLIC_KEY`):
+- Admin payment-link y portal **Pagar** crean checkout en `https://app.recurrente.com/api/checkouts` y devuelven `{ url: checkout_url }`
+- Webhook Svix (público): `POST /api/recupera/payments/recurrente/webhook` con headers `svix-id`, `svix-timestamp`, `svix-signature` y secret `RECURRENTE_WEBHOOK_SECRET` (`whsec_...`)
+- Tabla `recupera_checkouts` mapea `checkout_id` → `obligation_id` (migración `0024_recupera_checkouts.sql`)
 
 Cron diario (medianoche UTC): `recuperaRecomputeStages` avanza buckets DPD; `recuperaSweepBrokenPromises` marca promesas vencidas como `broken` y restaura stage desde `due_date`.
 

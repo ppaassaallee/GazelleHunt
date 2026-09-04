@@ -1,11 +1,12 @@
 ---
-description: RYVO product principles — Playbook ≠ Workflow
+description: Meikapen product principles — Playbook ≠ Workflow
 alwaysApply: true
 ---
 
 # 00 — Product
 
-RYVO es una plataforma de Playbooks operativos ejecutables.
+**Meikapen** es la compañía. Posicionamiento: **Instala. Activa. Sucede.**
+(Playbooks ejecutables — no un toolbox genérico.)
 
 **PRINCIPIO:** Playbook ≠ Workflow.
 
@@ -15,13 +16,13 @@ Un Playbook incluye outcome, modelo de datos, estados, estrategia, triggers, pol
 reglas, acciones, AI employees, canales, herramientas, excepciones, human-in-the-loop,
 métricas y vistas.
 
-Nunca diseñes RYVO como un workflow builder genérico.
+Nunca diseñes Meikapen como un workflow builder genérico.
 Siempre empieza desde un resultado de negocio.
 
 Playbooks:
 
-- **Gazelle Hunt** — contratación (en producción)
-- **Recupera** — cobranza; AI Employee: Rocío
-- Sube / Monetiza — futuros
+- **Gazelle Hunt** — contratación (en producción) · by Meikapen
+- **Recupera** — cobranza; AI Employee: **Rocío** · powered by Meikapen
+- **Sube** / **Monetiza** — futuros · by Meikapen
 
 North star: resultados completados por Playbooks (no users, workflows, messages o AI calls).

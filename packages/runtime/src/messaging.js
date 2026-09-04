@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — messaging (Brevo / Infobip / SMS / WhatsApp).
+ * Meikapen runtime — messaging (Brevo / Infobip / SMS / WhatsApp).
  * Move-only extraction from server-worker.js. Do not improve.
  */
 function emailConfig(env) {

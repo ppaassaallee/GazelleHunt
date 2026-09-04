@@ -1,5 +1,5 @@
 /**
- * RYVO runtime — AI provider layer (OpenAI / Gemini JSON).
+ * Meikapen runtime — AI provider layer (OpenAI / Gemini JSON).
  * Move-only extraction from server-worker.js. Do not improve.
  * fetchWithTimeout() remains in server-worker (shared with messaging).
  */

@@ -671,6 +671,13 @@ const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS rocio_intent_jobs_company_idx ON rocio_intent_jobs(company_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS rocio_intent_jobs_obligation_idx ON rocio_intent_jobs(obligation_id, created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS recupera_checkouts (
+    checkout_id TEXT PRIMARY KEY,
+    obligation_id TEXT NOT NULL,
+    company_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (obligation_id) REFERENCES obligations(id) ON DELETE CASCADE
+  )`,
 ];
 
 const runtimeColumnMigrations = [
@@ -728,6 +735,7 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS obligation_journey_links_enrollment_idx ON obligation_journey_links(enrollment_id)`,
   `CREATE INDEX IF NOT EXISTS obligation_portal_links_obligation_idx ON obligation_portal_links(obligation_id, expires_at DESC)`,
   `CREATE INDEX IF NOT EXISTS obligation_portal_links_token_idx ON obligation_portal_links(token_hash)`,
+  `CREATE INDEX IF NOT EXISTS recupera_checkouts_obligation_idx ON recupera_checkouts(obligation_id)`,
 ];
 
 let schemaReady = false;
@@ -768,6 +776,22 @@ function ryvoShellContentType(path) {
   return 'text/html; charset=utf-8';
 }
 
+function meikapenShellEnabled(env) {
+  return env.RYVO_SHELL_ENABLED === 'true' || env.MEIKAPEN_SHELL_ENABLED === 'true';
+}
+
+function meikapenPlatformRoot(env, url) {
+  if (env.MEIKAPEN_PLATFORM_ROOT === 'true') return true;
+  const host = String(url?.hostname || '').toLowerCase();
+  return host === 'meikapen.com' || host === 'www.meikapen.com';
+}
+
+function serveGazelleHtml(url) {
+  return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), {
+    headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true),
+  });
+}
+
 function serveRyvoShell(url) {
   let path = url.pathname;
   if (path === '/ryvo') path = '/ryvo/';
@@ -791,35 +815,219 @@ function serveRyvoShell(url) {
   return new Response('Not found', { status: 404 });
 }
 
-function serveRecuperaLanding(env) {
-  const shellEnabled = env.RYVO_SHELL_ENABLED === 'true';
-  const ctaHref = shellEnabled ? '/ryvo/' : '/';
-  const ctaLabel = shellEnabled ? 'Entrar a RYVO' : 'Iniciar sesión';
+function serveMeikapenHub(env) {
+  const shellOn = meikapenShellEnabled(env);
+  const appHref = shellOn ? '/ryvo/' : '/gazellehunt';
+  const appLabel = shellOn ? 'Entrar a Meikapen' : 'Abrir Gazelle Hunt';
   const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Recupera · by RYVO</title>
+  <title>MEIKAPEN</title>
+  <meta name="description" content="Meikapen — Instala. Activa. Sucede.">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; color: #1a1a1a; background: #fafafa; }
-    .brand { font-size: 0.875rem; letter-spacing: 0.05em; text-transform: uppercase; color: #666; margin-bottom: 1.5rem; }
-    h1 { font-size: 2rem; font-weight: 600; text-align: center; max-width: 20ch; line-height: 1.2; margin-bottom: 2rem; }
-    a.cta { display: inline-block; padding: 0.75rem 1.5rem; background: #111; color: #fff; text-decoration: none; border-radius: 0.5rem; font-weight: 500; }
+    body { font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; color: #1a1a1a; background: #f7f7f5; }
+    .company { font-size: 0.75rem; letter-spacing: 0.16em; text-transform: uppercase; color: #888; margin-bottom: 1rem; }
+    h1 { font-size: 2.25rem; font-weight: 600; text-align: center; letter-spacing: -0.03em; margin-bottom: 0.75rem; }
+    .tag { color: #666; margin-bottom: 2rem; text-align: center; }
+    .doors { display: flex; flex-direction: column; gap: 0.75rem; width: min(22rem, 100%); }
+    a.door { display: block; padding: 1rem 1.25rem; background: #fff; border: 1px solid #e5e5e0; border-radius: 0.75rem; text-decoration: none; color: #111; }
+    a.door:hover { border-color: #111; }
+    a.door strong { display: block; font-size: 1rem; margin-bottom: 0.25rem; }
+    a.door span { font-size: 0.8125rem; color: #666; }
+    a.cta { margin-top: 1.5rem; display: inline-block; padding: 0.75rem 1.5rem; background: #111; color: #fff; text-decoration: none; border-radius: 0.5rem; font-weight: 500; }
     a.cta:hover { background: #333; }
     footer { position: fixed; bottom: 1.5rem; font-size: 0.75rem; color: #999; }
   </style>
 </head>
 <body>
-  <p class="brand">Recupera · by RYVO</p>
-  <h1>Recupera más. Persigue menos.</h1>
-  <a class="cta" href="${ctaHref}">${ctaLabel}</a>
-  <footer>by RYVO</footer>
+  <p class="company">MEIKAPEN</p>
+  <h1>Instala. Activa. Sucede.</h1>
+  <p class="tag">Playbooks operativos · by Meikapen</p>
+  <div class="doors">
+    <a class="door" href="/recupera"><strong>Recupera</strong><span>by Meikapen · cobranza · Rocío</span></a>
+    <a class="door" href="/gazellehunt"><strong>Gazelle Hunt</strong><span>by Meikapen · contratación</span></a>
+    <a class="door" href="/ryvo/"><strong>Plataforma</strong><span>Shell Meikapen · playbooks e insights</span></a>
+  </div>
+  <a class="cta" href="${appHref}">${appLabel}</a>
+  <footer>meikapen.com</footer>
 </body>
 </html>`;
   return new Response(html, { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
 }
+
+function serveRecuperaLanding(env) {
+  const shellEnabled = meikapenShellEnabled(env);
+  const ctaHref = shellEnabled ? '/ryvo/' : '/gazellehunt';
+  const ctaLabel = shellEnabled ? 'Entrar a Recupera' : 'Iniciar sesión';
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recupera · by Meikapen</title>
+  <meta name="description" content="Recupera by Meikapen — Instala. Activa. Sucede.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+      color: #fff;
+      overflow: hidden;
+      background: #1a1814;
+    }
+    .hero {
+      min-height: 100dvh;
+      width: 100%;
+      position: relative;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background:
+        linear-gradient(105deg, rgba(12,11,9,.72) 0%, rgba(12,11,9,.28) 48%, rgba(12,11,9,.45) 100%),
+        url("https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=2400&q=80") center/cover no-repeat;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.35rem 2rem;
+    }
+    .logo {
+      font-size: 0.78rem;
+      letter-spacing: 0.22em;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    nav { display: flex; gap: 1.5rem; }
+    nav a {
+      color: rgba(255,255,255,.88);
+      text-decoration: none;
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    nav a:hover { color: #fff; }
+    .content {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 2rem 2rem;
+      max-width: 40rem;
+    }
+    .eyebrow {
+      font-size: 0.72rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,.72);
+      margin-bottom: 1rem;
+      font-weight: 500;
+    }
+    h1 {
+      font-size: clamp(2rem, 4.5vw, 3.25rem);
+      line-height: 1.08;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      max-width: 14ch;
+    }
+    .lead {
+      margin-top: 1.1rem;
+      font-size: 1rem;
+      line-height: 1.55;
+      color: rgba(255,255,255,.84);
+      max-width: 34ch;
+      font-weight: 400;
+    }
+    .cta {
+      margin-top: 1.75rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: #fff;
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-bottom: 1px solid rgba(255,255,255,.85);
+      padding-bottom: 0.2rem;
+      width: fit-content;
+      transition: opacity .15s ease;
+    }
+    .cta:hover { opacity: .82; }
+    .proof {
+      position: absolute;
+      right: 2rem;
+      bottom: 4.25rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,.7);
+      max-width: 18rem;
+      text-align: right;
+      line-height: 1.45;
+    }
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 2rem;
+      background: #fff;
+      color: #37352f;
+      font-size: 0.68rem;
+      letter-spacing: 0.04em;
+    }
+    footer a { color: #787774; text-decoration: none; }
+    footer a:hover { color: #37352f; }
+    .footer-links { display: flex; gap: 1rem; }
+    @media (max-width: 720px) {
+      header, .content, footer { padding-left: 1.25rem; padding-right: 1.25rem; }
+      nav { display: none; }
+      .proof { left: 1.25rem; right: 1.25rem; text-align: left; bottom: 4.5rem; }
+      h1 { max-width: 12ch; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cta { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <header>
+      <div class="logo">Meikapen</div>
+      <nav aria-label="Secciones">
+        <a href="/gazellehunt">Gazelle</a>
+        <a href="${ctaHref}">Plataforma</a>
+        <a href="mailto:hello@meikapen.com">Contacto</a>
+      </nav>
+    </header>
+    <main class="content">
+      <p class="eyebrow">Recupera · by Meikapen</p>
+      <h1>Instala. Activa. Sucede.</h1>
+      <p class="lead">Cobranza que ocurre sola. Rocío trabaja tus cuentas — sin perseguir, sin hojas eternas.</p>
+      <a class="cta" href="${ctaHref}">${ctaLabel} →</a>
+    </main>
+    <p class="proof">Powered by Meikapen · Rocío en tu operación de cobros</p>
+    <footer>
+      <span>Meikapen · meikapen.com</span>
+      <span>Instala. Activa. Sucede.</span>
+      <div class="footer-links">
+        <a href="/gazellehunt">Gazelle Hunt</a>
+        <a href="${ctaHref}">App</a>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>`;
+  return new Response(html, { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
+}
+
 
 function cleanText(value, max = 200) {
   return String(value || '').trim().slice(0, max);
@@ -4364,18 +4572,47 @@ async function handleApi(request, env, context) {
   return json({ error: 'API route not found.' }, 404);
 }
 
+async function runScheduledMaintenance(env, context, scheduledTimeMs = Date.now()) {
+  const work = [reconcileStaleDeliveryStates(env), recoverAsyncWork(env), processDueJourneyEvents(env)];
+  const scheduledAt = new Date(scheduledTimeMs);
+  if (scheduledAt.getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
+  if (scheduledAt.getUTCHours() === 0 && scheduledAt.getUTCMinutes() === 0) {
+    work.push(recuperaRecomputeStages(env));
+    work.push(recuperaSweepBrokenPromises(env));
+  }
+  const done = Promise.all(work);
+  if (context && typeof context.waitUntil === 'function') context.waitUntil(done);
+  else await done;
+}
+
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
     try {
+      // Cloud Scheduler / GCP staging bridge. Disabled unless CRON_SECRET is set.
+      if (url.pathname === '/api/internal/cron' && request.method === 'POST') {
+        const secret = cleanText(env.CRON_SECRET, 500);
+        if (!secret || request.headers.get('X-Cron-Secret') !== secret) {
+          return json({ error: 'Unauthorized.' }, 401);
+        }
+        await ensureSchema(env);
+        await runScheduledMaintenance(env, context, Date.now());
+        return json({ ok: true });
+      }
       if (url.pathname === '/api/recupera/payments/webhook' && request.method === 'POST') {
         await ensureSchema(env);
         return recuperaHandlePaymentWebhook(request, env);
       }
+      if (url.pathname === '/api/recupera/payments/recurrente/webhook' && request.method === 'POST') {
+        await ensureSchema(env);
+        return recuperaHandleRecurrenteWebhook(request, env);
+      }
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, context);
       if (url.pathname.startsWith('/p/')) return handleRecuperaPublicPortal(request, env, url);
       if (url.pathname === '/recupera' || url.pathname === '/recupera/') return serveRecuperaLanding(env);
-      if (env.RYVO_SHELL_ENABLED === 'true' && (url.pathname === '/ryvo' || url.pathname.startsWith('/ryvo/'))) {
+      if (url.pathname === '/meikapen' || url.pathname === '/meikapen/') return serveMeikapenHub(env);
+      if (url.pathname === '/gazellehunt' || url.pathname === '/gazellehunt/') return serveGazelleHtml(url);
+      if (meikapenShellEnabled(env) && (url.pathname === '/ryvo' || url.pathname.startsWith('/ryvo/'))) {
         return serveRyvoShell(url);
       }
       if (url.pathname === '/styles.css') return new Response(stylesAsset, { headers: assetHeaders('text/css; charset=utf-8') });
@@ -4386,7 +4623,11 @@ export default {
       if (url.pathname === '/app.js') return new Response(appAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
       if (url.pathname === '/og.png' && ogAsset) return new Response(decodeAsset(ogAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
       if (url.pathname === '/candidate-welcome.png' && candidateWelcomeAsset) return new Response(decodeAsset(candidateWelcomeAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
-      if (url.pathname === '/' || !url.pathname.includes('.')) return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
+      if (url.pathname === '/') {
+        if (meikapenPlatformRoot(env, url)) return serveMeikapenHub(env);
+        return serveGazelleHtml(url);
+      }
+      if (!url.pathname.includes('.')) return serveGazelleHtml(url);
       return new Response('Not found', { status: 404 });
     } catch (error) {
       console.error('gazelle_request_failed', { path: url.pathname, message: cleanText(error?.message, 160), stack: cleanText(error?.stack, 1200) });
@@ -4395,13 +4636,6 @@ export default {
     }
   },
   async scheduled(controller, env, context) {
-    const work = [reconcileStaleDeliveryStates(env), recoverAsyncWork(env), processDueJourneyEvents(env)];
-    const scheduledAt = new Date(controller.scheduledTime);
-    if (scheduledAt.getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
-    if (scheduledAt.getUTCHours() === 0 && scheduledAt.getUTCMinutes() === 0) {
-      work.push(recuperaRecomputeStages(env));
-      work.push(recuperaSweepBrokenPromises(env));
-    }
-    context.waitUntil(Promise.all(work));
+    await runScheduledMaintenance(env, context, controller.scheduledTime);
   },
 };

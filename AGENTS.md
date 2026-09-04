@@ -1,7 +1,9 @@
-# RYVO — reglas para agentes
+# Meikapen — reglas para agentes
 
-RYVO es una plataforma de Playbooks ejecutables sobre un runtime propio extraído de Gazelle Hunt.
+Meikapen es la compañía detrás de Playbooks ejecutables (runtime extraído de Gazelle Hunt).
 Playbooks: gazelle-hunt (contratación, en producción) y recupera (cobranza, AI Employee Rocío).
+Marca: Recupera / Sube / Monetiza · by Meikapen; Rocío · powered by Meikapen.
+Tagline: **Instala. Activa. Sucede.** Dominio: meikapen.com.
 PLAYBOOK ≠ WORKFLOW. Objetivo Recupera: Excel → "Rocío está trabajando" en minutos.
 
 ## Regla cero
@@ -22,13 +24,16 @@ puede alterar su comportamiento sin un test que lo demuestre. `pnpm test` verde 
 
 NO amplíes scope. NO refactorices lo que no toca el prompt. NO crees abstracciones sin caso.
 NO reescribas lo que Gazelle ya resuelve: journeys, templates, portal links, ai_jobs, audit, auth.
-NO conviertas RYVO en CRM/ERP/workflow builder/contact center/pasarela.
+NO conviertas Meikapen en CRM/ERP/workflow builder/contact center/pasarela.
 
 ## Stack cerrado
 
 Cloudflare Workers (un solo Worker) · D1 vía Drizzle · cron + journey_events · R2
 · Brevo (email) · Infobip (WhatsApp, SMS) · OpenAI/Gemini tras AIProvider · Retell (voz) · Recurrente (pagos)
 · React + Vite + Tailwind + Radix + Lucide servido por el Worker.
+
+Staging opcional en GCP (`infra/gcp`, `docs/spec/gcp.md`) — **no** reemplaza prod Gazelle en Cloudflare
+sin OK explícito de cutover.
 
 Sin: Next, Vercel, Supabase, WorkOS, Trigger.dev, Resend, Chatwoot, n8n, microservicios, segundo Worker.
 
@@ -42,18 +47,19 @@ Sin: Next, Vercel, Supabase, WorkOS, Trigger.dev, Resend, Chatwoot, n8n, microse
 
 ## IA
 
-IA interpreta. Política decide. RYVO ejecuta. Structured output obligatorio (patrón ai_jobs).
+IA interpreta. Política decide. Meikapen ejecuta. Structured output obligatorio (patrón ai_jobs).
 LLM nunca es source of truth financiero. Sin descuentos ni amenazas legales autónomas.
 
 ## Copy
 
 Términos internos (subject, journey, enrollment, DPD, playbook) nunca en UI. Ver `docs/spec/copy.md`.
+UI: Meikapen — no "RYVO" (nombre histórico del monorepo).
 
 ## Decisión ante cualquier propuesta nueva
 
 "¿Esto mejora Recupera o Gazelle Hunt, o estamos construyendo software porque podemos?"
 
-## RYVO NO ES
+## Meikapen NO ES
 
 CRM · ERP · n8n · Zapier · BPM · accounting · payment processor · call center ·
 omnichannel inbox genérico · legal practice management · dashboard builder · generic AI agent builder.

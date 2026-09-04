@@ -1,5 +1,5 @@
 ---
-description: RYVO design — radical minimalism, icon-first nav
+description: Meikapen design — radical minimalism, icon-first nav
 globs: apps/web/**,packages/ui/**,apps/worker/src/legacy/**/*.{css,html,js}
 ---
 
