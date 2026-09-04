@@ -4269,7 +4269,9 @@ async function listCandidateLists(env, user) {
       (SELECT COUNT(*) FROM candidate_list_tests lt WHERE lt.list_id = l.id) AS test_count,
       (SELECT GROUP_CONCAT(m.candidate_id) FROM candidate_list_members m WHERE m.list_id = l.id) AS member_ids_csv,
       (SELECT GROUP_CONCAT(lt.test_id) FROM candidate_list_tests lt WHERE lt.list_id = l.id) AS test_ids_csv,
-      (SELECT COUNT(*) FROM send_batches b WHERE b.list_id = l.id) AS batch_count
+      (SELECT COUNT(*) FROM send_batches b WHERE b.list_id = l.id) AS batch_count,
+      (SELECT COUNT(*) FROM invitations i WHERE i.list_id = l.id) AS invitation_count,
+      (SELECT COUNT(*) FROM contact_journeys j WHERE j.list_id = l.id) AS journey_count
     FROM candidate_lists l JOIN companies c ON c.id = l.company_id JOIN users u ON u.id = l.owner_user_id
     WHERE l.status = 'active' AND ${scope.sql}
     ORDER BY l.updated_at DESC
@@ -4278,6 +4280,7 @@ async function listCandidateLists(env, user) {
     ...row,
     member_ids: row.member_ids_csv ? row.member_ids_csv.split(',') : [],
     test_ids: row.test_ids_csv ? row.test_ids_csv.split(',') : [],
+    can_delete: !Number(row.batch_count || 0) && !Number(row.invitation_count || 0) && !Number(row.journey_count || 0),
   }));
 }
 
@@ -4327,6 +4330,60 @@ async function updateCandidateList(request, env, user, listId) {
   await env.DB.batch(statements);
   await audit(env, user.email, 'candidate_list_updated', 'candidate_list', listId, { candidateCount: candidateIds?.length, testCount: testIds?.length });
   return json({ lists: await listCandidateLists(env, user) });
+}
+
+async function listUsageSummary(env, listId) {
+  const row = await env.DB.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM candidate_list_members WHERE list_id = ?) AS members,
+      (SELECT COUNT(*) FROM candidate_list_tests WHERE list_id = ?) AS tests,
+      (SELECT COUNT(*) FROM send_batches WHERE list_id = ?) AS batches,
+      (SELECT COUNT(*) FROM invitations WHERE list_id = ?) AS invitations,
+      (SELECT COUNT(*) FROM contact_journeys WHERE list_id = ?) AS journeys,
+      (SELECT COUNT(*) FROM contact_journey_events ev
+        JOIN contact_journey_enrollments e ON e.id = ev.enrollment_id
+        JOIN contact_journeys j ON j.id = e.journey_id
+        WHERE j.list_id = ?) AS journeyEvents
+  `).bind(listId, listId, listId, listId, listId, listId).first();
+  return {
+    members: Number(row?.members || 0),
+    tests: Number(row?.tests || 0),
+    batches: Number(row?.batches || 0),
+    invitations: Number(row?.invitations || 0),
+    journeys: Number(row?.journeys || 0),
+    journeyEvents: Number(row?.journeyEvents || 0),
+  };
+}
+
+async function archiveCandidateList(request, env, user, listId) {
+  const list = await visibleList(env, user, listId);
+  if (!list) return json({ error: 'List not found.' }, 404);
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE candidate_lists SET status = 'archived', updated_at = ? WHERE id = ?`).bind(now, listId).run();
+  await audit(env, user.email, 'candidate_list_archived', 'candidate_list', listId, await listUsageSummary(env, listId));
+  return json({ listId, status: 'archived', lists: await listCandidateLists(env, user) });
+}
+
+async function deleteCandidateList(request, env, user, listId) {
+  const scope = listScope(user, 'l');
+  const list = await env.DB.prepare(`SELECT l.* FROM candidate_lists l WHERE l.id = ? AND l.status = 'active' AND ${scope.sql}`)
+    .bind(listId, ...scope.bindings).first();
+  if (!list) return json({ error: 'List not found.' }, 404);
+  const usage = await listUsageSummary(env, listId);
+  if (usage.batches || usage.invitations || usage.journeys || usage.journeyEvents) {
+    return json({
+      error: 'This list already has sends or contactability activity. Archive it instead so the audit trail stays intact.',
+      code: 'list_already_used',
+      usage,
+    }, 409);
+  }
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM candidate_list_tests WHERE list_id = ?`).bind(listId),
+    env.DB.prepare(`DELETE FROM candidate_list_members WHERE list_id = ?`).bind(listId),
+    env.DB.prepare(`DELETE FROM candidate_lists WHERE id = ?`).bind(listId),
+  ]);
+  await audit(env, user.email, 'candidate_list_deleted', 'candidate_list', listId, usage);
+  return json({ listId, deleted: true, lists: await listCandidateLists(env, user) });
 }
 
 const BATCH_MAX_ATTEMPTS = 3;
@@ -5271,8 +5328,11 @@ async function handleApi(request, env, context) {
   if (url.pathname === '/api/tests' && request.method === 'POST') return createTest(request, env, user);
   if (url.pathname === '/api/lists' && request.method === 'GET') return json({ lists: await listCandidateLists(env, user) });
   if (url.pathname === '/api/lists' && request.method === 'POST') return createCandidateList(request, env, user);
+  const listArchiveMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/archive$/);
+  if (listArchiveMatch && request.method === 'POST') return archiveCandidateList(request, env, user, cleanText(listArchiveMatch[1], 100));
   const listMatch = url.pathname.match(/^\/api\/lists\/([^/]+)$/);
   if (listMatch && request.method === 'PATCH') return updateCandidateList(request, env, user, cleanText(listMatch[1], 100));
+  if (listMatch && request.method === 'DELETE') return deleteCandidateList(request, env, user, cleanText(listMatch[1], 100));
   if (url.pathname === '/api/journeys' && request.method === 'GET') return json({ journeys: await listContactJourneys(env, user) });
   if (url.pathname === '/api/journeys' && request.method === 'POST') return createContactJourney(request, env, user);
   const journeyEnrollMatch = url.pathname.match(/^\/api\/journeys\/([^/]+)\/enroll$/);

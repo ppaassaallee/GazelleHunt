@@ -30,6 +30,8 @@ const icons = {
   refresh: '<path d="M20 11a8 8 0 1 0 2 5.3"/><path d="M20 4v7h-7"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
   layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>',
+  archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
   building: '<path d="M3 21h18M6 21V4h12v17M9 8h2M13 8h2M9 12h2M13 12h2M9 16h2M13 16h2"/>',
   logout: '<path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m11 12 9-9M15 8l3 3M17 6l3 3"/>',
@@ -58,7 +60,7 @@ const state = {
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
   resetToken: '', passwordResetSent: false, passwordResetComplete: false,
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
-  tests: [], lists: [], batches: [], journeys: [], users: [], companies: [], selectedListId: null,
+  tests: [], lists: [], batches: [], journeys: [], users: [], companies: [], selectedListId: null, listCandidateSearch: '', importTargetListId: '',
   outcomes: [], calibration: { summaries: [], assessments: [] }, calibrationTestId: 'all',
   stages: [], referrals: [], journeyCandidateId: null,
   deliveryChecks: {},
@@ -251,11 +253,24 @@ function renderTests() {
 
 function renderLists() {
   const selected = state.lists.find((list) => list.id === state.selectedListId) || state.lists[0];
-  const companyCandidates = selected ? state.candidates.filter((candidate) => candidate.company_id === selected.company_id) : [];
+  const listSearch = (state.listCandidateSearch || '').toLowerCase();
+  const companyCandidates = selected ? state.candidates.filter((candidate) => {
+    if (candidate.company_id !== selected.company_id) return false;
+    if (!listSearch) return true;
+    return `${candidate.name} ${candidate.email} ${candidate.role} ${candidate.site || ''}`.toLowerCase().includes(listSearch);
+  }) : [];
   const activeTests = state.tests.filter((test) => test.status === 'active');
   const companyChoice = state.user?.role === 'super_admin' ? `<label class="field"><span>Company</span><select class="select" id="list-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></label>` : '';
-  const editor = selected ? `<section class="list-editor"><div class="list-editor-head"><div><p class="eyebrow">${esc(selected.company_name)}</p><h3>${esc(selected.name)}</h3><p>${esc(selected.description || 'No description')}</p></div><span class="badge badge-neutral">${Number(selected.member_count)} candidates · ${Number(selected.test_count)} tests</span></div><form id="list-editor-form"><div class="list-editor-grid"><div class="selection-panel"><div class="selection-title"><div><h4>Candidates</h4><p>A candidate can belong to multiple lists.</p></div><span>${companyCandidates.length} available</span></div><div class="check-list">${companyCandidates.map((candidate) => `<label><input type="checkbox" name="list-candidate" value="${candidate.id}" ${selected.member_ids.includes(candidate.id) ? 'checked' : ''}><span><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}</small></span></label>`).join('') || '<p class="empty-value">No visible candidates in this company.</p>'}</div></div><div class="selection-panel"><div class="selection-title"><div><h4>Tests</h4><p>Select one or more active tests for this list.</p></div><span>${activeTests.length} active</span></div><div class="check-list">${activeTests.map((test) => `<label><input type="checkbox" name="list-test" value="${test.id}" ${selected.test_ids.includes(test.id) ? 'checked' : ''}><span><strong>${esc(test.name_en)}</strong><small>${esc(test.name_es)} · ${Number(test.estimated_minutes)} min</small></span></label>`).join('')}</div></div></div><div class="list-actions"><button class="button button-secondary" type="submit">${icon('check')}Save list</button><label class="compact-select"><span>Email language</span><select class="select" id="batch-locale"><option value="en">English</option><option value="es">Español</option></select></label><button class="button button-primary" type="button" data-batch-list="${selected.id}" ${!state.health.email?.configured || !Number(selected.member_count) || !Number(selected.test_count) || state.busy ? 'disabled' : ''}>${icon('send')}Send selected tests</button></div>${!state.health.email?.configured ? '<p class="field-help list-help">Connect Brevo before starting a batch.</p>' : ''}</form></section>` : `<div class="empty-panel"><h3>Create the first candidate list</h3><p>Lists connect candidates, tests, and batch delivery.</p></div>`;
-  return `<div class="stack">${pageIntro('Core workflow', 'Candidate lists', 'Create reusable cohorts, assign multiple tests, and send the full matrix as a tracked batch.', '')}<div class="lists-layout"><aside class="lists-rail"><form class="card card-body list-create" id="list-form"><h3>New list</h3><label class="field"><span>Name</span><input class="input" id="list-name" required placeholder="July customer care cohort"></label><label class="field"><span>Description</span><textarea class="textarea" id="list-description" maxlength="500"></textarea></label>${companyChoice}<button class="button button-primary" type="submit">${icon('plus')}Create list</button></form><div class="list-nav">${state.lists.map((list) => `<button class="list-nav-item ${selected?.id === list.id ? 'active' : ''}" data-list-id="${list.id}"><span><strong>${esc(list.name)}</strong><small>${esc(list.company_name)} · ${Number(list.member_count)} candidates</small></span><span>${Number(list.test_count)}</span></button>`).join('')}</div></aside>${editor}</div></div>`;
+  const deleteHint = selected && !selected.can_delete ? `Cannot delete after sends, invitations, or journeys exist. Archive keeps the audit trail.` : `Only unused lists can be deleted.`;
+  const sendDisabledReason = !state.health.email?.configured
+    ? 'Connect Brevo before starting a batch.'
+    : !Number(selected?.member_count || 0)
+      ? 'Add or import candidates before sending.'
+      : !Number(selected?.test_count || 0)
+        ? 'Select at least one active test before sending.'
+        : '';
+  const editor = selected ? `<section class="list-editor"><div class="list-editor-head"><div><p class="eyebrow">${esc(selected.company_name)}</p><h3>${esc(selected.name)}</h3><p>${esc(selected.description || 'No description')}</p></div><div class="list-head-actions"><span class="badge badge-neutral">${Number(selected.member_count)} candidates · ${Number(selected.test_count)} tests</span><button class="button button-secondary" data-action="import-selected-list" type="button">${icon('upload')}Import into list</button><button class="button button-secondary" data-archive-list="${selected.id}" type="button">${icon('archive')}Archive</button><button class="button button-secondary danger" data-delete-list="${selected.id}" type="button" ${selected.can_delete ? '' : 'disabled'}>${icon('trash')}Delete</button></div></div><div class="list-flow"><div class="${Number(selected.member_count) ? 'done' : 'active'}"><span>1</span><strong>Add candidates</strong><small>Pick existing people or import CSV into this list.</small></div><div class="${Number(selected.test_count) ? 'done' : ''}"><span>2</span><strong>Select tests</strong><small>Choose the assessment set for this cohort.</small></div><div class="${Number(selected.member_count) && Number(selected.test_count) ? 'active' : ''}"><span>3</span><strong>Send batch</strong><small>Create tracked invitations with provider evidence.</small></div><div><span>4</span><strong>Contactability</strong><small>Enroll this list in reminder journeys.</small></div></div><form id="list-editor-form"><div class="list-editor-grid"><div class="selection-panel"><div class="selection-title"><div><h4>Candidates</h4><p>A candidate can belong to multiple lists.</p></div><span>${companyCandidates.length} shown</span></div><div class="selection-tools"><div class="search">${icon('search')}<input class="input" id="list-candidate-search" value="${esc(state.listCandidateSearch || '')}" placeholder="Search candidates to add"></div><button class="button button-secondary" data-action="import-selected-list" type="button">${icon('upload')}Import CSV</button></div><div class="check-list">${companyCandidates.map((candidate) => `<label><input type="checkbox" name="list-candidate" value="${candidate.id}" ${selected.member_ids.includes(candidate.id) ? 'checked' : ''}><span><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}</small></span></label>`).join('') || '<div class="empty-panel compact"><h3>No candidates found</h3><p>Import a CSV into this list or clear the search.</p></div>'}</div></div><div class="selection-panel"><div class="selection-title"><div><h4>Tests</h4><p>Select one or more active tests for this list.</p></div><span>${activeTests.length} active</span></div><div class="check-list">${activeTests.map((test) => `<label><input type="checkbox" name="list-test" value="${test.id}" ${selected.test_ids.includes(test.id) ? 'checked' : ''}><span><strong>${esc(test.name_en)}</strong><small>${esc(test.name_es)} · ${Number(test.estimated_minutes)} min</small></span></label>`).join('')}</div></div></div><div class="list-actions"><div class="list-action-note"><strong>${selected.can_delete ? 'Unused list' : 'Audit protected'}</strong><span>${esc(deleteHint)}</span></div><button class="button button-secondary" type="submit">${icon('check')}Save candidates and tests</button><label class="compact-select"><span>Email language</span><select class="select" id="batch-locale"><option value="en">English</option><option value="es">Español</option></select></label><button class="button button-primary" type="button" data-batch-list="${selected.id}" ${sendDisabledReason || state.busy ? 'disabled' : ''}>${icon('send')}Send selected tests</button><button class="button button-secondary" type="button" data-nav="journeys">${icon('workflow')}Assign contactability flow</button></div>${sendDisabledReason ? `<p class="field-help list-help">${esc(sendDisabledReason)}</p>` : ''}</form></section>` : `<div class="empty-panel"><h3>Create the first candidate list</h3><p>Lists connect candidates, tests, and batch delivery.</p></div>`;
+  return `<div class="stack">${pageIntro('Core workflow', 'Candidate lists', 'Create reusable cohorts, assign tests, schedule sends, and enroll contactability journeys.', '')}<div class="lists-layout"><aside class="lists-rail"><form class="card card-body list-create" id="list-form"><h3>New list</h3><label class="field"><span>Name</span><input class="input" id="list-name" required placeholder="July customer care cohort"></label><label class="field"><span>Description</span><textarea class="textarea" id="list-description" maxlength="500"></textarea></label>${companyChoice}<button class="button button-primary" type="submit">${icon('plus')}Create list</button></form><div class="list-nav">${state.lists.map((list) => `<button class="list-nav-item ${selected?.id === list.id ? 'active' : ''}" data-list-id="${list.id}"><span><strong>${esc(list.name)}</strong><small>${esc(list.company_name)} · ${Number(list.member_count)} candidates · ${Number(list.batch_count || 0)} sends</small></span><span>${Number(list.test_count)}</span></button>`).join('')}</div></aside>${editor}</div></div>`;
 }
 
 function renderTeam() {
@@ -1441,7 +1456,47 @@ async function createList(event) {
     const response = await fetchJson('/api/lists', { method: 'POST', body: JSON.stringify(payload) });
     state.lists = response.lists || [];
     state.selectedListId = response.listId;
+    state.listCandidateSearch = '';
     toast('Candidate list created.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+function importIntoSelectedList() {
+  const list = state.lists.find((entry) => entry.id === state.selectedListId);
+  if (!list) return;
+  state.importTargetListId = list.id;
+  state.csv = null;
+  state.view = 'import';
+  render();
+}
+
+async function archiveList(listId) {
+  const list = state.lists.find((entry) => entry.id === listId);
+  if (!list) return;
+  const approved = typeof globalThis.confirm !== 'function' || globalThis.confirm(`Archive "${list.name}"? It will be hidden from active list workflows, but historical sends and reports will remain auditable.`);
+  if (!approved) return;
+  state.busy = true;
+  try {
+    const response = await fetchJson(`/api/lists/${encodeURIComponent(list.id)}/archive`, { method: 'POST', body: JSON.stringify({}) });
+    state.lists = response.lists || [];
+    state.selectedListId = state.lists[0]?.id || null;
+    toast('List archived.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function deleteList(listId) {
+  const list = state.lists.find((entry) => entry.id === listId);
+  if (!list) return;
+  const approved = typeof globalThis.confirm !== 'function' || globalThis.confirm(`Delete "${list.name}"? This is only allowed for unused lists and cannot be undone.`);
+  if (!approved) return;
+  state.busy = true;
+  try {
+    const response = await fetchJson(`/api/lists/${encodeURIComponent(list.id)}`, { method: 'DELETE' });
+    state.lists = response.lists || [];
+    state.selectedListId = state.lists[0]?.id || null;
+    toast('Unused list deleted.');
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
 }
@@ -1450,7 +1505,11 @@ async function updateList(event) {
   event.preventDefault();
   const list = state.lists.find((entry) => entry.id === state.selectedListId);
   if (!list) return;
-  const candidateIds = [...document.querySelectorAll('input[name="list-candidate"]:checked')].map((input) => input.value);
+  const candidateInputs = [...document.querySelectorAll('input[name="list-candidate"]')];
+  const visibleCandidateIds = candidateInputs.map((input) => input.value);
+  const checkedCandidateIds = candidateInputs.filter((input) => input.checked).map((input) => input.value);
+  const hiddenSelectedIds = list.member_ids.filter((candidateId) => !visibleCandidateIds.includes(candidateId));
+  const candidateIds = [...new Set([...hiddenSelectedIds, ...checkedCandidateIds])];
   const testIds = [...document.querySelectorAll('input[name="list-test"]:checked')].map((input) => input.value);
   state.busy = true;
   try {
@@ -1707,6 +1766,7 @@ function bindEvents() {
     if (action === 'method') { state.view = 'reports'; state.reportTab = 'method'; render(); }
     if (action === 'confirm-import') confirmImport();
     if (action === 'bulk-resend') bulkResendCandidateTests();
+    if (action === 'import-selected-list') importIntoSelectedList();
     if (action === 'test-email') testEmail();
     if (action === 'configure-brevo-webhook') configureBrevoWebhook();
     if (action === 'check-brevo-activity') checkBrevoActivity();
@@ -1730,7 +1790,9 @@ function bindEvents() {
   document.getElementById('list-editor-form')?.addEventListener('submit', updateList);
   document.getElementById('test-form')?.addEventListener('submit', createTest);
   document.getElementById('password-form')?.addEventListener('submit', changePassword);
-  document.querySelectorAll('[data-list-id]').forEach((button) => button.addEventListener('click', () => { state.selectedListId = button.dataset.listId; render(); }));
+  document.querySelectorAll('[data-list-id]').forEach((button) => button.addEventListener('click', () => { state.selectedListId = button.dataset.listId; state.listCandidateSearch = ''; render(); }));
+  document.querySelectorAll('[data-archive-list]').forEach((button) => button.addEventListener('click', () => archiveList(button.dataset.archiveList)));
+  document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => deleteList(button.dataset.deleteList)));
   document.querySelectorAll('[data-batch-list]').forEach((button) => button.addEventListener('click', () => sendBatch(button.dataset.batchList)));
   document.querySelectorAll('[data-enroll-journey]').forEach((button) => button.addEventListener('click', () => enrollContactabilityJourney(button.dataset.enrollJourney)));
   document.querySelectorAll('[data-journey-status]').forEach((button) => button.addEventListener('click', () => updateContactabilityJourneyStatus(button.dataset.journeyStatus, button.dataset.status)));
@@ -1755,7 +1817,8 @@ function bindEvents() {
     state.selectedCandidateIds = [...selected];
     render();
   }));
-  document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const parsed = parseCsv(reader.result); state.csv = { name: file.name, ...parsed, mapping: parsed.headers.map(guessedMapping), defaultRole: 'Bilingual Customer Care', defaultSite: '', listId: '', companyId: state.user?.companyId || state.companies[0]?.id || '' }; render(); }; reader.readAsText(file); });
+  document.getElementById('list-candidate-search')?.addEventListener('input', (event) => { state.listCandidateSearch = event.target.value; render(); });
+  document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const parsed = parseCsv(reader.result); const targetList = state.lists.find((list) => list.id === state.importTargetListId); state.csv = { name: file.name, ...parsed, mapping: parsed.headers.map(guessedMapping), defaultRole: 'Bilingual Customer Care', defaultSite: '', listId: targetList?.id || '', companyId: targetList?.company_id || state.user?.companyId || state.companies[0]?.id || '' }; render(); }; reader.readAsText(file); });
   document.querySelectorAll('.mapping-select').forEach((select) => select.addEventListener('change', () => {
     const column = Number(select.dataset.column);
     const target = select.value;

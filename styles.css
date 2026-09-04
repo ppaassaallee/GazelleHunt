@@ -473,9 +473,21 @@ tbody tr:hover td { background: #fcfdfd; }
 .list-nav-item small { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .list-nav-item > span:last-child { min-width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; background: var(--soft); color: var(--muted); font-size: 11px; }
 .list-editor { border: 1px solid var(--line); border-radius: 8px; background: white; overflow: hidden; }
-.list-editor-head { padding: 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; }
+.list-editor-head { padding: 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .list-editor-head h3 { margin: 0; }
 .list-editor-head p:not(.eyebrow) { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.list-head-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }
+.button.danger { color: #9f2a14; border-color: #efc5ba; background: #fff7f4; }
+.button.danger:disabled { color: var(--muted); border-color: var(--line); background: var(--soft); }
+.list-flow { padding: 14px 16px; border-bottom: 1px solid var(--line); background: #f8fbfb; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.list-flow > div { min-height: 86px; border: 1px solid var(--line); border-radius: 7px; background: white; padding: 12px; display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 10px; align-content: start; }
+.list-flow span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; background: var(--soft); color: var(--muted); font-weight: 800; font-size: 12px; grid-row: span 2; }
+.list-flow strong { font-size: 12px; }
+.list-flow small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.list-flow .done span { background: var(--teal); color: white; }
+.list-flow .active { border-color: var(--orange); box-shadow: inset 0 0 0 1px var(--orange); }
+.selection-tools { padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.selection-tools .search { flex: 1; min-width: 210px; }
 .list-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .selection-panel { min-width: 0; }
 .selection-panel + .selection-panel { border-left: 1px solid var(--line); }
@@ -491,6 +503,9 @@ tbody tr:hover td { background: #fcfdfd; }
 .check-list strong { font-size: 12px; }
 .check-list small { margin-top: 3px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .list-actions { min-height: 72px; padding: 14px 16px; border-top: 1px solid var(--line); display: flex; align-items: end; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.list-action-note { margin-right: auto; display: grid; gap: 3px; max-width: 330px; }
+.list-action-note strong { font-size: 12px; }
+.list-action-note span { color: var(--muted); font-size: 11px; line-height: 1.35; }
 .compact-select { display: grid; gap: 4px; margin-left: auto; }
 .compact-select .select { min-width: 130px; }
 .list-help { padding: 0 16px 14px; }
@@ -587,6 +602,7 @@ tbody tr:hover td { background: #fcfdfd; }
   .lists-layout { grid-template-columns: 1fr; }
   .lists-rail { position: static; }
   .list-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .list-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-intro { align-items: flex-start; flex-direction: column; }
   .page-intro .button { width: 100%; }
   .import-defaults { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -610,9 +626,11 @@ tbody tr:hover td { background: #fcfdfd; }
   .workflow-hero { padding: 20px; }
   .workflow-hero h2 { font-size: 25px; }
   .workflow-steps > div { grid-template-columns: 30px 72px 1fr; }
-  .list-nav, .list-editor-grid { grid-template-columns: 1fr; }
+  .list-nav, .list-editor-grid, .list-flow { grid-template-columns: 1fr; }
+  .list-editor-head, .list-head-actions, .selection-tools { flex-direction: column; align-items: stretch; }
   .selection-panel + .selection-panel { border-left: 0; border-top: 1px solid var(--line); }
   .list-actions { align-items: stretch; flex-direction: column; }
+  .list-action-note { max-width: none; }
   .compact-select { margin-left: 0; }
   .approval-row { grid-template-columns: 1fr; }
   .approval-actions { grid-column: auto; justify-content: stretch; }
