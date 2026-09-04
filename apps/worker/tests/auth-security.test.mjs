@@ -61,14 +61,17 @@ assert.equal(await auth.verifyPassword('A valid and memorable passphrase 2026', 
 assert.equal(await auth.verifyPassword('Not the same passphrase', { password_hash: record.hash, password_salt: record.salt, password_iterations: record.iterations }, env), false);
 assert.equal(auth.constantTimeEqual('same-value', 'same-value'), true);
 assert.equal(auth.constantTimeEqual('same-value', 'other-value'), false);
-assert.equal(auth.isSuperAdmin({ email: 'david.alejandro.pa@gmail.com', role: 'super_admin', status: 'active' }), true);
-assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
-assert.equal(auth.isSuperAdmin({ email: 'jose.le@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
-assert.equal(auth.isSuperAdmin({ email: 'daniela.ld@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
-assert.equal(auth.isSuperAdmin({ email: 'eduardo.ac@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
-assert.equal(auth.isSuperAdmin({ email: 'marcos.gs@alliedglobal.com', role: 'super_admin', status: 'active' }), true);
-assert.equal(auth.isSuperAdmin({ email: 'rogue@example.com', role: 'super_admin', status: 'active' }), false);
-assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'admin', status: 'active' }), false);
+// Super-admin authorization is table-driven via users.ryvo_staff (not email allowlists).
+const staffSuperAdmin = { role: 'super_admin', status: 'active', ryvo_staff: 1 };
+assert.equal(auth.isSuperAdmin({ email: 'david.alejandro.pa@gmail.com', ...staffSuperAdmin }), true);
+assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', ...staffSuperAdmin }), true);
+assert.equal(auth.isSuperAdmin({ email: 'jose.le@alliedglobal.com', ...staffSuperAdmin }), true);
+assert.equal(auth.isSuperAdmin({ email: 'daniela.ld@alliedglobal.com', ...staffSuperAdmin }), true);
+assert.equal(auth.isSuperAdmin({ email: 'eduardo.ac@alliedglobal.com', ...staffSuperAdmin }), true);
+assert.equal(auth.isSuperAdmin({ email: 'marcos.gs@alliedglobal.com', ...staffSuperAdmin }), true);
+assert.equal(auth.isSuperAdmin({ email: 'rogue@example.com', role: 'super_admin', status: 'active', ryvo_staff: 0 }), false);
+assert.equal(auth.isSuperAdmin({ email: 'karla.ms@alliedglobal.com', role: 'admin', status: 'active', ryvo_staff: 0 }), false);
+assert.equal(auth.isSuperAdmin({ email: 'david.alejandro.pa@gmail.com', role: 'super_admin', status: 'active', ryvoStaff: true }), true);
 
 const cookie = auth.sessionCookie('random-token', new Date(Date.now() + 60000));
 for (const attribute of ['__Host-gz_session=', 'Path=/', 'HttpOnly', 'Secure', 'SameSite=Strict']) assert.match(cookie, new RegExp(attribute));

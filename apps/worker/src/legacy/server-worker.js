@@ -173,28 +173,8 @@ const schemaStatements = [
   `DROP INDEX IF EXISTS users_single_active_super_admin`,
   `DROP TRIGGER IF EXISTS users_super_admin_email_insert`,
   `DROP TRIGGER IF EXISTS users_super_admin_email_update`,
-  `CREATE TRIGGER IF NOT EXISTS users_super_admin_allowlist_insert
-    BEFORE INSERT ON users
-    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN (
-      'david.alejandro.pa@gmail.com',
-      'karla.ms@alliedglobal.com',
-      'jose.le@alliedglobal.com',
-      'daniela.ld@alliedglobal.com',
-      'eduardo.ac@alliedglobal.com',
-      'marcos.gs@alliedglobal.com'
-    )
-    BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
-  `CREATE TRIGGER IF NOT EXISTS users_super_admin_allowlist_update
-    BEFORE UPDATE OF role, email ON users
-    WHEN NEW.role = 'super_admin' AND lower(NEW.email) NOT IN (
-      'david.alejandro.pa@gmail.com',
-      'karla.ms@alliedglobal.com',
-      'jose.le@alliedglobal.com',
-      'daniela.ld@alliedglobal.com',
-      'eduardo.ac@alliedglobal.com',
-      'marcos.gs@alliedglobal.com'
-    )
-    BEGIN SELECT RAISE(ABORT, 'super_admin_email_restricted'); END`,
+  `DROP TRIGGER IF EXISTS users_super_admin_allowlist_insert`,
+  `DROP TRIGGER IF EXISTS users_super_admin_allowlist_update`,
   `CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -612,6 +592,7 @@ const runtimeColumnMigrations = [
   ['candidates', 'quiet_hours_start', `ALTER TABLE candidates ADD COLUMN quiet_hours_start INTEGER`],
   ['candidates', 'quiet_hours_end', `ALTER TABLE candidates ADD COLUMN quiet_hours_end INTEGER`],
   ['candidates', 'timezone', `ALTER TABLE candidates ADD COLUMN timezone TEXT`],
+  ['users', 'ryvo_staff', `ALTER TABLE users ADD COLUMN ryvo_staff INTEGER NOT NULL DEFAULT 0`],
 ];
 
 const postMigrationStatements = [
@@ -850,6 +831,7 @@ async function ensureSchema(env) {
     env.DB.prepare(`UPDATE invitations SET company_id = 'org_legacy' WHERE company_id IS NULL`),
     env.DB.prepare(`UPDATE invitations SET test_id = 'test_tenure_potential' WHERE test_id IS NULL`),
     env.DB.prepare(`UPDATE assessments SET test_id = 'test_tenure_potential' WHERE test_id IS NULL`),
+    env.DB.prepare(`UPDATE users SET ryvo_staff = 1 WHERE role = 'super_admin' AND status = 'active' AND COALESCE(ryvo_staff, 0) = 0`),
   ]);
   await env.DB.batch(postMigrationStatements.map((statement) => env.DB.prepare(statement)));
   const companies = await env.DB.prepare(`SELECT id FROM companies WHERE status = 'active'`).all();
@@ -914,14 +896,6 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const CANDIDATE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const OWNER_EMAIL = 'david.alejandro.pa@gmail.com';
-const SUPER_ADMIN_EMAILS = new Set([
-  OWNER_EMAIL,
-  'karla.ms@alliedglobal.com',
-  'jose.le@alliedglobal.com',
-  'daniela.ld@alliedglobal.com',
-  'eduardo.ac@alliedglobal.com',
-  'marcos.gs@alliedglobal.com',
-]);
 const commonPasswords = new Set([
   'password', 'password123', '12345678', '123456789', 'qwerty123', 'letmein123',
   'admin123', 'welcome123', 'contraseña', 'contrasena', 'gazelle123',
@@ -1065,6 +1039,7 @@ function publicUser(row) {
     name: row.name,
     role: row.role,
     status: row.status,
+    ryvoStaff: Number(row.ryvo_staff) === 1,
     companyId: row.company_id,
     companyName: row.company_name || null,
     requestedCompanyName: row.requested_company_name || null,
@@ -1144,7 +1119,8 @@ async function candidateAccessFromToken(env, rawToken) {
 }
 
 function isSuperAdmin(user) {
-  return user?.status === 'active' && user.role === 'super_admin' && SUPER_ADMIN_EMAILS.has(cleanEmail(user.email));
+  if (user?.status !== 'active') return false;
+  return Number(user.ryvo_staff) === 1 || Number(user.ryvoStaff) === 1;
 }
 
 function candidateScope(user, alias = 'c') {
@@ -1208,10 +1184,11 @@ async function signUp(request, env) {
   const role = isOwnerBootstrap ? 'super_admin' : 'recruiter';
   const status = isOwnerBootstrap ? 'active' : 'pending';
   const insertUser = env.DB.prepare(`
-    INSERT INTO users (id, company_id, email, name, password_hash, password_salt, password_iterations, role, status, requested_company_name, approved_by, approved_at, password_changed_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (id, company_id, email, name, password_hash, password_salt, password_iterations, role, status, ryvo_staff, requested_company_name, approved_by, approved_at, password_changed_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     userId, companyId, email, name, passwordData.hash, passwordData.salt, passwordData.iterations, role, status,
+    isOwnerBootstrap ? 1 : 0,
     requestedCompanyName || null, isOwnerBootstrap ? userId : null, isOwnerBootstrap ? now : null, now, now, now,
   );
 
@@ -1232,7 +1209,7 @@ async function signUp(request, env) {
       return json({ error: 'The owner account was created, but its session could not be started. Sign in again.', code: 'owner_session_failed' }, 500);
     }
     await audit(env, email, 'super_admin_bootstrapped', 'user', userId, { companyId });
-    return json({ user: { id: userId, email, name, role, status, companyId, companyName: 'Gazelle Platform' } }, 201, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
+    return json({ user: { id: userId, email, name, role, status, ryvoStaff: true, companyId, companyName: 'Gazelle Platform' } }, 201, { 'set-cookie': sessionCookie(session.token, session.expiresAt) });
   }
 
   await insertUser.run();
@@ -1255,7 +1232,7 @@ async function logIn(request, env) {
     const message = user.status === 'pending' ? 'Your account is awaiting approval by a platform super administrator.' : 'This account is not active.';
     return json({ error: message, code: `account_${user.status}` }, 403);
   }
-  if (user.role === 'super_admin' && !SUPER_ADMIN_EMAILS.has(cleanEmail(user.email))) return json({ error: 'This account has an invalid role assignment.' }, 403);
+  if (user.role === 'super_admin' && Number(user.ryvo_staff) !== 1) return json({ error: 'This account has an invalid role assignment.' }, 403);
   const session = await createSession(request, env, user.id);
   const now = new Date().toISOString();
   await env.DB.batch([
@@ -3778,7 +3755,7 @@ async function listCompanies(env, user) {
 
 async function listUsers(env, user) {
   if (!isSuperAdmin(user)) return json({ error: 'Only the super administrator can manage users.' }, 403);
-  const result = await env.DB.prepare(`SELECT u.id, u.company_id, u.email, u.name, u.role, u.status, u.requested_company_name, u.approved_at, u.last_login_at, u.created_at, u.updated_at, c.name AS company_name FROM users u LEFT JOIN companies c ON c.id = u.company_id ORDER BY CASE u.status WHEN 'pending' THEN 0 ELSE 1 END, u.created_at DESC`).all();
+  const result = await env.DB.prepare(`SELECT u.id, u.company_id, u.email, u.name, u.role, u.status, u.ryvo_staff, u.requested_company_name, u.approved_at, u.last_login_at, u.created_at, u.updated_at, c.name AS company_name FROM users u LEFT JOIN companies c ON c.id = u.company_id ORDER BY CASE u.status WHEN 'pending' THEN 0 ELSE 1 END, u.created_at DESC`).all();
   return json({ users: result.results || [], companies: await listCompanies(env, user) });
 }
 

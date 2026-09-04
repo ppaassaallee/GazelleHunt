@@ -62,6 +62,14 @@ Retry, contactabilidad, batch size, `ryvo_staff`.
 - [x] `JOURNEY_BATCH_SIZE` env (default 25, max 100) in `processDueJourneyEvents`
 - [ ] Cloudflare Queues for journey dispatch (later)
 
+**7.4 RYVO staff flag (`ryvo_staff`)**
+
+- [x] `users.ryvo_staff` column + backfill for active `super_admin` rows (`0017`)
+- [x] Drop legacy email-allowlist SQLite triggers (`0017`)
+- [x] `isSuperAdmin()` checks `ryvo_staff` (table-driven; no hard-coded emails in runtime)
+- [x] Owner bootstrap sets `ryvo_staff = 1` on first `SUPER_ADMIN_EMAIL` signup
+- [x] `runtimeColumnMigrations` entry for `users.ryvo_staff` (ensureSchema parity)
+
 ## §8.D — Generalizar
 
 `subjects`, goal/stop configurables, journey-por-etapa, vistas de compatibilidad.
