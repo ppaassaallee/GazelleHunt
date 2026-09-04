@@ -10,6 +10,10 @@ const source = (
   + '\n'
   + (await readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8'))
   + '\n'
+  + (await readFile(new URL('../../../packages/runtime/src/templates.js', import.meta.url), 'utf8'))
+  + '\n'
+  + (await readFile(new URL('../../../packages/runtime/src/portal.js', import.meta.url), 'utf8'))
+  + '\n'
   + (await readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'))
 ).replace('export default {', 'globalThis.__worker = {');
 assert.match(source, /sessionTokenHash', \{ value: tokenHash, enumerable: false \}/);

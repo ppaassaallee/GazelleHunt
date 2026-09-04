@@ -7,6 +7,8 @@
   "exports": {
     "./audit": "./src/audit.js",
     "./messaging": "./src/messaging.js",
-    "./journeys": "./src/journeys.js"
+    "./journeys": "./src/journeys.js",
+    "./templates": "./src/templates.js",
+    "./portal": "./src/portal.js"
   }
 }
