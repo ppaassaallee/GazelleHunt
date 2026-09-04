@@ -3,8 +3,11 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
-const source = (await readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'))
-  .replace('export default {', 'globalThis.__worker = {');
+const source = (
+  (await readFile(new URL('../../../packages/runtime/src/audit.js', import.meta.url), 'utf8'))
+  + '\n'
+  + (await readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'))
+).replace('export default {', 'globalThis.__worker = {');
 const fetchCalls = [];
 const context = {
   globalThis: null,

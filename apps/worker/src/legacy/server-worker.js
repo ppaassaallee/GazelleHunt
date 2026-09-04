@@ -2795,11 +2795,7 @@ function invitationCopy(candidate, locale, link) {
   };
 }
 
-async function audit(env, actor, type, entityType, entityId, payload) {
-  await env.DB.prepare(`INSERT INTO audit_events (id, actor_email, event_type, entity_type, entity_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .bind(crypto.randomUUID(), actor || null, type, entityType, entityId, JSON.stringify(payload || {}), new Date().toISOString())
-    .run();
-}
+// audit() lives in packages/runtime/src/audit.js (concatenated at build). Table: audit_events.
 
 function safeJsonParse(value, fallback = null) {
   try {

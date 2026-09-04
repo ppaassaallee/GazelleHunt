@@ -27,6 +27,15 @@ Completado 2026-09-04 en este monorepo.
 
 Partir `server-worker.js` en módulos de `packages/runtime` con los mismos nombres de tabla.
 
+**En progreso (módulo a módulo):**
+
+| Módulo | Estado |
+|---|---|
+| `audit` (`audit_events`) | extraído + test |
+| journeys / messaging / templates / portal / ai | pendiente |
+
+Patrón: script plano en `packages/runtime/src/*`, concatenado en `build.mjs` antes del legacy server (mismo mecanismo que engine/AI). Cero cambios de esquema. Sin deploy a producción de Gazelle sin OK explícito.
+
 ## §8.C — Drizzle + gaps del motor
 
 Retry, contactabilidad, batch size, `ryvo_staff`.

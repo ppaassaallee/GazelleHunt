@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const legacy = resolve(root, 'src/legacy');
+const runtimeRoot = resolve(root, '../../packages/runtime/src');
 
 const [
   html,
@@ -17,6 +18,7 @@ const [
   app,
   server,
   hosting,
+  runtimeAudit,
 ] = await Promise.all([
   readFile(resolve(legacy, 'index.html'), 'utf8'),
   readFile(resolve(legacy, 'styles.css'), 'utf8'),
@@ -27,6 +29,7 @@ const [
   readFile(resolve(legacy, 'app.js'), 'utf8'),
   readFile(resolve(legacy, 'server-worker.js'), 'utf8'),
   readFile(resolve(root, '.openai/hosting.json'), 'utf8'),
+  readFile(resolve(runtimeRoot, 'audit.js'), 'utf8'),
 ]);
 
 const ogPath = resolve(root, 'public/og.png');
@@ -53,6 +56,7 @@ function decodeAsset(base64) {
 }
 ${engine}
 ${aiAssessment}
+${runtimeAudit}
 ${server}
 `;
 
