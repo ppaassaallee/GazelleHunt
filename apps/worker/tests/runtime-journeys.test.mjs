@@ -53,6 +53,7 @@ vm.runInNewContext(`${source}\n;globalThis.__journeysTest = {
   scheduledJourneyStepDate,
   journeyRetryAt,
   isRetryableJourneyError,
+  journeyGoalReached,
   listContactJourneys,
   createContactJourney,
   enrollContactJourney,
@@ -65,6 +66,8 @@ const journeys = context.__journeysTest;
 assert.equal(typeof journeys.normalizedJourneySteps, 'function');
 assert.equal(typeof journeys.processDueJourneyEvents, 'function');
 assert.equal(typeof journeys.journeyRetryAt, 'function');
+
+assert.equal(typeof journeys.journeyGoalReached, 'function');
 
 const steps = journeys.normalizedJourneySteps([{ channel: 'email', delayHours: 2 }]);
 assert.equal(steps.length, 1);
@@ -98,5 +101,12 @@ assert.ok(retry3 - Date.now() >= 119 * 60 * 1000 && retry3 - Date.now() <= 121 *
 assert.equal(journeys.isRetryableJourneyError({ message: 'provider_timeout' }), true);
 assert.equal(journeys.isRetryableJourneyError({ message: 'whatsapp_template_not_approved' }), false);
 assert.equal(journeys.isRetryableJourneyError({ message: 'invalid_email', providerStatus: 422 }), false);
+
+const journeysSource = await readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8');
+assert.match(journeysSource, /async function journeyGoalReached/);
+assert.match(journeysSource, /case 'assessment_completed':/);
+assert.match(journeysSource, /goal_event, stop_on_reply/);
+assert.match(journeysSource, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, 'assessment_completed', 1, \?, \?\)/);
+assert.match(journeysSource, /j\.goal_event, j\.stop_on_reply, j\.stop_events_json/);
 
 console.log('Runtime journeys module tests passed.');

@@ -147,6 +147,16 @@ async function listContactJourneys(env, user) {
   return journeys;
 }
 
+async function journeyGoalReached(env, row) {
+  const goalEvent = cleanText(row.goal_event, 80) || 'assessment_completed';
+  switch (goalEvent) {
+    case 'assessment_completed':
+      return !!(await env.DB.prepare(`SELECT id FROM assessments WHERE candidate_id = ? AND test_id = ? LIMIT 1`).bind(row.candidate_id, row.test_id).first());
+    default:
+      return false;
+  }
+}
+
 async function createContactJourney(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const name = cleanText(body.name, 140);
@@ -164,8 +174,8 @@ async function createContactJourney(request, env, user) {
   const journeyId = crypto.randomUUID();
   const now = new Date().toISOString();
   const statements = [env.DB.prepare(`
-    INSERT INTO contact_journeys (id, company_id, list_id, test_id, created_by_user_id, name, status, locale, goal_event, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assessment_completed', ?, ?)
+    INSERT INTO contact_journeys (id, company_id, list_id, test_id, created_by_user_id, name, status, locale, goal_event, stop_on_reply, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assessment_completed', 1, ?, ?)
   `).bind(journeyId, list.company_id, list.id, test.id, user.id, name, status, locale, now, now)];
   steps.forEach((step) => statements.push(env.DB.prepare(`
     INSERT INTO contact_journey_steps (id, journey_id, step_order, delay_minutes, business_day_offset, channel, template_name, brevo_template_id, subject_en, subject_es, message_en, message_es, api_url, api_method, api_headers_json, created_at)
@@ -324,11 +334,13 @@ async function processDueJourneyEvent(env, row, origin) {
     subject_en: row.subject_en, subject_es: row.subject_es,
     api_url: row.api_url, api_method: row.api_method, api_headers_json: row.api_headers_json,
   };
-  const completed = await env.DB.prepare(`SELECT id FROM assessments WHERE candidate_id = ? AND test_id = ? LIMIT 1`).bind(candidate.id, test.id).first();
+  const completed = await journeyGoalReached(env, row);
   if (completed) {
+    const goalEvent = cleanText(row.goal_event, 80) || 'assessment_completed';
+    const stoppedReason = goalEvent === 'assessment_completed' ? 'assessment_completed' : goalEvent;
     await env.DB.batch([
-      env.DB.prepare(`UPDATE contact_journey_events SET status = 'skipped', error_code = 'assessment_completed', updated_at = ? WHERE id = ?`).bind(claimedAt, row.event_id),
-      env.DB.prepare(`UPDATE contact_journey_enrollments SET status = 'completed', completed_at = ?, stopped_reason = 'assessment_completed' WHERE id = ?`).bind(claimedAt, row.enrollment_id),
+      env.DB.prepare(`UPDATE contact_journey_events SET status = 'skipped', error_code = ?, updated_at = ? WHERE id = ?`).bind(stoppedReason, claimedAt, row.event_id),
+      env.DB.prepare(`UPDATE contact_journey_enrollments SET status = 'completed', completed_at = ?, stopped_reason = ? WHERE id = ?`).bind(claimedAt, stoppedReason, row.enrollment_id),
     ]);
     return;
   }
@@ -390,7 +402,7 @@ async function processDueJourneyEvents(env) {
   const batchSize = Math.min(100, Math.max(1, Number(env.JOURNEY_BATCH_SIZE) || 25));
   const rows = await env.DB.prepare(`
     SELECT ev.id AS event_id, ev.enrollment_id, ev.channel, ev.scheduled_at, ev.attempt_count, e.journey_id,
-      j.list_id, j.locale, j.company_id, COALESCE(co.candidate_brand_name, co.name) AS candidate_brand_name,
+      j.list_id, j.locale, j.goal_event, j.stop_on_reply, j.stop_events_json, j.company_id, COALESCE(co.candidate_brand_name, co.name) AS candidate_brand_name,
       s.brevo_template_id, s.subject_en, s.subject_es, s.message_en, s.message_es, s.api_url, s.api_method, s.api_headers_json,
       c.id AS candidate_id, c.owner_user_id, c.email, c.name, c.phone, c.role, c.site,
       c.do_not_contact, c.opt_out_channels_json, c.quiet_hours_start, c.quiet_hours_end, c.timezone,

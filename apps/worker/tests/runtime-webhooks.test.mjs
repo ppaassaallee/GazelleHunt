@@ -62,5 +62,7 @@ assert.match(moduleSource, /infobipInboundEvents/);
 assert.match(moduleSource, /x-gazelle-webhook-token/);
 assert.match(moduleSource, /infobip_inbound_unmatched/);
 assert.match(moduleSource, /candidate_whatsapp_reply_received/);
+assert.match(moduleSource, /j\.stop_on_reply/);
+assert.match(moduleSource, /Number\(entry\.stop_on_reply/);
 
 console.log('Runtime webhooks module tests passed.');

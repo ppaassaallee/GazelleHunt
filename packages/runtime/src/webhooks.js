@@ -106,9 +106,13 @@ async function handleInfobipWebhook(request, env) {
       VALUES (?, ?, ?, 'whatsapp', ?, ?, ?, ?, 0, ?, ?)
     `).bind(crypto.randomUUID(), candidate.id, recorderId, 'Inbound WhatsApp reply', 'Respuesta entrante de WhatsApp', message, message, messageId || null, now).run();
     const enrollments = await env.DB.prepare(`
-      SELECT id FROM contact_journey_enrollments WHERE candidate_id = ? AND status = 'active'
+      SELECT e.id, j.stop_on_reply
+      FROM contact_journey_enrollments e
+      JOIN contact_journeys j ON j.id = e.journey_id
+      WHERE e.candidate_id = ? AND e.status = 'active'
     `).bind(candidate.id).all();
-    const enrollmentIds = (enrollments.results || []).map((entry) => entry.id);
+    const stoppable = (enrollments.results || []).filter((entry) => Number(entry.stop_on_reply ?? 1) !== 0);
+    const enrollmentIds = stoppable.map((entry) => entry.id);
     if (enrollmentIds.length) {
       await env.DB.batch(enrollmentIds.flatMap((enrollmentId) => [
         env.DB.prepare(`UPDATE contact_journey_enrollments SET status = 'stopped', completed_at = ?, stopped_reason = 'candidate_replied' WHERE id = ?`).bind(now, enrollmentId),

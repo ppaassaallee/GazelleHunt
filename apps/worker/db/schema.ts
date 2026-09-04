@@ -82,6 +82,8 @@ export type ContactJourneyRecord = {
   status: ContactJourneyStatus;
   locale: 'en' | 'es';
   goal_event: 'assessment_completed';
+  stop_on_reply: 0 | 1;
+  stop_events_json: string | null;
   created_at: string;
   updated_at: string;
 };

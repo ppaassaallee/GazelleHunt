@@ -74,6 +74,17 @@ Retry, contactabilidad, batch size, `ryvo_staff`.
 
 `subjects`, goal/stop configurables, journey-por-etapa, vistas de compatibilidad.
 
+**En progreso (parcial):**
+
+- [x] `contact_journeys.stop_on_reply` (default 1) + `stop_events_json` (`0018`)
+- [x] `goal_event` on journeys (default `assessment_completed`; column since `0012`, runtime parity via `runtimeColumnMigrations`)
+- [x] `journeyGoalReached()` switch in `packages/runtime/src/journeys.js` (`assessment_completed` path = current Gazelle behavior)
+- [x] `processDueJourneyEvents` SELECT includes `goal_event`, `stop_on_reply`, `stop_events_json`
+- [x] Infobip inbound respects per-journey `stop_on_reply` (0 = store message, keep enrollment active)
+- [ ] Rename `candidates` → `subjects` + compatibility views
+- [ ] Recupera `payment_received` goal path
+- [ ] Journey-por-etapa / playbook-specific stop events from `stop_events_json`
+
 ## §8.E–H
 
 Recupera core → Pagos + Rocío texto → Voz + Control → Gazelle al shell React.

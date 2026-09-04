@@ -404,6 +404,8 @@ const schemaStatements = [
     status TEXT NOT NULL DEFAULT 'draft',
     locale TEXT NOT NULL DEFAULT 'en',
     goal_event TEXT NOT NULL DEFAULT 'assessment_completed',
+    stop_on_reply INTEGER NOT NULL DEFAULT 1,
+    stop_events_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (company_id) REFERENCES companies(id),
@@ -593,6 +595,9 @@ const runtimeColumnMigrations = [
   ['candidates', 'quiet_hours_end', `ALTER TABLE candidates ADD COLUMN quiet_hours_end INTEGER`],
   ['candidates', 'timezone', `ALTER TABLE candidates ADD COLUMN timezone TEXT`],
   ['users', 'ryvo_staff', `ALTER TABLE users ADD COLUMN ryvo_staff INTEGER NOT NULL DEFAULT 0`],
+  ['contact_journeys', 'goal_event', `ALTER TABLE contact_journeys ADD COLUMN goal_event TEXT NOT NULL DEFAULT 'assessment_completed'`],
+  ['contact_journeys', 'stop_on_reply', `ALTER TABLE contact_journeys ADD COLUMN stop_on_reply INTEGER NOT NULL DEFAULT 1`],
+  ['contact_journeys', 'stop_events_json', `ALTER TABLE contact_journeys ADD COLUMN stop_events_json TEXT`],
 ];
 
 const postMigrationStatements = [
