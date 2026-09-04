@@ -115,8 +115,9 @@ Shell mínimo (rail desktop, tab bar móvil, tokens light/dark). Sin integració
 - [x] Scaffold `apps/web` (`pnpm dev:web`, `pnpm build:web`)
 - [x] Nav: Inicio, Playbooks, Trabajo, Insights (+ Ajustes solo desktop)
 - [x] Stubs: Home ("Buenos días" + métrica), Playbooks (Recupera / Sube / Monetiza)
+- [x] UI Recupera: instalar + listar + agregar obligación (`/api/recupera/*`, proxy Vite → `:8787`)
 - [ ] Servir desde Worker / strangler sobre `app.js`
-- [ ] Auth + datos reales
+- [ ] Auth unificada en UI (hoy: cookies Gazelle vía proxy)
 
 **DO NOT:** Cambiar `wrangler` ni reemplazar Gazelle `app.js` hasta fase H.
 
