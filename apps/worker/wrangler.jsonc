@@ -40,7 +40,7 @@
     "SUPER_ADMIN_EMAIL": "david.alejandro.pa@gmail.com",
     "RYVO_SHELL_ENABLED": "true",
     "MEIKAPEN_PLATFORM_ROOT": "false",
-    "RECUPERA_ENABLED": "false"
+    "RECUPERA_ENABLED": "true"
   },
   "routes": [
     { "pattern": "gazellehunt.meikapen.com", "custom_domain": true }

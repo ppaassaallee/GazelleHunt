@@ -1,59 +1,52 @@
 # Cutover Cloudflare — Gazelle → Meikapen Worker
 
-**Regla:** usar **solo** la infra Gazelle ya en producción.  
-**No** crear zona Cloudflare nueva. **No** segundo Worker. **No** otra D1.
+**Regla:** un solo Worker / D1 Gazelle. Sin segundo deploy.
 
-Objetivo: el Worker existente `gazelle-assessment`
-(`https://gazelle-assessment.gazellehunt.workers.dev`) sirve el monorepo
-Meikapen (Gazelle + Recupera + shell).
+## Estado live (2026-09-04)
 
-## Qué ya es de Gazelle (reutilizar)
-
-| Pieza | Valor prod |
+| Pieza | Valor |
 |---|---|
 | Worker | `gazelle-assessment` |
-| URL | `https://gazelle-assessment.gazellehunt.workers.dev` |
-| Account | mismo OAuth / account ID Gazelle |
-| D1 | `gazelle-assessment-production` (`2097c7fc-…`) |
-| Cron | `*/1 * * * *` (journeys) |
-| Email / WA / SMS | Brevo + Infobip (secrets existentes) |
-| Auth / journeys / templates / portal / ai_jobs | runtime Gazelle |
-
-## Preflight
-
-- [x] Acceso Cloudflare al Worker `gazelle-assessment`
-- [x] `wrangler whoami` OK
-- [x] `pnpm test` verde
-- [x] Deploy al **mismo** Worker (sin routes custom_domain nuevas)
-
-## Flags primer cutover
-
-| Var | Valor |
-|---|---|
-| `MEIKAPEN_PLATFORM_ROOT` | `false` (`/` = Gazelle en workers.dev) |
-| `RYVO_SHELL_ENABLED` | `true` (`/ryvo/`) |
-| `RECUPERA_ENABLED` | `false` hasta OK cobros |
-| `APP_BASE_URL` | `https://gazelle-assessment.gazellehunt.workers.dev` |
-
-## DNS / dominios
-
-| Paso | Estado |
-|---|---|
-| Custom domain live | **`gazellehunt.meikapen.com`** → Worker `gazelle-assessment` |
-| Apex `meikapen.com` | Aún parking / NS públicos GoDaddy — no usar todavía |
+| **Prod Gazelle** | **https://gazellehunt.meikapen.com** |
+| Fallback | `https://gazelle-assessment.gazellehunt.workers.dev` |
 | `APP_BASE_URL` | `https://gazellehunt.meikapen.com` |
+| Shell `/ryvo/` | on |
+| **Recupera** | **`RECUPERA_ENABLED=true`** |
+| Auth reset | Forgot password + admin Brevo |
 
-Smoke OK: `/`, `/ryvo/`, `/gazellehunt`, `/recupera` en el subdomain.
+## Checklist
+
+- [x] Deploy monorepo al Worker Gazelle
+- [x] Custom domain `gazellehunt.meikapen.com`
+- [x] `APP_BASE_URL` nuevo host
+- [x] Smoke paths + password reset
+- [x] Aviso login en workers.dev
+- [x] **Recupera encendido en prod**
+- [ ] Apex `meikapen.com` + `www` → Custom Domain en dashboard (DNS NS ya Cloudflare; attach wrangler 409)
+- [ ] Infobip webhook + botón WA → host nuevo
+- [ ] Brevo webhook → host nuevo
+- [ ] Google OAuth redirect (si aplica candidatos)
+
+## Apex (tú en dashboard, 2 min)
+
+1. Workers → `gazelle-assessment` → Domains → **Add Custom Domain**
+2. Añade `meikapen.com` y `www.meikapen.com`
+3. Si falla: DNS de la zona → borra A/CNAME conflictivos del apex/`www`, reintenta
+4. Con apex live, `/` en `meikapen.com` = hub Meikapen (hostname-aware)
+
+## Providers (manual)
+
+| Provider | Acción |
+|---|---|
+| Infobip webhook | `https://gazellehunt.meikapen.com/api/infobip/webhook` |
+| Infobip/Meta botón | `https://gazellehunt.meikapen.com/candidate?invite={{1}}` |
+| Brevo webhook | mismo origen canónico |
+| Google OAuth | `${APP_BASE_URL}/api/candidate/auth/google/callback` |
+
+## Recupera
+
+Flag global on. Entrar: https://gazellehunt.meikapen.com/ryvo/ → Recupera (onboarding 5 pasos).
 
 ## Rollback
 
-Cloudflare → Worker → Deployments → versión anterior.
-
-## Smoke
-
-```bash
-curl -sI https://gazelle-assessment.gazellehunt.workers.dev/
-curl -sI https://gazelle-assessment.gazellehunt.workers.dev/ryvo/
-curl -sI https://gazelle-assessment.gazellehunt.workers.dev/gazellehunt
-curl -sI https://gazelle-assessment.gazellehunt.workers.dev/recupera
-```
+Worker Deployments → versión anterior. Flag: `RECUPERA_ENABLED=false` + redeploy.

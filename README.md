@@ -164,11 +164,11 @@ WhatsApp and SMS steps can use Brevo or Infobip. Production is configured to pre
 - `INFOBIP_SMS_SENDER`, the approved SMS sender name or number
 - `DEFAULT_PHONE_COUNTRY_CODE`, optional, defaults to `502`
 
-For Infobip WhatsApp, proactive outbound messages use a Meta-approved template. With the default button URL template, Gazelle passes three body placeholders in this order: candidate name, candidate-facing brand, and role. It also passes the unique invite token as the `URL` button parameter, so the approved button URL should be `https://gazelle-assessment.gazellehunt.workers.dev/candidate?invite={{1}}`. If a future template puts the full link in the message body instead, set `INFOBIP_WHATSAPP_LINK_PLACEMENT=body` and Gazelle will send the full link as a fourth body placeholder.
+For Infobip WhatsApp, proactive outbound messages use a Meta-approved template. With the default button URL template, Gazelle passes three body placeholders in this order: candidate name, candidate-facing brand, and role. It also passes the unique invite token as the `URL` button parameter, so the approved button URL should be `https://gazellehunt.meikapen.com/candidate?invite={{1}}`. If a future template puts the full link in the message body instead, set `INFOBIP_WHATSAPP_LINK_PLACEMENT=body` and Gazelle will send the full link as a fourth body placeholder.
 
 Before sending a WhatsApp step through Infobip, Gazelle checks the selected template against the configured sender's template list and only sends when the selected template/language is returned as approved or active. If the template is pending, rejected, paused, missing, or cannot be verified, the journey event fails with `whatsapp_template_not_approved` or `whatsapp_template_validation_unavailable` instead of attempting a blind send.
 
-Inbound candidate replies should be configured in Infobip to POST to `https://gazelle-assessment.gazellehunt.workers.dev/api/infobip/webhook`. If `INFOBIP_WEBHOOK_TOKEN` is set, send it either as `Authorization: Bearer TOKEN`, `X-Gazelle-Webhook-Token: TOKEN`, or as `?token=TOKEN`. Gazelle matches replies to candidates by normalized phone number, stores the WhatsApp reply on the candidate timeline, audits the event, and stops pending journey reminders for that candidate with `candidate_replied`.
+Inbound candidate replies should be configured in Infobip to POST to `https://gazellehunt.meikapen.com/api/infobip/webhook`. If `INFOBIP_WEBHOOK_TOKEN` is set, send it either as `Authorization: Bearer TOKEN`, `X-Gazelle-Webhook-Token: TOKEN`, or as `?token=TOKEN`. Gazelle matches replies to candidates by normalized phone number, stores the WhatsApp reply on the candidate timeline, audits the event, and stops pending journey reminders for that candidate with `candidate_replied`.
 
 The default journey preset starts in Spanish-first WhatsApp and skips weekends for every configured business-day step:
 
@@ -209,7 +209,7 @@ Candidate password accounts are separate from hiring-team accounts and use a ded
 
 Each candidate/test pair starts with three released attempts. Accepted provider sends consume an attempt; failed sends do not. Recruiters can resend while capacity remains, while company administrators and the single super administrator can release three additional attempts at a time. Every release is audited.
 
-The production candidate host is a Cloudflare Worker backed by D1. It is public at `https://gazelle-assessment.gazellehunt.workers.dev` while `assessment.gazellehunt.com` is being activated. Candidates do not need ChatGPT, OpenAI, or a hiring-team account to open a valid invitation. Hiring-team data remains protected by the application's own server-side sessions and role/company checks. Invitation tokens grant access only to a single candidate assessment and are stored only as SHA-256 hashes.
+The production candidate host is a Cloudflare Worker backed by D1. Canonical URL: `https://gazellehunt.meikapen.com` (fallback `https://gazelle-assessment.gazellehunt.workers.dev`). Candidates do not need ChatGPT, OpenAI, or a hiring-team account to open a valid invitation. Hiring-team data remains protected by the application's own server-side sessions and role/company checks. Invitation tokens grant access only to a single candidate assessment and are stored only as SHA-256 hashes.
 
 ## Cloudflare deployment
 
