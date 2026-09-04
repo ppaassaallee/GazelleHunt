@@ -5,13 +5,16 @@ import '../src/legacy/assessment-engine.js';
 import '../src/legacy/ai-assessment.js';
 import '../src/legacy/pdf-report.js';
 
-const [appSource, indexSource, serverSource, readmeSource, buildSource] = await Promise.all([
+const [appSource, indexSource, legacyServerSource, readmeSource, buildSource, auditSource, messagingSource] = await Promise.all([
   readFile(new URL('../src/legacy/app.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/legacy/index.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../../../README.md', import.meta.url), 'utf8'),
   readFile(new URL('../build.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('../../../packages/runtime/src/audit.js', import.meta.url), 'utf8'),
+  readFile(new URL('../../../packages/runtime/src/messaging.js', import.meta.url), 'utf8'),
 ]);
+const serverSource = `${auditSource}\n${messagingSource}\n${legacyServerSource}`;
 
 const appElement = { innerHTML: '' };
 const fetchCalls = [];

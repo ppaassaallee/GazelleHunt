@@ -5,6 +5,7 @@
   "type": "module",
   "description": "RYVO runtime extracted from Gazelle Hunt. Phase B+: move-only, same table names.",
   "exports": {
-    "./audit": "./src/audit.js"
+    "./audit": "./src/audit.js",
+    "./messaging": "./src/messaging.js"
   }
 }

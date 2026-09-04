@@ -19,6 +19,7 @@ const [
   server,
   hosting,
   runtimeAudit,
+  runtimeMessaging,
 ] = await Promise.all([
   readFile(resolve(legacy, 'index.html'), 'utf8'),
   readFile(resolve(legacy, 'styles.css'), 'utf8'),
@@ -30,6 +31,7 @@ const [
   readFile(resolve(legacy, 'server-worker.js'), 'utf8'),
   readFile(resolve(root, '.openai/hosting.json'), 'utf8'),
   readFile(resolve(runtimeRoot, 'audit.js'), 'utf8'),
+  readFile(resolve(runtimeRoot, 'messaging.js'), 'utf8'),
 ]);
 
 const ogPath = resolve(root, 'public/og.png');
@@ -57,6 +59,7 @@ function decodeAsset(base64) {
 ${engine}
 ${aiAssessment}
 ${runtimeAudit}
+${runtimeMessaging}
 ${server}
 `;
 
