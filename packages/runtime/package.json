@@ -1,0 +1,7 @@
+{
+  "name": "@ryvo/runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RYVO runtime extracted from Gazelle Hunt. Phase B+."
+}

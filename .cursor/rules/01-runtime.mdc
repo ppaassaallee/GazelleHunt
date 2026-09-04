@@ -1,0 +1,22 @@
+---
+description: Runtime extraction rules — Gazelle compatibility first
+globs: packages/runtime/**,apps/worker/**
+---
+
+# 01 — Runtime
+
+## Regla cero
+
+Gazelle Hunt está en producción. Diff de comportamiento = 0 salvo que un test lo demuestre
+y el prompt lo pida explícitamente.
+
+## Nombres genéricos (fase D+)
+
+`packages/runtime` nunca contiene: candidate, assessment, payer, obligation.
+
+Hasta entonces, el código vive en `apps/worker/src/legacy/` — **mover, no mejorar**.
+
+## Stack
+
+Un solo Cloudflare Worker. D1. Cron + journey_events. Providers detrás de adapters.
+Sin microservicios. Sin segundo Worker.

@@ -1,0 +1,15 @@
+---
+description: Multi-tenant security baseline
+globs: apps/**,packages/**
+---
+
+# 05 — Security
+
+- Multi-tenant real: `organization_id` / `company_id` en todos los objetos
+- RBAC + audit log
+- PII fuera de logs
+- Rate limiting + idempotency
+- URLs firmadas / tokens hasheados
+- Autorización siempre en servidor
+- Nunca emails hardcodeados en migraciones nuevas (usar rol `ryvo_staff`)
+- Opt-outs y contact policies respetados antes de enviar

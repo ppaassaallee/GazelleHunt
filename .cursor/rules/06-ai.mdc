@@ -1,0 +1,14 @@
+---
+description: AI interprets; policy decides; RYVO executes
+globs: packages/runtime/ai/**,playbooks/**/rocio/**
+---
+
+# 06 — AI
+
+IA interpreta. Política decide. RYVO ejecuta.
+
+- Structured output obligatorio (patrón `ai_jobs` / `ai_analyses`)
+- Prompt versionado; evidencia con hash; PII deidentificada
+- LLM nunca inventa descuentos, condonaciones ni amenazas legales
+- Confidence thresholds + human-in-the-loop cuando no hay AUTOPILOT
+- Guardar outcomes estructurados, no solo transcripts

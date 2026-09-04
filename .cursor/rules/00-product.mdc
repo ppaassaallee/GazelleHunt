@@ -1,0 +1,27 @@
+---
+description: RYVO product principles — Playbook ≠ Workflow
+alwaysApply: true
+---
+
+# 00 — Product
+
+RYVO es una plataforma de Playbooks operativos ejecutables.
+
+**PRINCIPIO:** Playbook ≠ Workflow.
+
+Un workflow es una secuencia de acciones.
+
+Un Playbook incluye outcome, modelo de datos, estados, estrategia, triggers, políticas,
+reglas, acciones, AI employees, canales, herramientas, excepciones, human-in-the-loop,
+métricas y vistas.
+
+Nunca diseñes RYVO como un workflow builder genérico.
+Siempre empieza desde un resultado de negocio.
+
+Playbooks:
+
+- **Gazelle Hunt** — contratación (en producción)
+- **Recupera** — cobranza; AI Employee: Rocío
+- Sube / Monetiza — futuros
+
+North star: resultados completados por Playbooks (no users, workflows, messages o AI calls).

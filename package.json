@@ -1,0 +1,16 @@
+{
+  "name": "ryvo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RYVO — Playbook execution platform. Gazelle Hunt and Recupera run on the same runtime.",
+  "scripts": {
+    "build": "pnpm --filter @ryvo/worker build",
+    "deploy:cloudflare": "pnpm --filter @ryvo/worker deploy:cloudflare",
+    "test": "pnpm --filter @ryvo/worker test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

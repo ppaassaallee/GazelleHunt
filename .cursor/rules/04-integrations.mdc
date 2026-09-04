@@ -1,0 +1,14 @@
+---
+description: Provider adapters and webhook security
+globs: "**/providers/**,apps/worker/**/webhook*"
+---
+
+# 04 — Integrations
+
+Nunca llamar SDKs externos desde UI o desde lógica de playbook directamente.
+
+Interfaces: MessagingProvider, EmailProvider, SmsProvider, VoiceProvider,
+PaymentProvider, StorageProvider, AIProvider.
+
+Webhooks firmados. Idempotencia. Secrets solo server-side.
+Vendors V1: Brevo, Infobip, OpenAI/Gemini, Recurrente, Retell.

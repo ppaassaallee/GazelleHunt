@@ -1,0 +1,22 @@
+---
+description: Obligatory Apple HIG design discipline for RYVO UI
+globs: "**/*.tsx,**/*.jsx,**/*.css,apps/worker/src/legacy/**/*.{js,css,html}"
+---
+
+# Apple Design — RYVO
+
+Priorizar claridad y jerarquía; minimalismo; progressive disclosure;
+navegación icon-first con tooltips/aria-label; evitar clutter y workflow spaghetti;
+dark mode; reduced motion; contraste; componentes familiares;
+minimizar acciones visibles simultáneamente.
+
+Antes de cerrar cualquier feature visual:
+
+1. Revisar layout
+2. Revisar typography
+3. Revisar accessibility
+4. Revisar color
+5. Revisar interaction
+
+Referencia externa: https://raw.githubusercontent.com/dickwu/apple-design-skill/main/SKILL.md
+(Instalar copia local en `.design-rules/SKILL.md` en una iteración dedicada.)

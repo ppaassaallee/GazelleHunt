@@ -1,0 +1,11 @@
+---
+description: Testing standards — playbook scenarios over trivial UI
+globs: "**/*.test.*,**/tests/**"
+---
+
+# 07 — Testing
+
+- `pnpm test` verde antes de PR
+- Preferir scenarios de Playbook (promesa, pago, disputa, stop) sobre asserts de UI triviales
+- Cualquier cambio en runtime exige test que demuestre compatibilidad Gazelle Hunt
+- No mocks que oculten fallos de providers reales cuando el test es de integración

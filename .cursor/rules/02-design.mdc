@@ -1,0 +1,18 @@
+---
+description: RYVO design — radical minimalism, icon-first nav
+globs: apps/web/**,packages/ui/**,apps/worker/src/legacy/**/*.{css,html,js}
+---
+
+# 02 — Design
+
+FULL MINIMAL: espacio, pocos colores, tipografía limpia, una acción predominante,
+icons-first, progressive disclosure, microanimaciones 150–250ms.
+
+- Rail desktop 56–64px; mobile tab bar (máx 4).
+- Máximo un número protagonista por vista (no 14 KPI cards).
+- Acciones secundarias en `⋯`.
+- Dark mode tokenizado desde v1.
+- Respetar `prefers-reduced-motion`.
+- Liquid Glass solo en rail / command bar / modal / toolbar contextual.
+
+Antes de cerrar UI: layout → typography → accessibility → color → interaction.

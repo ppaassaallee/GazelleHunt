@@ -1,0 +1,7 @@
+{
+  "name": "@ryvo/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "React+Vite RYVO shell. Phase E+ (strangler over legacy app.js)."
+}

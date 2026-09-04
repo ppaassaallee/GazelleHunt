@@ -1,0 +1,7 @@
+{
+  "name": "@ryvo/playbook-gazelle-hunt",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Gazelle Hunt playbook — hiring assessments. Currently lives in apps/worker/src/legacy."
+}

@@ -1,0 +1,11 @@
+---
+description: User-facing copy — no internal jargon
+globs: messages/**,apps/web/**,apps/worker/src/legacy/**
+---
+
+# 08 — Copy
+
+Ver `docs/spec/copy.md`.
+
+Términos internos nunca en UI. Gazelle Hunt no se renombra; pie "by RYVO".
+Rocío es marca, no "AI Agent #12".

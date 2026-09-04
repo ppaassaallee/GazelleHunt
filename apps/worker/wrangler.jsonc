@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gazelle-assessment",
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-07-22",
+  "workers_dev": true,
+  "preview_urls": false,
+    "observability": {
+      "enabled": true
+    },
+  "triggers": {
+    "crons": ["*/1 * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gazelle-assessment-production",
+      "database_id": "2097c7fc-bd1b-4139-9c1b-6c1077e2b7c9"
+    }
+  ],
+  "vars": {
+    "AI_PROVIDER": "openai",
+    "APP_BASE_URL": "https://gazelle-assessment.gazellehunt.workers.dev",
+    "BREVO_EMAIL_TRANSPORT": "api",
+    "BREVO_SENDER_EMAIL": "assesment@gazellehunt.com",
+    "BREVO_SENDER_NAME": "Gazelle Assessment",
+    "BREVO_SMTP_HOST": "smtp-relay.brevo.com",
+    "BREVO_SMTP_LOGIN": "your-brevo-smtp-login",
+    "BREVO_SMTP_PORT": "587",
+    "DEFAULT_PHONE_COUNTRY_CODE": "502",
+    "INFOBIP_WHATSAPP_LINK_PLACEMENT": "button",
+    "INFOBIP_BASE_URL": "j3erzk.api-us.infobip.com",
+    "INFOBIP_WHATSAPP_SENDER": "50223061948",
+    "INFOBIP_WHATSAPP_TEMPLATE_ID": "1723626188858185",
+    "INFOBIP_WHATSAPP_TEMPLATE_LANGUAGE": "es",
+    "INFOBIP_WHATSAPP_TEMPLATE_NAME": "gazelle_assessment_invitation",
+    "SMS_PROVIDER": "infobip",
+    "WHATSAPP_PROVIDER": "infobip",
+    "OPENAI_MODEL": "gpt-4.1-mini",
+    "SUPER_ADMIN_EMAIL": "david.alejandro.pa@gmail.com"
+  }
+}

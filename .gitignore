@@ -1,0 +1,11 @@
+dist/
+apps/*/dist/
+node_modules/
+.DS_Store
+.wrangler/
+.pnpm-store/
+.infobip-webhook-token.local
+*.local
+.env
+.env.*
+!.env.example

@@ -1,0 +1,14 @@
+---
+description: Playbook packages must stay engine-agnostic
+globs: playbooks/**
+---
+
+# 03 — Playbooks
+
+Todo Playbook debe ser versionado, declarativo cuando sea posible, testeable,
+instalable por tenant, extensible, actualizable y separable del runtime.
+
+Nunca hardcodear Recupera (ni Gazelle Hunt) dentro del engine genérico.
+El engine debe poder ejecutar cualquier Playbook válido.
+
+`playbooks/*` importa solo interfaces de `packages/runtime` y `packages/ui`.
