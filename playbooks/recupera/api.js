@@ -470,6 +470,25 @@ async function recuperaActivateObligationRequest(request, env, user, obligationI
   }, 201);
 }
 
+async function recuperaCreatePaymentLinkRequest(request, env, user, obligationId) {
+  if (!recuperaPaymentsEnabled(env)) return json({ error: 'not_found', code: 'payments_disabled' }, 404);
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const obligation = await recuperaLoadObligation(env, companyId, cleanText(obligationId, 100));
+  if (!obligation) return json({ error: 'Obligation not found.', code: 'obligation_not_found' }, 404);
+  const portalResponse = await recuperaCreatePortalLink(request, env, user, obligationId);
+  if (!portalResponse.ok) return portalResponse;
+  const portalBody = await portalResponse.json();
+  const link = createPaymentLinkStub({
+    obligationId: obligation.id,
+    amountCents: obligation.balance_cents,
+    currency: obligation.currency || 'GTQ',
+    successUrl: portalBody.url || null,
+  });
+  return json({ ...link, portalUrl: portalBody.url || null, expiresAt: portalBody.expiresAt || null });
+}
+
 async function recuperaCreatePortalLink(request, env, user, obligationId) {
   if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
   const companyId = recuperaTargetCompanyId(user, new URL(request.url));
@@ -822,6 +841,8 @@ async function handleRecuperaApi(request, env, url, user) {
   if (markPaidMatch && request.method === 'POST') return recuperaMarkPaidObligation(request, env, user, markPaidMatch[1]);
   const portalLinkMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/portal-link$/);
   if (portalLinkMatch && request.method === 'POST') return recuperaCreatePortalLink(request, env, user, portalLinkMatch[1]);
+  const paymentLinkMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/payment-link$/);
+  if (paymentLinkMatch && request.method === 'POST') return recuperaCreatePaymentLinkRequest(request, env, user, paymentLinkMatch[1]);
   const inboundMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/inbound-message$/);
   if (inboundMatch && request.method === 'POST') return recuperaInboundMessageRequest(request, env, user, inboundMatch[1]);
   if (url.pathname === '/api/recupera/insights' && request.method === 'GET') return recuperaGetInsights(request, env, user);

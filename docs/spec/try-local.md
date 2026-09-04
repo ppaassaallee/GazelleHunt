@@ -61,6 +61,8 @@ Arranca el worker (`wrangler dev --local --port 8787`) y abre `http://127.0.0.1:
 
 Gazelle sigue en `/` sin cambios. Con `RYVO_SHELL_ENABLED` ausente o `false`, `/ryvo/*` no se sirve desde el shell React.
 
+Landing Recupera (sin auth): `http://127.0.0.1:8787/recupera` — CTA a `/ryvo/` si el shell está activo, si no a `/` (login Gazelle).
+
 Flujo:
 1. Playbooks → **Recupera**
 2. **Instalar Recupera**
@@ -101,6 +103,10 @@ Si ves `playbook_disabled` / 404 → falta el flag o la sesión.
 `RECUPERA_ROCIO_INBOUND=true` → clasifica respuestas WhatsApp entrantes (Infobip) para candidatos Recupera con journey `stop_on_reply=0`. Sin LLM; heurísticas en español/inglés.
 
 `RECUPERA_SELF_SERVE=true` → signup con `playbookIntent=recupera` crea org + admin activo + install Recupera sin cola de aprobación (solo local/demo).
+
+`RECUPERA_PAYMENTS_ENABLED=true` + `RECUPERA_PAYMENTS_WEBHOOK_SECRET` → stub de pagos:
+- Admin: `POST /api/recupera/obligations/:id/payment-link` (devuelve link stub; URL del portal como `successUrl`)
+- Webhook público: `POST /api/recupera/payments/webhook` con header `X-Recupera-Payments-Secret` y body `{ obligationId, amountCents, providerPaymentId, status: "completed" }`
 
 Cron diario (medianoche UTC): `recuperaRecomputeStages` avanza buckets DPD; `recuperaSweepBrokenPromises` marca promesas vencidas como `broken` y restaura stage desde `due_date`.
 

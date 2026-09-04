@@ -7,6 +7,8 @@ RECUPERA_ENABLED=true
 # RECUPERA_PORTAL_INSTANT_PAY=true
 # RECUPERA_ROCIO_INBOUND=true
 # RECUPERA_SELF_SERVE=true
+# RECUPERA_PAYMENTS_ENABLED=true
+# RECUPERA_PAYMENTS_WEBHOOK_SECRET=local-dev-payments-webhook-secret
 
 # RYVO React shell at /ryvo/ (requires pnpm build:web)
 # RYVO_SHELL_ENABLED=true

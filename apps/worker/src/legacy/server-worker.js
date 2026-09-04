@@ -791,6 +791,36 @@ function serveRyvoShell(url) {
   return new Response('Not found', { status: 404 });
 }
 
+function serveRecuperaLanding(env) {
+  const shellEnabled = env.RYVO_SHELL_ENABLED === 'true';
+  const ctaHref = shellEnabled ? '/ryvo/' : '/';
+  const ctaLabel = shellEnabled ? 'Entrar a RYVO' : 'Iniciar sesión';
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recupera · by RYVO</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; color: #1a1a1a; background: #fafafa; }
+    .brand { font-size: 0.875rem; letter-spacing: 0.05em; text-transform: uppercase; color: #666; margin-bottom: 1.5rem; }
+    h1 { font-size: 2rem; font-weight: 600; text-align: center; max-width: 20ch; line-height: 1.2; margin-bottom: 2rem; }
+    a.cta { display: inline-block; padding: 0.75rem 1.5rem; background: #111; color: #fff; text-decoration: none; border-radius: 0.5rem; font-weight: 500; }
+    a.cta:hover { background: #333; }
+    footer { position: fixed; bottom: 1.5rem; font-size: 0.75rem; color: #999; }
+  </style>
+</head>
+<body>
+  <p class="brand">Recupera · by RYVO</p>
+  <h1>Recupera más. Persigue menos.</h1>
+  <a class="cta" href="${ctaHref}">${ctaLabel}</a>
+  <footer>by RYVO</footer>
+</body>
+</html>`;
+  return new Response(html, { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
+}
+
 function cleanText(value, max = 200) {
   return String(value || '').trim().slice(0, max);
 }
@@ -4338,8 +4368,13 @@ export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
     try {
+      if (url.pathname === '/api/recupera/payments/webhook' && request.method === 'POST') {
+        await ensureSchema(env);
+        return recuperaHandlePaymentWebhook(request, env);
+      }
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, context);
       if (url.pathname.startsWith('/p/')) return handleRecuperaPublicPortal(request, env, url);
+      if (url.pathname === '/recupera' || url.pathname === '/recupera/') return serveRecuperaLanding(env);
       if (env.RYVO_SHELL_ENABLED === 'true' && (url.pathname === '/ryvo' || url.pathname.startsWith('/ryvo/'))) {
         return serveRyvoShell(url);
       }

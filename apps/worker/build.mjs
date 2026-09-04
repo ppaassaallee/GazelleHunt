@@ -32,6 +32,7 @@ const [
   recuperaPromises,
   recuperaCsv,
   recuperaRocio,
+  recuperaPayments,
   recuperaApi,
   recuperaPortalApi,
 ] = await Promise.all([
@@ -57,6 +58,7 @@ const [
   readFile(resolve(recuperaRoot, 'promises.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'csv.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'rocio.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'payments.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'api.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'portal-api.js'), 'utf8'),
 ]);
@@ -124,6 +126,7 @@ ${recuperaRecompute}
 ${recuperaPromises}
 ${recuperaCsv}
 ${recuperaRocio}
+${recuperaPayments}
 ${recuperaApi}
 ${recuperaPortalApi}
 ${server}

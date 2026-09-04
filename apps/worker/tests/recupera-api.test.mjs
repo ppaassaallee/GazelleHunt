@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, recomputeSource, promisesSource, csvSource, rocioSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
+const [stageSource, recomputeSource, promisesSource, csvSource, rocioSource, paymentsSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
   readFile(new URL('recompute.js', recuperaRoot), 'utf8'),
   readFile(new URL('promises.js', recuperaRoot), 'utf8'),
   readFile(new URL('csv.js', recuperaRoot), 'utf8'),
   readFile(new URL('rocio.js', recuperaRoot), 'utf8'),
+  readFile(new URL('payments.js', recuperaRoot), 'utf8'),
   readFile(new URL('api.js', recuperaRoot), 'utf8'),
   readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../build.mjs', import.meta.url), 'utf8'),
@@ -17,7 +19,7 @@ const [stageSource, recomputeSource, promisesSource, csvSource, rocioSource, api
   readFile(new URL('../../../packages/runtime/src/webhooks.js', import.meta.url), 'utf8'),
 ]);
 
-const serverSource = `${stageSource}\n${recomputeSource}\n${promisesSource}\n${csvSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
+const serverSource = `${stageSource}\n${recomputeSource}\n${promisesSource}\n${csvSource}\n${paymentsSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
 
 for (const route of [
   '/api/recupera/install',
@@ -37,6 +39,20 @@ for (const route of [
 assert.match(apiSource, /\/activate/);
 assert.match(apiSource, /mark-paid/);
 assert.match(apiSource, /portal-link/);
+assert.match(apiSource, /payment-link/);
+assert.match(apiSource, /recuperaCreatePaymentLinkRequest/);
+assert.match(paymentsSource, /createPaymentLinkStub/);
+assert.match(paymentsSource, /recuperaHandlePaymentWebhook/);
+assert.match(paymentsSource, /RECUPERA_PAYMENTS_ENABLED/);
+assert.match(paymentsSource, /RECUPERA_PAYMENTS_WEBHOOK_SECRET/);
+assert.match(paymentsSource, /X-Recupera-Payments-Secret/);
+assert.match(paymentsSource, /recupera_obligation_paid_via_webhook/);
+assert.match(serverSource, /\/api\/recupera\/payments\/webhook/);
+assert.match(serverSource, /recuperaHandlePaymentWebhook/);
+assert.match(serverSource, /serveRecuperaLanding/);
+assert.match(serverSource, /Recupera más\. Persigue menos\./);
+assert.match(serverSource, /\/recupera/);
+assert.match(buildSource, /recuperaPayments/);
 assert.match(apiSource, /obligation_portal_links/);
 assert.match(apiSource, /recupera_obligation_activated/);
 assert.match(apiSource, /RECUPERA_MARK_PAID_ENABLED/);
@@ -82,6 +98,7 @@ assert.match(buildSource, /recuperaRoot/);
 assert.match(buildSource, /recuperaStage/);
 assert.match(buildSource, /recuperaCsv/);
 assert.match(buildSource, /recuperaRocio/);
+assert.match(buildSource, /recuperaPayments/);
 assert.match(buildSource, /recuperaApi/);
 assert.match(buildSource, /recuperaPortalApi/);
 
@@ -151,6 +168,9 @@ const db = {
             }
             if (query.includes('FROM obligations WHERE id = ? AND company_id = ?')) {
               return dbState.obligations.find((row) => row.id === bindings[0] && row.company_id === bindings[1]) || null;
+            }
+            if (query === 'SELECT * FROM obligations WHERE id = ?') {
+              return dbState.obligations.find((row) => row.id === bindings[0]) || null;
             }
             if (query.includes('FROM obligation_journey_links ojl')) {
               const link = dbState.obligationLinks.find((row) => row.obligation_id === bindings[0]);
@@ -410,6 +430,17 @@ const db = {
                 created_at: bindings[bindings.length - 1],
               });
             }
+            if (query.startsWith('INSERT INTO obligation_portal_links')) {
+              if (!dbState.obligationPortalLinks) dbState.obligationPortalLinks = [];
+              dbState.obligationPortalLinks.push({
+                id: bindings[0],
+                company_id: bindings[1],
+                obligation_id: bindings[2],
+                token_hash: bindings[3],
+                expires_at: bindings[4],
+                created_at: bindings[5],
+              });
+            }
             if (query.startsWith('INSERT INTO promises')) {
               dbState.promises.push({
                 id: bindings[0],
@@ -549,6 +580,14 @@ async function processDueJourneyEvents() {
   return { processed: 0 };
 }
 
+async function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function randomToken() {
+  return 'portal-token-test';
+}
+
 const apiContext = {
   globalThis: null,
   crypto: webcrypto,
@@ -572,9 +611,11 @@ const apiContext = {
   normalizedJourneySteps,
   scheduledJourneyStepDate,
   processDueJourneyEvents,
+  sha256,
+  randomToken,
 };
 apiContext.globalThis = apiContext;
-vm.runInNewContext(`${stageSource}\n${csvSource}\n${rocioSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled, recuperaActivateObligation };`, apiContext);
+vm.runInNewContext(`${stageSource}\n${csvSource}\n${rocioSource}\n${paymentsSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled, recuperaActivateObligation, createPaymentLinkStub, recuperaHandlePaymentWebhook, recuperaPaymentsEnabled };`, apiContext);
 const api = apiContext.__recuperaApi;
 const adminUser = { id: 'admin-1', email: 'admin@example.com', role: 'admin', companyId: 'co-1', ryvoStaff: 0 };
 
@@ -805,5 +846,62 @@ assert.ok(Array.isArray(insightsBody.aging));
 assert.equal(insightsBody.aging.length, 7);
 assert.equal(typeof insightsBody.rocio.jobsToday, 'number');
 assert.equal(typeof insightsBody.rocio.needsHuman, 'number');
+
+const stubLink = api.createPaymentLinkStub({ obligationId: 'obl-1', amountCents: 1000, currency: 'GTQ', successUrl: 'https://example.com/p/tok' });
+assert.equal(stubLink.provider, 'stub');
+assert.equal(stubLink.url, 'https://example.com/p/tok');
+assert.equal(stubLink.externalId, 'stub_obl-1');
+
+const webhookObligationId = csvImportBody.imported[0].id;
+const paymentsDisabledWebhook = new Request('https://example.com/api/recupera/payments/webhook', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'X-Recupera-Payments-Secret': 'secret' },
+  body: JSON.stringify({ obligationId: webhookObligationId, amountCents: 120000, providerPaymentId: 'pay-1', status: 'completed' }),
+});
+const paymentsDisabledResponse = await api.recuperaHandlePaymentWebhook(paymentsDisabledWebhook, enabledEnv);
+assert.equal(paymentsDisabledResponse.status, 404);
+
+const paymentsEnv = {
+  ...enabledEnv,
+  RECUPERA_PAYMENTS_ENABLED: 'true',
+  RECUPERA_PAYMENTS_WEBHOOK_SECRET: 'test-secret',
+  APP_BASE_URL: 'https://example.com',
+};
+const badSecretWebhook = await api.recuperaHandlePaymentWebhook(paymentsDisabledWebhook, paymentsEnv);
+assert.equal(badSecretWebhook.status, 401);
+
+const webhookRequest = new Request('https://example.com/api/recupera/payments/webhook', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'X-Recupera-Payments-Secret': 'test-secret' },
+  body: JSON.stringify({ obligationId: webhookObligationId, amountCents: 120000, providerPaymentId: 'pay-webhook-1', status: 'completed' }),
+});
+const webhookResponse = await api.recuperaHandlePaymentWebhook(webhookRequest, paymentsEnv);
+assert.equal(webhookResponse.status, 200);
+const webhookBody = await webhookResponse.json();
+assert.equal(webhookBody.ok, true);
+assert.ok(webhookBody.paymentId);
+const paidObligation = dbState.obligations.find((row) => row.id === webhookObligationId);
+assert.equal(paidObligation.status, 'closed');
+assert.equal(paidObligation.balance_cents, 0);
+assert.ok(auditCalls.some((entry) => entry.type === 'recupera_obligation_paid_via_webhook'));
+
+dbState.obligations.push({
+  id: 'obl-open-2',
+  company_id: 'co-1',
+  payer_name: 'Test',
+  balance_cents: 50000,
+  amount_cents: 50000,
+  currency: 'GTQ',
+  due_date: '2026-09-01',
+  stage_key: 'DPD_1_7',
+  status: 'open',
+});
+const paymentLinkRequest = new Request('https://example.com/api/recupera/obligations/obl-open-2/payment-link', { method: 'POST' });
+const paymentLinkResponse = await api.handleRecuperaApi(paymentLinkRequest, paymentsEnv, new URL(paymentLinkRequest.url), adminUser);
+assert.equal(paymentLinkResponse.status, 200);
+const paymentLinkBody = await paymentLinkResponse.json();
+assert.equal(paymentLinkBody.provider, 'stub');
+assert.ok(paymentLinkBody.url);
+assert.ok(paymentLinkBody.portalUrl);
 
 console.log('recupera api tests passed');

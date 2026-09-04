@@ -120,6 +120,10 @@ API HTTP mínima detrás de feature flag; sin UI ni cablear Recupera en producci
 - [x] Test `playbooks/recupera/tests/recompute.test.mjs` en `pnpm test`
 - [x] UI Insights (`InsightsPage`) — hero pendiente + antigüedad + Rocío
 - [x] Home hero con `pendingCents` desde insights
+- [x] Landing estática `/recupera` — HTML mínimo en Worker (antes del SPA)
+- [x] `playbooks/recupera/payments.js` — stub PaymentProvider + webhook Recurrente placeholder
+- [x] `POST /api/recupera/obligations/:id/payment-link` — admin, devuelve link stub (reutiliza portal URL)
+- [x] `POST /api/recupera/payments/webhook` — público con header `X-Recupera-Payments-Secret` (`RECUPERA_PAYMENTS_ENABLED`)
 - [ ] Rocío LLM / voz
 
 ## §8.F — Shell React (scaffold)
