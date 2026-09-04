@@ -5,7 +5,7 @@ import '../src/legacy/assessment-engine.js';
 import '../src/legacy/ai-assessment.js';
 import '../src/legacy/pdf-report.js';
 
-const [appSource, indexSource, legacyServerSource, readmeSource, buildSource, auditSource, messagingSource] = await Promise.all([
+const [appSource, indexSource, legacyServerSource, readmeSource, buildSource, auditSource, messagingSource, journeysSource] = await Promise.all([
   readFile(new URL('../src/legacy/app.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/legacy/index.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'),
@@ -13,8 +13,9 @@ const [appSource, indexSource, legacyServerSource, readmeSource, buildSource, au
   readFile(new URL('../build.mjs', import.meta.url), 'utf8'),
   readFile(new URL('../../../packages/runtime/src/audit.js', import.meta.url), 'utf8'),
   readFile(new URL('../../../packages/runtime/src/messaging.js', import.meta.url), 'utf8'),
+  readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8'),
 ]);
-const serverSource = `${auditSource}\n${messagingSource}\n${legacyServerSource}`;
+const serverSource = `${auditSource}\n${messagingSource}\n${journeysSource}\n${legacyServerSource}`;
 
 const appElement = { innerHTML: '' };
 const fetchCalls = [];

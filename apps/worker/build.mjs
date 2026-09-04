@@ -20,6 +20,7 @@ const [
   hosting,
   runtimeAudit,
   runtimeMessaging,
+  runtimeJourneys,
 ] = await Promise.all([
   readFile(resolve(legacy, 'index.html'), 'utf8'),
   readFile(resolve(legacy, 'styles.css'), 'utf8'),
@@ -32,6 +33,7 @@ const [
   readFile(resolve(root, '.openai/hosting.json'), 'utf8'),
   readFile(resolve(runtimeRoot, 'audit.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'messaging.js'), 'utf8'),
+  readFile(resolve(runtimeRoot, 'journeys.js'), 'utf8'),
 ]);
 
 const ogPath = resolve(root, 'public/og.png');
@@ -60,6 +62,7 @@ ${engine}
 ${aiAssessment}
 ${runtimeAudit}
 ${runtimeMessaging}
+${runtimeJourneys}
 ${server}
 `;
 

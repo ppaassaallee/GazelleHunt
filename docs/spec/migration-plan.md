@@ -33,7 +33,8 @@ Partir `server-worker.js` en módulos de `packages/runtime` con los mismos nombr
 |---|---|
 | `audit` (`audit_events`) | extraído + test |
 | `messaging` (Brevo / Infobip / SMS / WhatsApp) | extraído + test |
-| journeys / templates / portal / ai | pendiente |
+| `journeys` (contact_journeys, enrollments, events) | extraído + test |
+| templates / portal / ai | pendiente |
 
 Patrón: script plano en `packages/runtime/src/*`, concatenado en `build.mjs` antes del legacy server (mismo mecanismo que engine/AI). Cero cambios de esquema. Sin deploy a producción de Gazelle sin OK explícito.
 
