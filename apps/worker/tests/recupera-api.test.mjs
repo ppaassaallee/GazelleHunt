@@ -4,8 +4,9 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, csvSource, rocioSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
+const [stageSource, recomputeSource, csvSource, rocioSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
+  readFile(new URL('recompute.js', recuperaRoot), 'utf8'),
   readFile(new URL('csv.js', recuperaRoot), 'utf8'),
   readFile(new URL('rocio.js', recuperaRoot), 'utf8'),
   readFile(new URL('api.js', recuperaRoot), 'utf8'),
@@ -15,7 +16,7 @@ const [stageSource, csvSource, rocioSource, apiSource, legacyServerSource, build
   readFile(new URL('../../../packages/runtime/src/webhooks.js', import.meta.url), 'utf8'),
 ]);
 
-const serverSource = `${stageSource}\n${csvSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
+const serverSource = `${stageSource}\n${recomputeSource}\n${csvSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
 
 for (const route of [
   '/api/recupera/install',
@@ -24,6 +25,7 @@ for (const route of [
   '/api/recupera/obligations/import',
   '/api/recupera/obligations/',
   '/api/recupera/exceptions',
+  '/api/recupera/insights',
   '/api/recupera/rocio/classify',
   '/inbound-message',
 ]) {
@@ -50,6 +52,12 @@ assert.match(apiSource, /rocioClassifyIntent/);
 assert.match(apiSource, /rocioProcessInbound/);
 assert.match(apiSource, /recuperaClassifyIntentRequest/);
 assert.match(apiSource, /recuperaInboundMessageRequest/);
+assert.match(apiSource, /recuperaGetInsights/);
+assert.match(apiSource, /pendingCents/);
+assert.match(apiSource, /recoveredCentsThisMonth/);
+assert.match(recomputeSource, /recuperaRecomputeStages/);
+assert.match(serverSource, /recuperaRecomputeStages\(env\)/);
+assert.match(buildSource, /recuperaRecompute/);
 assert.match(rocioSource, /rocioMaybeProcessInfobipInbound/);
 assert.match(rocioSource, /RECUPERA_ROCIO_INBOUND/);
 
@@ -184,6 +192,40 @@ const db = {
             if (query.includes('FROM disputes WHERE id = ? AND company_id = ?')) {
               return dbState.disputes.find((row) => row.id === bindings[0] && row.company_id === bindings[1]) || null;
             }
+            if (query.includes('COALESCE(SUM(balance_cents), 0) AS cents FROM obligations')) {
+              const cents = dbState.obligations
+                .filter((row) => row.company_id === bindings[0] && row.status === 'open')
+                .reduce((sum, row) => sum + (Number(row.balance_cents) || 0), 0);
+              return { cents };
+            }
+            if (query.includes('COALESCE(SUM(amount_cents), 0) AS cents FROM payments')) {
+              const monthStart = bindings[1];
+              const cents = dbState.payments
+                .filter((row) => row.company_id === bindings[0] && row.status === 'completed' && row.paid_at >= monthStart)
+                .reduce((sum, row) => sum + (Number(row.amount_cents) || 0), 0);
+              return { cents };
+            }
+            if (query.includes('COUNT(*) AS count FROM obligations WHERE company_id = ? AND status = \'open\'')) {
+              return { count: dbState.obligations.filter((row) => row.company_id === bindings[0] && row.status === 'open').length };
+            }
+            if (query.includes('COUNT(*) AS count FROM promises WHERE company_id = ? AND status = \'open\'')) {
+              return { count: dbState.promises.filter((row) => row.company_id === bindings[0] && row.status === 'open').length };
+            }
+            if (query.includes('COUNT(*) AS count FROM promises') && query.includes('status = \'broken\'')) {
+              const today = bindings[1];
+              return {
+                count: dbState.promises.filter((row) => row.company_id === bindings[0] && (row.status === 'broken' || (row.status === 'open' && row.promise_date < today))).length,
+              };
+            }
+            if (query.includes('COUNT(*) AS count FROM disputes WHERE company_id = ? AND status = \'open\'')) {
+              return { count: dbState.disputes.filter((row) => row.company_id === bindings[0] && row.status === 'open').length };
+            }
+            if (query.includes('COUNT(*) AS count FROM rocio_intent_jobs WHERE company_id = ? AND created_at >=')) {
+              return { count: dbState.rocioIntentJobs.filter((row) => row.company_id === bindings[0] && row.created_at >= bindings[1]).length };
+            }
+            if (query.includes('COUNT(*) AS count FROM rocio_intent_jobs WHERE company_id = ? AND status = \'needs_human\'')) {
+              return { count: dbState.rocioIntentJobs.filter((row) => row.company_id === bindings[0] && row.status === 'needs_human').length };
+            }
             return null;
           },
           async all() {
@@ -242,6 +284,19 @@ const db = {
               return {
                 results: dbState.obligations.filter((row) => row.company_id === bindings[0] && row.status === 'open' && ['DPD_60_PLUS', 'LEGAL'].includes(row.stage_key)),
               };
+            }
+            if (query.includes('GROUP BY stage_key') && query.includes('FROM obligations')) {
+              const companyId = bindings[0];
+              const allowedStages = bindings.slice(1);
+              const grouped = new Map();
+              for (const row of dbState.obligations) {
+                if (row.company_id !== companyId || row.status !== 'open' || !allowedStages.includes(row.stage_key)) continue;
+                const current = grouped.get(row.stage_key) || { stage_key: row.stage_key, cents: 0, count: 0 };
+                current.cents += Number(row.balance_cents) || 0;
+                current.count += 1;
+                grouped.set(row.stage_key, current);
+              }
+              return { results: [...grouped.values()] };
             }
             return { results: [] };
           },
@@ -733,5 +788,16 @@ assert.equal(inboundBody.applied, true);
 assert.equal(inboundBody.status, 'completed');
 assert.ok(dbState.payments.some((row) => row.obligation_id === csvImportBody.imported[0].id && row.status === 'pending_verification'));
 assert.equal(dbState.rocioIntentJobs.length, 1);
+
+const insightsRequest = new Request('https://example.com/api/recupera/insights', { method: 'GET' });
+const insightsResponse = await api.handleRecuperaApi(insightsRequest, markPaidEnv, new URL(insightsRequest.url), adminUser);
+assert.equal(insightsResponse.status, 200);
+const insightsBody = await insightsResponse.json();
+assert.equal(typeof insightsBody.pendingCents, 'number');
+assert.equal(typeof insightsBody.recoveredCentsThisMonth, 'number');
+assert.ok(Array.isArray(insightsBody.aging));
+assert.equal(insightsBody.aging.length, 7);
+assert.equal(typeof insightsBody.rocio.jobsToday, 'number');
+assert.equal(typeof insightsBody.rocio.needsHuman, 'number');
 
 console.log('recupera api tests passed');

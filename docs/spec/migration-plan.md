@@ -115,6 +115,11 @@ API HTTP mínima detrás de feature flag; sin UI ni cablear Recupera en producci
 - [x] Infobip webhook hook opcional (`RECUPERA_ROCIO_INBOUND=true`) para candidatos Recupera con `stop_on_reply=0`
 - [x] UI Recupera: simular respuesta (clasificar / aplicar)
 - [x] Test `playbooks/recupera/tests/rocio.test.mjs` en `pnpm test`
+- [x] `GET /api/recupera/insights` — analytics (pending, recovered, aging, Rocío jobs)
+- [x] `playbooks/recupera/recompute.js` — recomputo diario de etapas DPD (cron UTC 00:00)
+- [x] Test `playbooks/recupera/tests/recompute.test.mjs` en `pnpm test`
+- [x] UI Insights (`InsightsPage`) — hero pendiente + antigüedad + Rocío
+- [x] Home hero con `pendingCents` desde insights
 - [ ] Rocío LLM / voz
 
 ## §8.F — Shell React (scaffold)
@@ -126,7 +131,7 @@ Shell mínimo (rail desktop, tab bar móvil, tokens light/dark). Sin integració
 
 - [x] Scaffold `apps/web` (`pnpm dev:web`, `pnpm build:web`)
 - [x] Nav: Inicio, Playbooks, Trabajo, Insights (+ Ajustes solo desktop)
-- [x] Stubs: Home ("Buenos días" + métrica), Playbooks (Recupera / Sube / Monetiza)
+- [x] Stubs: Playbooks (Recupera / Sube / Monetiza); Home e Insights con datos Recupera
 - [x] UI Recupera: instalar + listar + agregar obligación (`/api/recupera/*`, proxy Vite → `:8787`)
 - [x] UI Recupera: activar seguimiento + marcar pagado (demo)
 - [x] Import CSV/paste + `autoActivate` en `POST /api/recupera/obligations/import` (`playbooks/recupera/csv.js`)
@@ -134,6 +139,7 @@ Shell mínimo (rail desktop, tab bar móvil, tokens light/dark). Sin integració
 - [x] `POST /api/recupera/exceptions/:type/:id/resolve` — confirmar pago, descartar promesa/reclamo
 - [x] UI Trabajo (`WorkPage`) — lista Pendientes + hero total; Home muestra total si fetch OK
 - [x] UI Recupera: simular respuesta Rocío (clasificar / aplicar)
+- [x] UI Insights (`InsightsPage`) — hero pendiente + antigüedad + Rocío; Home con `pendingCents`
 - [ ] Servir desde Worker / strangler sobre `app.js`
 - [ ] Auth unificada en UI (hoy: cookies Gazelle vía proxy)
 

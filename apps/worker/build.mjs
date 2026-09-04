@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,7 @@ const [
   runtimeAi,
   runtimeWebhooks,
   recuperaStage,
+  recuperaRecompute,
   recuperaCsv,
   recuperaRocio,
   recuperaApi,
@@ -51,6 +52,7 @@ const [
   readFile(resolve(runtimeRoot, 'ai.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'webhooks.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'stage.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'recompute.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'csv.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'rocio.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'api.js'), 'utf8'),
@@ -64,6 +66,31 @@ const candidateWelcomeBase64 = existsSync(candidateWelcomePath)
   ? (await readFile(candidateWelcomePath)).toString('base64')
   : '';
 
+async function loadRyvoShellAssets() {
+  const webDist = resolve(root, '../web/dist');
+  const indexPath = resolve(webDist, 'index.html');
+  if (!existsSync(indexPath)) {
+    console.log('RYVO shell: apps/web/dist not found; embed skipped (run pnpm build:web first).');
+    return {};
+  }
+
+  const assets = {};
+  const indexHtml = await readFile(indexPath, 'utf8');
+  assets['/ryvo/'] = indexHtml;
+  assets['/ryvo/index.html'] = indexHtml;
+
+  const assetsDir = resolve(webDist, 'assets');
+  if (existsSync(assetsDir)) {
+    for (const file of await readdir(assetsDir)) {
+      assets[`/ryvo/assets/${file}`] = await readFile(resolve(assetsDir, file), 'utf8');
+    }
+  }
+
+  return assets;
+}
+
+const ryvoShellAssets = await loadRyvoShellAssets();
+
 const workerSource = `
 import { connect as connectSocket } from 'cloudflare:sockets';
 const htmlAsset = ${JSON.stringify(html)};
@@ -75,6 +102,7 @@ const candidatePortalAsset = ${JSON.stringify(candidatePortal)};
 const appAsset = ${JSON.stringify(app)};
 const ogAsset = ${JSON.stringify(ogBase64)};
 const candidateWelcomeAsset = ${JSON.stringify(candidateWelcomeBase64)};
+const ryvoShellAssets = ${JSON.stringify(ryvoShellAssets)};
 function decodeAsset(base64) {
   const binary = atob(base64);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
@@ -90,6 +118,7 @@ ${runtimePortal}
 ${runtimeAi}
 ${runtimeWebhooks}
 ${recuperaStage}
+${recuperaRecompute}
 ${recuperaCsv}
 ${recuperaRocio}
 ${recuperaApi}

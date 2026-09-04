@@ -542,6 +542,84 @@ function recuperaMapExceptionItem(type, row) {
   };
 }
 
+const RECUPERA_AGING_STAGE_KEYS = ['PRE_DUE', 'DUE', 'DPD_1_7', 'DPD_8_15', 'DPD_16_30', 'DPD_31_60', 'DPD_60_PLUS'];
+
+async function recuperaGetInsights(request, env, user) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const now = new Date();
+  const today = recuperaTodayIsoDate(now);
+  const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+
+  const pendingRow = await env.DB.prepare(`
+    SELECT COALESCE(SUM(balance_cents), 0) AS cents FROM obligations WHERE company_id = ? AND status = 'open'
+  `).bind(companyId).first();
+
+  const recoveredRow = await env.DB.prepare(`
+    SELECT COALESCE(SUM(amount_cents), 0) AS cents FROM payments
+    WHERE company_id = ? AND status = 'completed' AND paid_at >= ?
+  `).bind(companyId, monthStart).first();
+
+  const openRow = await env.DB.prepare(`
+    SELECT COUNT(*) AS count FROM obligations WHERE company_id = ? AND status = 'open'
+  `).bind(companyId).first();
+
+  const activePromisesRow = await env.DB.prepare(`
+    SELECT COUNT(*) AS count FROM promises WHERE company_id = ? AND status = 'open'
+  `).bind(companyId).first();
+
+  const brokenPromisesRow = await env.DB.prepare(`
+    SELECT COUNT(*) AS count FROM promises
+    WHERE company_id = ? AND (status = 'broken' OR (status = 'open' AND promise_date < ?))
+  `).bind(companyId, today).first();
+
+  const disputesRow = await env.DB.prepare(`
+    SELECT COUNT(*) AS count FROM disputes WHERE company_id = ? AND status = 'open'
+  `).bind(companyId).first();
+
+  const agingRows = await env.DB.prepare(`
+    SELECT stage_key, COALESCE(SUM(balance_cents), 0) AS cents, COUNT(*) AS count
+    FROM obligations
+    WHERE company_id = ? AND status = 'open' AND stage_key IN (${RECUPERA_AGING_STAGE_KEYS.map(() => '?').join(', ')})
+    GROUP BY stage_key
+  `).bind(companyId, ...RECUPERA_AGING_STAGE_KEYS).all();
+  const agingMap = new Map();
+  for (const row of agingRows.results || []) {
+    agingMap.set(row.stage_key, { stageKey: row.stage_key, cents: Number(row.cents) || 0, count: Number(row.count) || 0 });
+  }
+  const aging = RECUPERA_AGING_STAGE_KEYS.map((stageKey) => agingMap.get(stageKey) || { stageKey, cents: 0, count: 0 });
+
+  let rocio = { jobsToday: 0, needsHuman: 0 };
+  if (await recuperaTableExists(env, 'rocio_intent_jobs')) {
+    try {
+      const jobsTodayRow = await env.DB.prepare(`
+        SELECT COUNT(*) AS count FROM rocio_intent_jobs WHERE company_id = ? AND created_at >= ?
+      `).bind(companyId, today).first();
+      const needsHumanRow = await env.DB.prepare(`
+        SELECT COUNT(*) AS count FROM rocio_intent_jobs WHERE company_id = ? AND status = 'needs_human'
+      `).bind(companyId).first();
+      rocio = {
+        jobsToday: Number(jobsTodayRow?.count) || 0,
+        needsHuman: Number(needsHumanRow?.count) || 0,
+      };
+    } catch {
+      // Migration not applied yet — skip silently.
+    }
+  }
+
+  return json({
+    pendingCents: Number(pendingRow?.cents) || 0,
+    recoveredCentsThisMonth: Number(recoveredRow?.cents) || 0,
+    openObligations: Number(openRow?.count) || 0,
+    activePromises: Number(activePromisesRow?.count) || 0,
+    brokenPromises: Number(brokenPromisesRow?.count) || 0,
+    disputesOpen: Number(disputesRow?.count) || 0,
+    aging,
+    rocio,
+  });
+}
+
 async function recuperaListExceptions(request, env, user) {
   if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
   const companyId = recuperaTargetCompanyId(user, new URL(request.url));
@@ -746,6 +824,7 @@ async function handleRecuperaApi(request, env, url, user) {
   if (portalLinkMatch && request.method === 'POST') return recuperaCreatePortalLink(request, env, user, portalLinkMatch[1]);
   const inboundMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/inbound-message$/);
   if (inboundMatch && request.method === 'POST') return recuperaInboundMessageRequest(request, env, user, inboundMatch[1]);
+  if (url.pathname === '/api/recupera/insights' && request.method === 'GET') return recuperaGetInsights(request, env, user);
   if (url.pathname === '/api/recupera/exceptions' && request.method === 'GET') return recuperaListExceptions(request, env, user);
   const resolveMatch = url.pathname.match(/^\/api\/recupera\/exceptions\/([^/]+)\/([^/]+)\/resolve$/);
   if (resolveMatch && request.method === 'POST') return recuperaResolveException(request, env, user, resolveMatch[1], resolveMatch[2]);

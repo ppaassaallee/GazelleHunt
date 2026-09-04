@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
 
 export default defineConfig({
+  base: "/ryvo/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

@@ -175,6 +175,21 @@ export type RecuperaExceptionsResult = {
   items: RecuperaExceptionItem[];
 };
 
+export type RecuperaInsights = {
+  pendingCents: number;
+  recoveredCentsThisMonth: number;
+  openObligations: number;
+  activePromises: number;
+  brokenPromises: number;
+  disputesOpen: number;
+  aging: Array<{ stageKey: string; cents: number; count: number }>;
+  rocio: { jobsToday: number; needsHuman: number };
+};
+
+export function getInsights() {
+  return apiFetch<RecuperaInsights>("/api/recupera/insights");
+}
+
 export function listExceptions() {
   return apiFetch<RecuperaExceptionsResult>("/api/recupera/exceptions");
 }

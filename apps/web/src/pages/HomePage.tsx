@@ -1,17 +1,36 @@
 import { useEffect, useState } from "react";
-import { listExceptions } from "@/lib/recupera";
+import { getInsights } from "@/lib/recupera";
+
+function formatMoney(cents: number) {
+  try {
+    return new Intl.NumberFormat("es-GT", {
+      style: "currency",
+      currency: "GTQ",
+      maximumFractionDigits: 0,
+    }).format(cents / 100);
+  } catch {
+    return `Q${(cents / 100).toFixed(0)}`;
+  }
+}
 
 export function HomePage() {
-  const [pendientes, setPendientes] = useState<number | null>(null);
+  const [pendingCents, setPendingCents] = useState<number | null>(null);
+  const [recoveredCents, setRecoveredCents] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void listExceptions()
+    void getInsights()
       .then((data) => {
-        if (!cancelled) setPendientes(data.summary?.total ?? data.items?.length ?? 0);
+        if (!cancelled) {
+          setPendingCents(data.pendingCents);
+          setRecoveredCents(data.recoveredCentsThisMonth);
+        }
       })
       .catch(() => {
-        if (!cancelled) setPendientes(null);
+        if (!cancelled) {
+          setPendingCents(null);
+          setRecoveredCents(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -31,16 +50,18 @@ export function HomePage() {
         className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8"
         aria-label="Métrica principal"
       >
-        <p className="text-sm text-[var(--text-secondary)]">Pendientes</p>
+        <p className="text-sm text-[var(--text-secondary)]">Pendiente</p>
         <p className="mt-2 text-4xl font-semibold tabular-nums tracking-tight text-[var(--text-primary)]">
-          {pendientes === null ? "—" : pendientes}
+          {pendingCents === null ? "—" : formatMoney(pendingCents)}
         </p>
         <p className="mt-2 text-xs text-[var(--text-secondary)]">
-          {pendientes === null
+          {pendingCents === null
             ? "Sin datos todavía"
-            : pendientes === 0
+            : pendingCents === 0
               ? "Todo al día"
-              : "Casos que necesitan atención"}
+              : recoveredCents !== null && recoveredCents > 0
+                ? `${formatMoney(recoveredCents)} recuperado este mes`
+                : "Saldo por cobrar"}
         </p>
       </section>
     </div>

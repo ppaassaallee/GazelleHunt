@@ -762,6 +762,35 @@ function assetHeaders(contentType, cacheControl = 'no-cache', html = false) {
   return headers;
 }
 
+function ryvoShellContentType(path) {
+  if (path.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (path.endsWith('.js')) return 'text/javascript; charset=utf-8';
+  return 'text/html; charset=utf-8';
+}
+
+function serveRyvoShell(url) {
+  let path = url.pathname;
+  if (path === '/ryvo') path = '/ryvo/';
+  const asset = ryvoShellAssets[path];
+  if (asset) {
+    const isHtml = path === '/ryvo/' || path.endsWith('.html');
+    return new Response(asset, {
+      headers: assetHeaders(
+        ryvoShellContentType(path),
+        isHtml ? 'no-cache' : 'public, max-age=31536000, immutable',
+        isHtml,
+      ),
+    });
+  }
+  if (path.startsWith('/ryvo/') && !path.slice('/ryvo/'.length).includes('.')) {
+    const index = ryvoShellAssets['/ryvo/index.html'] || ryvoShellAssets['/ryvo/'];
+    if (index) {
+      return new Response(index, { headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true) });
+    }
+  }
+  return new Response('Not found', { status: 404 });
+}
+
 function cleanText(value, max = 200) {
   return String(value || '').trim().slice(0, max);
 }
@@ -4259,6 +4288,9 @@ export default {
     try {
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, context);
       if (url.pathname.startsWith('/p/')) return handleRecuperaPublicPortal(request, env, url);
+      if (env.RYVO_SHELL_ENABLED === 'true' && (url.pathname === '/ryvo' || url.pathname.startsWith('/ryvo/'))) {
+        return serveRyvoShell(url);
+      }
       if (url.pathname === '/styles.css') return new Response(stylesAsset, { headers: assetHeaders('text/css; charset=utf-8') });
       if (url.pathname === '/assessment-engine.js') return new Response(engineAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
       if (url.pathname === '/ai-assessment.js') return new Response(aiAssessmentAsset, { headers: assetHeaders('text/javascript; charset=utf-8') });
@@ -4277,7 +4309,9 @@ export default {
   },
   async scheduled(controller, env, context) {
     const work = [reconcileStaleDeliveryStates(env), recoverAsyncWork(env), processDueJourneyEvents(env)];
-    if (new Date(controller.scheduledTime).getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
+    const scheduledAt = new Date(controller.scheduledTime);
+    if (scheduledAt.getUTCMinutes() % 5 === 0) work.push(reconcilePendingEmailDelivery(env));
+    if (scheduledAt.getUTCHours() === 0 && scheduledAt.getUTCMinutes() === 0) work.push(recuperaRecomputeStages(env));
     context.waitUntil(Promise.all(work));
   },
 };

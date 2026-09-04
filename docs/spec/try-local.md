@@ -27,6 +27,8 @@ Abre la URL que imprime wrangler (suele ser `http://127.0.0.1:8787`).
 
 ## 2. Shell React (UI RYVO)
 
+### Opción A — Vite dev (recomendado para iterar UI)
+
 En otra terminal:
 
 ```bash
@@ -34,7 +36,27 @@ cd /Users/alejandropascual/Ryvo
 pnpm dev:web
 ```
 
-Abre `http://127.0.0.1:5173` (Vite). El proxy manda `/api` → `:8787`.
+Abre `http://127.0.0.1:5173/ryvo/` (Vite sirve con `base: /ryvo/`). El proxy manda `/api` → `:8787`.
+
+### Opción B — Shell embebido en el Worker
+
+Para probar el build de producción sin Vite:
+
+```bash
+cd /Users/alejandropascual/Ryvo
+pnpm build:web
+pnpm build
+```
+
+Añade a `apps/worker/.dev.vars`:
+
+```text
+RYVO_SHELL_ENABLED=true
+```
+
+Arranca el worker (`wrangler dev --local --port 8787`) y abre `http://127.0.0.1:8787/ryvo/`.
+
+Gazelle sigue en `/` sin cambios. Con `RYVO_SHELL_ENABLED` ausente o `false`, `/ryvo/*` no se sirve desde el shell React.
 
 Flujo:
 1. Playbooks → **Recupera**
