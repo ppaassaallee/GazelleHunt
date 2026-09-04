@@ -8,6 +8,8 @@ const source = (
   + '\n'
   + (await readFile(new URL('../../../packages/runtime/src/messaging.js', import.meta.url), 'utf8'))
   + '\n'
+  + (await readFile(new URL('../../../packages/runtime/src/contactability.js', import.meta.url), 'utf8'))
+  + '\n'
   + (await readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8'))
   + '\n'
   + (await readFile(new URL('../../../packages/runtime/src/templates.js', import.meta.url), 'utf8'))

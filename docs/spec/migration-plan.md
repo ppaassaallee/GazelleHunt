@@ -39,11 +39,28 @@ Partir `server-worker.js` en módulos de `packages/runtime` con los mismos nombr
 | `ai` (OpenAI / Gemini provider layer) | extraído + test |
 | `webhooks` (Brevo / Infobip inbound) | extraído + test |
 
-Patrón: script plano en `packages/runtime/src/*`, concatenado en `build.mjs` antes del legacy server (orden: audit → messaging → journeys → templates → portal → ai → webhooks → server). Cero cambios de esquema. Sin deploy a producción de Gazelle sin OK explícito.
+Patrón: script plano en `packages/runtime/src/*`, concatenado en `build.mjs` antes del legacy server (orden: audit → messaging → contactability → journeys → templates → portal → ai → webhooks → server). Cero cambios de esquema. Sin deploy a producción de Gazelle sin OK explícito.
 
 ## §8.C — Drizzle + gaps del motor
 
 Retry, contactabilidad, batch size, `ryvo_staff`.
+
+**7.1 Journey event retry**
+
+- [x] `contact_journey_events.next_retry_at` + retry index (`0016`)
+- [x] `processDueJourneyEvent` requeues with backoff 5m / 30m / 2h (max 3 attempts)
+- [x] `processDueJourneyEvents` respects `next_retry_at` in due query
+
+**7.2 Contactability**
+
+- [x] Candidate columns: `do_not_contact`, `opt_out_channels_json`, `quiet_hours_*`, `timezone`
+- [x] `packages/runtime/src/contactability.js` (`canContact`)
+- [x] Wired before send in `processDueJourneyEvent` (skip / requeue)
+
+**7.3 Batch size**
+
+- [x] `JOURNEY_BATCH_SIZE` env (default 25, max 100) in `processDueJourneyEvents`
+- [ ] Cloudflare Queues for journey dispatch (later)
 
 ## §8.D — Generalizar
 

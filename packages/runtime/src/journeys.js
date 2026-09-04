@@ -2,6 +2,20 @@
  * RYVO runtime — contact journeys (enrollment, events, API webhooks).
  * Move-only extraction from server-worker.js. Do not improve.
  */
+const JOURNEY_MAX_ATTEMPTS = 3;
+
+function journeyRetryAt(attemptNumber) {
+  const delayMs = attemptNumber <= 1 ? 5 * 60 * 1000 : attemptNumber === 2 ? 30 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  return new Date(Date.now() + delayMs).toISOString();
+}
+
+function isRetryableJourneyError(error) {
+  const code = cleanText(error?.message, 120);
+  const permanent = ['whatsapp_template_not_approved', 'journey_api_url_invalid', 'journey_api_headers_invalid', 'invalid_email', 'email_not_configured', 'assessment_completed'];
+  if (permanent.includes(code)) return false;
+  return isRetryableProviderError(error);
+}
+
 function normalizedJourneySteps(inputSteps) {
   const fallback = [
     { delayHours: 0, businessDayOffset: 0, channel: 'whatsapp' },
@@ -318,6 +332,31 @@ async function processDueJourneyEvent(env, row, origin) {
     ]);
     return;
   }
+  const defaultTimezone = cleanText(env.DEFAULT_CANDIDATE_TIMEZONE, 80) || 'America/Guatemala';
+  const contactSubject = {
+    do_not_contact: row.do_not_contact,
+    opt_out_channels_json: row.opt_out_channels_json,
+    quiet_hours_start: row.quiet_hours_start,
+    quiet_hours_end: row.quiet_hours_end,
+    timezone: row.timezone,
+  };
+  const contactCheck = canContact(contactSubject, row.channel, new Date(), {
+    contactsThisWeek: Number(row.contacts_this_week || 0),
+    defaultTimezone,
+  });
+  if (!contactCheck.ok) {
+    const blockedAt = new Date().toISOString();
+    if (contactCheck.reason === 'do_not_contact' || contactCheck.reason === 'opt_out') {
+      await env.DB.prepare(`
+        UPDATE contact_journey_events SET status = 'skipped', error_code = ?, attempt_count = CASE WHEN attempt_count > 0 THEN attempt_count - 1 ELSE 0 END, updated_at = ? WHERE id = ?
+      `).bind(contactCheck.reason, blockedAt, row.event_id).run();
+      return;
+    }
+    await env.DB.prepare(`
+      UPDATE contact_journey_events SET status = 'queued', error_code = ?, next_retry_at = ?, attempt_count = CASE WHEN attempt_count > 0 THEN attempt_count - 1 ELSE 0 END, updated_at = ? WHERE id = ?
+    `).bind(contactCheck.reason, contactCheck.nextRetryAt || nextQuietHoursStart(new Date(), contactSubject, defaultTimezone), blockedAt, row.event_id).run();
+    return;
+  }
   try {
     if (row.channel === 'api') {
       const sent = await sendJourneyApiEvent(row, candidate, test, step, origin);
@@ -333,9 +372,13 @@ async function processDueJourneyEvent(env, row, origin) {
       UPDATE contact_journey_events SET status = 'accepted', invitation_id = ?, provider_message_id = ?, sent_at = ?, error_code = NULL, updated_at = ? WHERE id = ?
     `).bind(sent.invitationId, sent.providerMessageId, claimedAt, claimedAt, row.event_id).run();
   } catch (error) {
+    const attemptNumber = Number(row.attempt_count || 0) + 1;
+    const retry = isRetryableJourneyError(error) && attemptNumber < JOURNEY_MAX_ATTEMPTS;
+    const errorCode = cleanText(error.message, 120) || 'delivery_failed';
+    const failedAt = new Date().toISOString();
     await env.DB.prepare(`
-      UPDATE contact_journey_events SET status = 'failed', invitation_id = ?, error_code = ?, updated_at = ? WHERE id = ?
-    `).bind(error.invitationId || null, cleanText(error.message, 120) || 'delivery_failed', new Date().toISOString(), row.event_id).run();
+      UPDATE contact_journey_events SET status = ?, invitation_id = ?, error_code = ?, next_retry_at = ?, updated_at = ? WHERE id = ?
+    `).bind(retry ? 'queued' : 'failed', error.invitationId || null, errorCode, retry ? journeyRetryAt(attemptNumber) : null, failedAt, row.event_id).run();
   }
 }
 
@@ -343,11 +386,15 @@ async function processDueJourneyEvents(env) {
   await ensureSchema(env);
   const origin = cleanText(env.APP_BASE_URL, 500).replace(/\/$/, '');
   const now = new Date().toISOString();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const batchSize = Math.min(100, Math.max(1, Number(env.JOURNEY_BATCH_SIZE) || 25));
   const rows = await env.DB.prepare(`
-    SELECT ev.id AS event_id, ev.enrollment_id, ev.channel, ev.scheduled_at, e.journey_id,
+    SELECT ev.id AS event_id, ev.enrollment_id, ev.channel, ev.scheduled_at, ev.attempt_count, e.journey_id,
       j.list_id, j.locale, j.company_id, COALESCE(co.candidate_brand_name, co.name) AS candidate_brand_name,
       s.brevo_template_id, s.subject_en, s.subject_es, s.message_en, s.message_es, s.api_url, s.api_method, s.api_headers_json,
       c.id AS candidate_id, c.owner_user_id, c.email, c.name, c.phone, c.role, c.site,
+      c.do_not_contact, c.opt_out_channels_json, c.quiet_hours_start, c.quiet_hours_end, c.timezone,
+      (SELECT COUNT(*) FROM contact_journey_events ev2 WHERE ev2.candidate_id = c.id AND ev2.channel = ev.channel AND ev2.status = 'accepted' AND ev2.sent_at >= ?) AS contacts_this_week,
       t.id AS test_id, t.slug AS test_slug, t.name_en AS test_name_en, t.name_es AS test_name_es, t.engine_key, t.status AS test_status,
       u.id AS user_id, u.email AS user_email, u.name AS user_name, u.role AS user_role, u.company_id AS user_company_id
     FROM contact_journey_events ev
@@ -358,9 +405,9 @@ async function processDueJourneyEvents(env) {
     JOIN companies co ON co.id = j.company_id
     JOIN assessment_tests t ON t.id = j.test_id
     JOIN users u ON u.id = j.created_by_user_id
-    WHERE ev.status = 'queued' AND ev.scheduled_at <= ? AND e.status = 'active' AND j.status = 'active'
-    ORDER BY ev.scheduled_at LIMIT 25
-  `).bind(now).all();
+    WHERE ev.status = 'queued' AND ev.scheduled_at <= ? AND (ev.next_retry_at IS NULL OR ev.next_retry_at <= ?) AND e.status = 'active' AND j.status = 'active'
+    ORDER BY ev.scheduled_at LIMIT ?
+  `).bind(weekAgo, now, now, batchSize).all();
   for (const row of rows.results || []) await processDueJourneyEvent(env, row, origin);
   return { processed: (rows.results || []).length };
 }

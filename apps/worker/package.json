@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs",
     "deploy:cloudflare": "node build.mjs && wrangler deploy",
-    "test": "node tests/engine.test.mjs && node tests/ai-report.test.mjs && node tests/ai-provider.test.mjs && node tests/workflows.test.mjs && node tests/platform-model.test.mjs && node tests/auth-security.test.mjs && node tests/brevo-integration.test.mjs && node tests/candidate-portal.test.mjs && node tests/runtime-audit.test.mjs && node tests/runtime-messaging.test.mjs && node tests/runtime-journeys.test.mjs && node tests/runtime-templates.test.mjs && node tests/runtime-portal.test.mjs && node tests/runtime-ai.test.mjs && node tests/runtime-webhooks.test.mjs"
+    "test": "node tests/engine.test.mjs && node tests/ai-report.test.mjs && node tests/ai-provider.test.mjs && node tests/workflows.test.mjs && node tests/platform-model.test.mjs && node tests/auth-security.test.mjs && node tests/brevo-integration.test.mjs && node tests/candidate-portal.test.mjs && node tests/runtime-audit.test.mjs && node tests/runtime-messaging.test.mjs && node tests/runtime-contactability.test.mjs && node tests/runtime-journeys.test.mjs && node tests/runtime-templates.test.mjs && node tests/runtime-portal.test.mjs && node tests/runtime-ai.test.mjs && node tests/runtime-webhooks.test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.9",

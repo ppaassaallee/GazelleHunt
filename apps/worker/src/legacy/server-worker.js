@@ -606,6 +606,12 @@ const runtimeColumnMigrations = [
   ['contact_journey_steps', 'api_url', `ALTER TABLE contact_journey_steps ADD COLUMN api_url TEXT`],
   ['contact_journey_steps', 'api_method', `ALTER TABLE contact_journey_steps ADD COLUMN api_method TEXT`],
   ['contact_journey_steps', 'api_headers_json', `ALTER TABLE contact_journey_steps ADD COLUMN api_headers_json TEXT`],
+  ['contact_journey_events', 'next_retry_at', `ALTER TABLE contact_journey_events ADD COLUMN next_retry_at TEXT`],
+  ['candidates', 'do_not_contact', `ALTER TABLE candidates ADD COLUMN do_not_contact INTEGER NOT NULL DEFAULT 0`],
+  ['candidates', 'opt_out_channels_json', `ALTER TABLE candidates ADD COLUMN opt_out_channels_json TEXT`],
+  ['candidates', 'quiet_hours_start', `ALTER TABLE candidates ADD COLUMN quiet_hours_start INTEGER`],
+  ['candidates', 'quiet_hours_end', `ALTER TABLE candidates ADD COLUMN quiet_hours_end INTEGER`],
+  ['candidates', 'timezone', `ALTER TABLE candidates ADD COLUMN timezone TEXT`],
 ];
 
 const postMigrationStatements = [
@@ -618,6 +624,7 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS ai_analyses_retry_idx ON ai_analyses(status, next_retry_at, updated_at)`,
   `CREATE INDEX IF NOT EXISTS contact_journeys_scope_idx ON contact_journeys(company_id, list_id, status, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS contact_journey_events_due_idx ON contact_journey_events(status, scheduled_at, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS contact_journey_events_retry_idx ON contact_journey_events(status, next_retry_at, scheduled_at)`,
   `CREATE INDEX IF NOT EXISTS contact_journey_enrollments_status_idx ON contact_journey_enrollments(journey_id, status)`,
   `CREATE INDEX IF NOT EXISTS message_templates_scope_idx ON message_templates(company_id, channel, status, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS assessment_outcomes_scope_idx ON assessment_outcomes(company_id, test_id, outcome_date DESC)`,

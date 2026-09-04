@@ -20,6 +20,7 @@ const [
   hosting,
   runtimeAudit,
   runtimeMessaging,
+  runtimeContactability,
   runtimeJourneys,
   runtimeTemplates,
   runtimePortal,
@@ -37,6 +38,7 @@ const [
   readFile(resolve(root, '.openai/hosting.json'), 'utf8'),
   readFile(resolve(runtimeRoot, 'audit.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'messaging.js'), 'utf8'),
+  readFile(resolve(runtimeRoot, 'contactability.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'journeys.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'templates.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'portal.js'), 'utf8'),
@@ -70,6 +72,7 @@ ${engine}
 ${aiAssessment}
 ${runtimeAudit}
 ${runtimeMessaging}
+${runtimeContactability}
 ${runtimeJourneys}
 ${runtimeTemplates}
 ${runtimePortal}

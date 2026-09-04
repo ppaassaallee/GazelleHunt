@@ -7,9 +7,29 @@ const helpers = `
 function cleanText(value, max) {
   return String(value || '').slice(0, max).trim();
 }
+function isRetryableProviderError(error) {
+  const status = Number(error?.providerStatus || 0);
+  const code = cleanText(error?.message, 120);
+  if (['provider_timeout', 'brevo_smtp_timeout', 'brevo_smtp_disconnected', 'brevo_missing_message_id'].includes(code)) return true;
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500 || (!status && !['invalid_email', 'email_not_configured', 'attempt_limit_reached'].includes(code));
+}
+function contactabilityConfig() { return { sms: { configured: true }, whatsapp: { configured: true } }; }
+function messageTemplateByReference() { return null; }
+function templateInvitationMessage() { return ''; }
+async function sendInvitationForCandidate() { return { invitationId: 'inv', providerMessageId: 'msg' }; }
+async function audit() {}
+function json() { return new Response(); }
+function listScope() { return { sql: '1=1', bindings: [] }; }
+function candidateScope() { return { sql: '1=1', bindings: [] }; }
+async function executableTest() { return null; }
+async function visibleList() { return null; }
+async function ensureSchema() {}
 `;
 
-const source = helpers + '\n' + await readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8');
+const source = helpers + '\n'
+  + (await readFile(new URL('../../../packages/runtime/src/contactability.js', import.meta.url), 'utf8'))
+  + '\n'
+  + (await readFile(new URL('../../../packages/runtime/src/journeys.js', import.meta.url), 'utf8'));
 
 const context = {
   globalThis: null,
@@ -22,6 +42,8 @@ const context = {
   Array,
   Object,
   URL,
+  Intl,
+  Response,
 };
 context.globalThis = context;
 vm.runInNewContext(`${source}\n;globalThis.__journeysTest = {
@@ -29,6 +51,8 @@ vm.runInNewContext(`${source}\n;globalThis.__journeysTest = {
   validateJourneyApiUrl,
   parseJourneyApiHeaders,
   scheduledJourneyStepDate,
+  journeyRetryAt,
+  isRetryableJourneyError,
   listContactJourneys,
   createContactJourney,
   enrollContactJourney,
@@ -40,6 +64,7 @@ vm.runInNewContext(`${source}\n;globalThis.__journeysTest = {
 const journeys = context.__journeysTest;
 assert.equal(typeof journeys.normalizedJourneySteps, 'function');
 assert.equal(typeof journeys.processDueJourneyEvents, 'function');
+assert.equal(typeof journeys.journeyRetryAt, 'function');
 
 const steps = journeys.normalizedJourneySteps([{ channel: 'email', delayHours: 2 }]);
 assert.equal(steps.length, 1);
@@ -62,5 +87,16 @@ assert.equal(journeys.parseJourneyApiHeaders('not-json'), null);
 const start = new Date('2026-01-05T10:00:00.000Z');
 const scheduled = journeys.scheduledJourneyStepDate(start, { delay_minutes: 30, business_day_offset: null });
 assert.equal(scheduled.toISOString(), '2026-01-05T10:30:00.000Z');
+
+const retry1 = Date.parse(journeys.journeyRetryAt(1));
+const retry2 = Date.parse(journeys.journeyRetryAt(2));
+const retry3 = Date.parse(journeys.journeyRetryAt(3));
+assert.ok(retry1 - Date.now() >= 4.9 * 60 * 1000 && retry1 - Date.now() <= 5.1 * 60 * 1000);
+assert.ok(retry2 - Date.now() >= 29 * 60 * 1000 && retry2 - Date.now() <= 31 * 60 * 1000);
+assert.ok(retry3 - Date.now() >= 119 * 60 * 1000 && retry3 - Date.now() <= 121 * 60 * 1000);
+
+assert.equal(journeys.isRetryableJourneyError({ message: 'provider_timeout' }), true);
+assert.equal(journeys.isRetryableJourneyError({ message: 'whatsapp_template_not_approved' }), false);
+assert.equal(journeys.isRetryableJourneyError({ message: 'invalid_email', providerStatus: 422 }), false);
 
 console.log('Runtime journeys module tests passed.');
