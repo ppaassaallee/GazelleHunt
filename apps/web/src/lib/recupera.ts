@@ -109,3 +109,83 @@ export function createObligationPortalLink(obligationId: string) {
     { method: "POST", body: "{}" },
   );
 }
+
+export type RocioClassification = {
+  intent: string;
+  promiseDate: string | null;
+  confidence: number;
+  needsHuman: boolean;
+  suggestedAction: string | null;
+};
+
+export function classifyRocioIntent(text: string, obligationId?: string) {
+  return apiFetch<{ classification: RocioClassification; obligationId: string | null }>(
+    "/api/recupera/rocio/classify",
+    {
+      method: "POST",
+      body: JSON.stringify({ text, obligationId }),
+    },
+  );
+}
+
+export type InboundMessageResult = {
+  jobId: string;
+  status: string;
+  classification: RocioClassification;
+  applied: boolean;
+  obligation: RecuperaObligation;
+};
+
+export function simulateInboundMessage(obligationId: string, text: string) {
+  return apiFetch<InboundMessageResult>(
+    `/api/recupera/obligations/${encodeURIComponent(obligationId)}/inbound-message`,
+    {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    },
+  );
+}
+
+export type RecuperaExceptionType =
+  | "broken_promise"
+  | "dispute"
+  | "pending_payment"
+  | "needs_human"
+  | "aging";
+
+export type RecuperaExceptionItem = {
+  id: string;
+  type: RecuperaExceptionType;
+  obligationId: string;
+  title: string;
+  subtitle: string;
+  amountCents: number;
+  currency: string;
+  createdAt: string;
+};
+
+export type RecuperaExceptionsResult = {
+  summary: {
+    brokenPromises: number;
+    disputes: number;
+    pendingPayments: number;
+    needsHuman: number;
+    total: number;
+  };
+  items: RecuperaExceptionItem[];
+};
+
+export function listExceptions() {
+  return apiFetch<RecuperaExceptionsResult>("/api/recupera/exceptions");
+}
+
+export function resolveException(
+  type: RecuperaExceptionType,
+  id: string,
+  resolution: "dismiss" | "confirm_paid" | "break_promise",
+) {
+  return apiFetch<{ ok: true; obligationId: string }>(
+    `/api/recupera/exceptions/${encodeURIComponent(type)}/${encodeURIComponent(id)}/resolve`,
+    { method: "POST", body: JSON.stringify({ resolution }) },
+  );
+}

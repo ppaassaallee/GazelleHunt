@@ -4,9 +4,10 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, csvSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
+const [stageSource, csvSource, rocioSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
   readFile(new URL('csv.js', recuperaRoot), 'utf8'),
+  readFile(new URL('rocio.js', recuperaRoot), 'utf8'),
   readFile(new URL('api.js', recuperaRoot), 'utf8'),
   readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'),
   readFile(new URL('../build.mjs', import.meta.url), 'utf8'),
@@ -22,6 +23,9 @@ for (const route of [
   '/api/recupera/obligations',
   '/api/recupera/obligations/import',
   '/api/recupera/obligations/',
+  '/api/recupera/exceptions',
+  '/api/recupera/rocio/classify',
+  '/inbound-message',
 ]) {
   assert.match(apiSource, new RegExp(route.replaceAll('/', '\\/')));
   assert.match(serverSource, /handleRecuperaApi/);
@@ -35,6 +39,19 @@ assert.match(apiSource, /recupera_obligation_activated/);
 assert.match(apiSource, /RECUPERA_MARK_PAID_ENABLED/);
 assert.match(apiSource, /test_recupera_obligation/);
 assert.match(apiSource, /payment_received/);
+assert.match(apiSource, /\/api\/recupera\/exceptions/);
+assert.match(apiSource, /recuperaListExceptions/);
+assert.match(apiSource, /recuperaResolveException/);
+assert.match(apiSource, /pending_verification/);
+assert.match(apiSource, /needs_human/);
+assert.match(apiSource, /rocio_intent_jobs/);
+assert.match(apiSource, /sqlite_master/);
+assert.match(apiSource, /rocioClassifyIntent/);
+assert.match(apiSource, /rocioProcessInbound/);
+assert.match(apiSource, /recuperaClassifyIntentRequest/);
+assert.match(apiSource, /recuperaInboundMessageRequest/);
+assert.match(rocioSource, /rocioMaybeProcessInfobipInbound/);
+assert.match(rocioSource, /RECUPERA_ROCIO_INBOUND/);
 
 assert.match(apiSource, /playbook_disabled/);
 assert.match(apiSource, /RECUPERA_ENABLED === 'true'/);
@@ -50,6 +67,7 @@ assert.match(apiSource, /RECUPERA_IMPORT_MAX_ROWS = 500/);
 assert.match(buildSource, /recuperaRoot/);
 assert.match(buildSource, /recuperaStage/);
 assert.match(buildSource, /recuperaCsv/);
+assert.match(buildSource, /recuperaRocio/);
 assert.match(buildSource, /recuperaApi/);
 assert.match(buildSource, /recuperaPortalApi/);
 
@@ -94,6 +112,9 @@ const dbState = {
   journeyEvents: [],
   obligationLinks: [],
   payments: [],
+  promises: [],
+  disputes: [],
+  rocioIntentJobs: [],
 };
 const db = {
   prepare(sql) {
@@ -147,6 +168,22 @@ const db = {
             if (query.includes('SELECT candidate_id FROM contact_journey_enrollments WHERE id = ?')) {
               return dbState.enrollments.find((row) => row.id === bindings[0]) || null;
             }
+            if (query.includes("FROM sqlite_master WHERE type = 'table'")) {
+              const tableName = bindings[0];
+              if (tableName === 'rocio_intent_jobs' && dbState.rocioIntentJobsTable) {
+                return { name: 'rocio_intent_jobs' };
+              }
+              return null;
+            }
+            if (query.includes('FROM payments WHERE id = ? AND company_id = ?')) {
+              return dbState.payments.find((row) => row.id === bindings[0] && row.company_id === bindings[1] && row.status === 'pending_verification') || null;
+            }
+            if (query.includes('FROM promises WHERE id = ? AND company_id = ?')) {
+              return dbState.promises.find((row) => row.id === bindings[0] && row.company_id === bindings[1]) || null;
+            }
+            if (query.includes('FROM disputes WHERE id = ? AND company_id = ?')) {
+              return dbState.disputes.find((row) => row.id === bindings[0] && row.company_id === bindings[1]) || null;
+            }
             return null;
           },
           async all() {
@@ -159,6 +196,52 @@ const db = {
             if (query.includes('FROM obligations WHERE company_id = ? AND id IN')) {
               const ids = bindings.slice(1);
               return { results: dbState.obligations.filter((row) => row.company_id === bindings[0] && ids.includes(row.id)) };
+            }
+            if (query.includes('FROM promises p') && query.includes('JOIN obligations o')) {
+              const today = bindings[1];
+              return {
+                results: dbState.promises
+                  .filter((row) => row.company_id === bindings[0] && (row.status === 'broken' || (row.status === 'open' && row.promise_date < today)))
+                  .map((row) => {
+                    const obligation = dbState.obligations.find((o) => o.id === row.obligation_id) || {};
+                    return { ...row, payer_name: obligation.payer_name, reference: obligation.reference, balance_cents: obligation.balance_cents, obligation_currency: obligation.currency };
+                  }),
+              };
+            }
+            if (query.includes('FROM disputes d') && query.includes('JOIN obligations o')) {
+              return {
+                results: dbState.disputes
+                  .filter((row) => row.company_id === bindings[0] && row.status === 'open')
+                  .map((row) => {
+                    const obligation = dbState.obligations.find((o) => o.id === row.obligation_id) || {};
+                    return { ...row, payer_name: obligation.payer_name, reference: obligation.reference, balance_cents: obligation.balance_cents, obligation_currency: obligation.currency };
+                  }),
+              };
+            }
+            if (query.includes('FROM payments py') && query.includes('JOIN obligations o')) {
+              return {
+                results: dbState.payments
+                  .filter((row) => row.company_id === bindings[0] && row.status === 'pending_verification')
+                  .map((row) => {
+                    const obligation = dbState.obligations.find((o) => o.id === row.obligation_id) || {};
+                    return { ...row, payer_name: obligation.payer_name, reference: obligation.reference, balance_cents: obligation.balance_cents, obligation_currency: obligation.currency };
+                  }),
+              };
+            }
+            if (query.includes('FROM rocio_intent_jobs j')) {
+              return {
+                results: dbState.rocioIntentJobs
+                  .filter((row) => row.company_id === bindings[0] && row.status === 'needs_human')
+                  .map((row) => {
+                    const obligation = dbState.obligations.find((o) => o.id === row.obligation_id) || {};
+                    return { ...row, payer_name: obligation.payer_name, reference: obligation.reference, balance_cents: obligation.balance_cents, obligation_currency: obligation.currency };
+                  }),
+              };
+            }
+            if (query.includes("stage_key IN ('DPD_60_PLUS', 'LEGAL')")) {
+              return {
+                results: dbState.obligations.filter((row) => row.company_id === bindings[0] && row.status === 'open' && ['DPD_60_PLUS', 'LEGAL'].includes(row.stage_key)),
+              };
             }
             return { results: [] };
           },
@@ -257,8 +340,88 @@ const db = {
             }
             if (query.startsWith('INSERT INTO payments')) {
               dbState.payments.push({
-                id: bindings[0], company_id: bindings[1], obligation_id: bindings[2], amount_cents: bindings[3], status: 'completed',
+                id: bindings[0],
+                company_id: bindings[1],
+                obligation_id: bindings[2],
+                amount_cents: bindings[3],
+                currency: bindings[4],
+                status: query.includes('pending_verification') ? 'pending_verification' : 'completed',
+                created_at: bindings[bindings.length - 1],
               });
+            }
+            if (query.startsWith('INSERT INTO promises')) {
+              dbState.promises.push({
+                id: bindings[0],
+                company_id: bindings[1],
+                obligation_id: bindings[2],
+                amount_cents: bindings[3],
+                promise_date: bindings[4],
+                status: bindings[5] || 'open',
+                source: bindings[6],
+                created_at: bindings[7],
+                updated_at: bindings[8],
+              });
+            }
+            if (query.startsWith('INSERT INTO disputes')) {
+              dbState.disputes.push({
+                id: bindings[0],
+                company_id: bindings[1],
+                obligation_id: bindings[2],
+                reason_code: bindings[3],
+                notes: bindings[4],
+                status: bindings[5] || 'open',
+                created_at: bindings[6],
+                updated_at: bindings[7],
+              });
+            }
+            if (query.startsWith('INSERT INTO rocio_intent_jobs')) {
+              dbState.rocioIntentJobs.push({
+                id: bindings[0],
+                company_id: bindings[1],
+                obligation_id: bindings[2],
+                message_id: bindings[3],
+                status: bindings[4],
+                input_json: bindings[5],
+                output_json: bindings[6],
+                confidence: bindings[7],
+                created_at: bindings[10],
+              });
+            }
+            if (query.includes("UPDATE obligations SET stage_key = 'PROMISE'")) {
+              const obligation = dbState.obligations.find((row) => row.id === bindings[1]);
+              if (obligation) {
+                obligation.stage_key = 'PROMISE';
+                obligation.updated_at = bindings[0];
+              }
+            }
+            if (query.includes("UPDATE obligations SET stage_key = 'DISPUTE'")) {
+              const obligation = dbState.obligations.find((row) => row.id === bindings[1]);
+              if (obligation) {
+                obligation.stage_key = 'DISPUTE';
+                obligation.updated_at = bindings[0];
+              }
+            }
+            if (query.startsWith('UPDATE candidates SET do_not_contact = 1')) {
+              const candidate = dbState.candidates.find((row) => row.id === bindings[1] && row.company_id === bindings[2]);
+              if (candidate) candidate.do_not_contact = 1;
+            }
+            if (query.startsWith('UPDATE payments SET status =')) {
+              const payment = dbState.payments.find((row) => row.id === bindings[1]);
+              if (payment) payment.status = 'completed';
+            }
+            if (query.startsWith('UPDATE promises SET status =')) {
+              const promise = dbState.promises.find((row) => row.id === bindings[1]);
+              if (promise) {
+                promise.status = 'cancelled';
+                promise.updated_at = bindings[0];
+              }
+            }
+            if (query.startsWith('UPDATE disputes SET status =')) {
+              const dispute = dbState.disputes.find((row) => row.id === bindings[1]);
+              if (dispute) {
+                dispute.status = 'closed';
+                dispute.updated_at = bindings[0];
+              }
             }
             return { success: true };
           },
@@ -350,7 +513,7 @@ const apiContext = {
   processDueJourneyEvents,
 };
 apiContext.globalThis = apiContext;
-vm.runInNewContext(`${stageSource}\n${csvSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled, recuperaActivateObligation };`, apiContext);
+vm.runInNewContext(`${stageSource}\n${csvSource}\n${rocioSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled, recuperaActivateObligation };`, apiContext);
 const api = apiContext.__recuperaApi;
 const adminUser = { id: 'admin-1', email: 'admin@example.com', role: 'admin', companyId: 'co-1', ryvoStaff: 0 };
 
@@ -448,5 +611,127 @@ const markPaidBody = await markPaidResponse.json();
 assert.equal(markPaidBody.obligation.stageKey, 'PAID');
 assert.equal(markPaidBody.obligation.status, 'closed');
 assert.ok(auditCalls.some((entry) => entry.type === 'recupera_obligation_marked_paid'));
+
+const exceptionsRequest = new Request('https://example.com/api/recupera/exceptions', { method: 'GET' });
+const exceptionsResponse = await api.handleRecuperaApi(exceptionsRequest, markPaidEnv, new URL(exceptionsRequest.url), adminUser);
+assert.equal(exceptionsResponse.status, 200);
+const exceptionsBody = await exceptionsResponse.json();
+assert.equal(exceptionsBody.summary.total, 0);
+assert.equal(exceptionsBody.items.length, 0);
+
+const openObligationId = webcrypto.randomUUID();
+dbState.obligations.push({
+  id: openObligationId,
+  company_id: 'co-1',
+  subject_candidate_id: null,
+  payer_name: 'Luis Pérez',
+  payer_email: null,
+  payer_phone: null,
+  reference: 'FAC-99',
+  description: null,
+  currency: 'GTQ',
+  amount_cents: 200000,
+  balance_cents: 200000,
+  due_date: '2026-07-01',
+  stage_key: 'DPD_60_PLUS',
+  strategy_key: 'EQUILIBRADA',
+  status: 'open',
+  created_at: '2026-09-01T00:00:00.000Z',
+  updated_at: '2026-09-01T00:00:00.000Z',
+});
+const disputeId = webcrypto.randomUUID();
+dbState.disputes.push({
+  id: disputeId,
+  company_id: 'co-1',
+  obligation_id: openObligationId,
+  reason_code: 'already_paid',
+  notes: null,
+  status: 'open',
+  created_at: '2026-09-02T00:00:00.000Z',
+  updated_at: '2026-09-02T00:00:00.000Z',
+});
+const paymentId = webcrypto.randomUUID();
+dbState.payments.push({
+  id: paymentId,
+  company_id: 'co-1',
+  obligation_id: openObligationId,
+  amount_cents: 200000,
+  currency: 'GTQ',
+  status: 'pending_verification',
+  created_at: '2026-09-03T00:00:00.000Z',
+});
+const promiseId = webcrypto.randomUUID();
+dbState.promises.push({
+  id: promiseId,
+  company_id: 'co-1',
+  obligation_id: openObligationId,
+  amount_cents: 200000,
+  promise_date: '2026-09-01',
+  status: 'open',
+  created_at: '2026-08-30T00:00:00.000Z',
+  updated_at: '2026-08-30T00:00:00.000Z',
+});
+
+const exceptionsPopulated = await api.handleRecuperaApi(exceptionsRequest, markPaidEnv, new URL(exceptionsRequest.url), adminUser);
+assert.equal(exceptionsPopulated.status, 200);
+const populatedBody = await exceptionsPopulated.json();
+assert.equal(populatedBody.summary.disputes, 1);
+assert.equal(populatedBody.summary.pendingPayments, 1);
+assert.equal(populatedBody.summary.brokenPromises, 1);
+assert.equal(populatedBody.summary.total, 4);
+assert.ok(populatedBody.items.some((item) => item.type === 'aging' && item.obligationId === openObligationId));
+
+const resolvePaymentRequest = new Request(`https://example.com/api/recupera/exceptions/pending_payment/${paymentId}/resolve`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ resolution: 'confirm_paid' }),
+});
+const resolvePaymentResponse = await api.handleRecuperaApi(resolvePaymentRequest, markPaidEnv, new URL(resolvePaymentRequest.url), adminUser);
+assert.equal(resolvePaymentResponse.status, 200);
+assert.equal(dbState.payments.find((row) => row.id === paymentId)?.status, 'completed');
+assert.equal(dbState.obligations.find((row) => row.id === openObligationId)?.status, 'closed');
+
+const resolveDisputeRequest = new Request(`https://example.com/api/recupera/exceptions/dispute/${disputeId}/resolve`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ resolution: 'dismiss' }),
+});
+const resolveDisputeResponse = await api.handleRecuperaApi(resolveDisputeRequest, markPaidEnv, new URL(resolveDisputeRequest.url), adminUser);
+assert.equal(resolveDisputeResponse.status, 200);
+assert.equal(dbState.disputes.find((row) => row.id === disputeId)?.status, 'closed');
+
+const resolvePromiseRequest = new Request(`https://example.com/api/recupera/exceptions/broken_promise/${promiseId}/resolve`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ resolution: 'dismiss' }),
+});
+const resolvePromiseResponse = await api.handleRecuperaApi(resolvePromiseRequest, markPaidEnv, new URL(resolvePromiseRequest.url), adminUser);
+assert.equal(resolvePromiseResponse.status, 200);
+assert.equal(dbState.promises.find((row) => row.id === promiseId)?.status, 'cancelled');
+
+const classifyRequest = new Request('https://example.com/api/recupera/rocio/classify', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 'Prometo pagar el viernes', obligationId }),
+});
+const classifyResponse = await api.handleRecuperaApi(classifyRequest, enabledEnv, new URL(classifyRequest.url), adminUser);
+assert.equal(classifyResponse.status, 200);
+const classifyBody = await classifyResponse.json();
+assert.equal(classifyBody.classification.intent, 'PROMISE_TO_PAY');
+assert.ok(classifyBody.classification.confidence >= 0.8);
+
+const inboundRequest = new Request(`https://example.com/api/recupera/obligations/${csvImportBody.imported[0].id}/inbound-message`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 'Ya pagué, adjunto comprobante de transferencia' }),
+});
+const inboundResponse = await api.handleRecuperaApi(inboundRequest, enabledEnv, new URL(inboundRequest.url), adminUser);
+assert.equal(inboundResponse.status, 201);
+const inboundBody = await inboundResponse.json();
+assert.equal(inboundBody.classification.intent, 'ALREADY_PAID');
+assert.equal(inboundBody.applied, true);
+assert.equal(inboundBody.status, 'completed');
+assert.ok(dbState.payments.some((row) => row.obligation_id === csvImportBody.imported[0].id && row.status === 'pending_verification'));
+assert.equal(dbState.rocioIntentJobs.length, 1);
 
 console.log('recupera api tests passed');

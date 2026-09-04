@@ -29,6 +29,7 @@ const [
   runtimeWebhooks,
   recuperaStage,
   recuperaCsv,
+  recuperaRocio,
   recuperaApi,
   recuperaPortalApi,
 ] = await Promise.all([
@@ -51,6 +52,7 @@ const [
   readFile(resolve(runtimeRoot, 'webhooks.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'stage.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'csv.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'rocio.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'api.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'portal-api.js'), 'utf8'),
 ]);
@@ -89,6 +91,7 @@ ${runtimeAi}
 ${runtimeWebhooks}
 ${recuperaStage}
 ${recuperaCsv}
+${recuperaRocio}
 ${recuperaApi}
 ${recuperaPortalApi}
 ${server}

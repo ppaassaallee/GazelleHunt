@@ -489,6 +489,186 @@ async function recuperaCreatePortalLink(request, env, user, obligationId) {
   return json({ url: `${origin}/p/${token}`, expiresAt });
 }
 
+function recuperaTodayIsoDate(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+async function recuperaTableExists(env, tableName) {
+  try {
+    const row = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).bind(tableName).first();
+    return Boolean(row?.name);
+  } catch {
+    return false;
+  }
+}
+
+function recuperaExceptionTitle(row) {
+  return cleanText(row.payer_name || row.reference, 200) || 'Cuenta por cobrar';
+}
+
+function recuperaExceptionSubtitle(type, row) {
+  if (type === 'broken_promise') {
+    const date = cleanText(row.promise_date, 20);
+    return date ? `Promesa vencida · ${date}` : 'Promesa vencida';
+  }
+  if (type === 'dispute') {
+    const reason = cleanText(row.reason_code, 80);
+    return reason ? `Reclamo abierto · ${reason}` : 'Reclamo abierto';
+  }
+  if (type === 'pending_payment') return 'Pago por verificar';
+  if (type === 'needs_human') return 'Rocío necesita tu ayuda';
+  if (type === 'aging') {
+    const stage = cleanText(row.stage_key, 40);
+    return stage === 'LEGAL' ? 'Etapa legal' : 'Más de 60 días vencido';
+  }
+  return '';
+}
+
+function recuperaMapExceptionItem(type, row) {
+  const amountCents = Number.isFinite(Number(row.amount_cents))
+    ? Number(row.amount_cents)
+    : Number(row.balance_cents) || 0;
+  const currency = cleanText(row.currency || row.obligation_currency, 8) || 'GTQ';
+  const obligationId = type === 'aging' ? row.id : row.obligation_id;
+  return {
+    id: row.id,
+    type,
+    obligationId,
+    title: recuperaExceptionTitle(row),
+    subtitle: recuperaExceptionSubtitle(type, row),
+    amountCents,
+    currency,
+    createdAt: row.created_at,
+  };
+}
+
+async function recuperaListExceptions(request, env, user) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const today = recuperaTodayIsoDate();
+  const items = [];
+
+  const brokenPromiseRows = await env.DB.prepare(`
+    SELECT p.*, o.payer_name, o.reference, o.balance_cents, o.currency AS obligation_currency
+    FROM promises p
+    JOIN obligations o ON o.id = p.obligation_id
+    WHERE p.company_id = ?
+      AND (p.status = 'broken' OR (p.status = 'open' AND p.promise_date < ?))
+    ORDER BY p.created_at DESC
+  `).bind(companyId, today).all();
+  for (const row of brokenPromiseRows.results || []) {
+    items.push(recuperaMapExceptionItem('broken_promise', row));
+  }
+
+  const disputeRows = await env.DB.prepare(`
+    SELECT d.*, o.payer_name, o.reference, o.balance_cents, o.currency AS obligation_currency
+    FROM disputes d
+    JOIN obligations o ON o.id = d.obligation_id
+    WHERE d.company_id = ? AND d.status = 'open'
+    ORDER BY d.created_at DESC
+  `).bind(companyId).all();
+  for (const row of disputeRows.results || []) {
+    items.push(recuperaMapExceptionItem('dispute', row));
+  }
+
+  const paymentRows = await env.DB.prepare(`
+    SELECT py.*, o.payer_name, o.reference, o.balance_cents, o.currency AS obligation_currency
+    FROM payments py
+    JOIN obligations o ON o.id = py.obligation_id
+    WHERE py.company_id = ? AND py.status = 'pending_verification'
+    ORDER BY py.created_at DESC
+  `).bind(companyId).all();
+  for (const row of paymentRows.results || []) {
+    items.push(recuperaMapExceptionItem('pending_payment', row));
+  }
+
+  if (await recuperaTableExists(env, 'rocio_intent_jobs')) {
+    try {
+      const intentRows = await env.DB.prepare(`
+        SELECT j.*, o.payer_name, o.reference, o.balance_cents, o.currency AS obligation_currency
+        FROM rocio_intent_jobs j
+        LEFT JOIN obligations o ON o.id = j.obligation_id
+        WHERE j.company_id = ? AND j.status = 'needs_human'
+        ORDER BY j.created_at DESC
+      `).bind(companyId).all();
+      for (const row of intentRows.results || []) {
+        items.push(recuperaMapExceptionItem('needs_human', row));
+      }
+    } catch {
+      // Migration not applied yet — skip silently.
+    }
+  }
+
+  const agingRows = await env.DB.prepare(`
+    SELECT * FROM obligations
+    WHERE company_id = ? AND status = 'open' AND stage_key IN ('DPD_60_PLUS', 'LEGAL')
+    ORDER BY updated_at DESC
+  `).bind(companyId).all();
+  for (const row of agingRows.results || []) {
+    items.push(recuperaMapExceptionItem('aging', row));
+  }
+
+  const summary = {
+    brokenPromises: items.filter((item) => item.type === 'broken_promise').length,
+    disputes: items.filter((item) => item.type === 'dispute').length,
+    pendingPayments: items.filter((item) => item.type === 'pending_payment').length,
+    needsHuman: items.filter((item) => item.type === 'needs_human').length,
+    total: items.length,
+  };
+  return json({ summary, items });
+}
+
+async function recuperaResolveException(request, env, user, type, id) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const body = await request.json().catch(() => ({}));
+  const resolution = cleanText(body.resolution, 40);
+  const entityId = cleanText(id, 100);
+  const exceptionType = cleanText(type, 40);
+  const now = new Date().toISOString();
+
+  if (exceptionType === 'pending_payment' && resolution === 'confirm_paid') {
+    const payment = await env.DB.prepare(`
+      SELECT * FROM payments WHERE id = ? AND company_id = ? AND status = 'pending_verification'
+    `).bind(entityId, companyId).first();
+    if (!payment) return json({ error: 'Payment not found.', code: 'payment_not_found' }, 404);
+    const obligation = await recuperaLoadObligation(env, companyId, payment.obligation_id);
+    if (!obligation) return json({ error: 'Obligation not found.', code: 'obligation_not_found' }, 404);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE payments SET status = 'completed', paid_at = ? WHERE id = ?`).bind(now, payment.id),
+      env.DB.prepare(`
+        UPDATE obligations SET balance_cents = 0, stage_key = 'PAID', status = 'closed', updated_at = ? WHERE id = ?
+      `).bind(now, obligation.id),
+    ]);
+    await audit(env, user.email, 'recupera_exception_payment_confirmed', 'payment', payment.id, { companyId, obligationId: obligation.id });
+    return json({ ok: true, obligationId: obligation.id });
+  }
+
+  if (exceptionType === 'broken_promise' && resolution === 'dismiss') {
+    const promise = await env.DB.prepare(`
+      SELECT * FROM promises WHERE id = ? AND company_id = ?
+    `).bind(entityId, companyId).first();
+    if (!promise) return json({ error: 'Promise not found.', code: 'promise_not_found' }, 404);
+    await env.DB.prepare(`UPDATE promises SET status = 'cancelled', updated_at = ? WHERE id = ?`).bind(now, promise.id).run();
+    await audit(env, user.email, 'recupera_exception_promise_dismissed', 'promise', promise.id, { companyId, obligationId: promise.obligation_id });
+    return json({ ok: true, obligationId: promise.obligation_id });
+  }
+
+  if (exceptionType === 'dispute' && resolution === 'dismiss') {
+    const dispute = await env.DB.prepare(`
+      SELECT * FROM disputes WHERE id = ? AND company_id = ?
+    `).bind(entityId, companyId).first();
+    if (!dispute) return json({ error: 'Dispute not found.', code: 'dispute_not_found' }, 404);
+    await env.DB.prepare(`UPDATE disputes SET status = 'closed', updated_at = ? WHERE id = ?`).bind(now, dispute.id).run();
+    await audit(env, user.email, 'recupera_exception_dispute_dismissed', 'dispute', dispute.id, { companyId, obligationId: dispute.obligation_id });
+    return json({ ok: true, obligationId: dispute.obligation_id });
+  }
+
+  return json({ error: 'Unsupported resolution.', code: 'invalid_resolution' }, 422);
+}
+
 async function recuperaMarkPaidObligation(request, env, user, obligationId) {
   if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
   const companyId = recuperaTargetCompanyId(user, new URL(request.url));
@@ -513,17 +693,61 @@ async function recuperaMarkPaidObligation(request, env, user, obligationId) {
   return json({ obligation: recuperaMapObligationRow(updated), paymentId });
 }
 
+async function recuperaClassifyIntentRequest(request, env, user) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const body = await request.json().catch(() => ({}));
+  const text = cleanText(body?.text, 2000);
+  if (!text) return json({ error: 'text is required.', code: 'invalid_body' }, 422);
+  const classification = rocioClassifyIntent(text);
+  const obligationId = body?.obligationId ? cleanText(body.obligationId, 100) : null;
+  return json({ classification, obligationId });
+}
+
+async function recuperaInboundMessageRequest(request, env, user, obligationId) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const obligation = await recuperaLoadObligation(env, companyId, cleanText(obligationId, 100));
+  if (!obligation) return json({ error: 'Obligation not found.', code: 'obligation_not_found' }, 404);
+  const body = await request.json().catch(() => ({}));
+  const text = cleanText(body?.text, 2000);
+  if (!text) return json({ error: 'text is required.', code: 'invalid_body' }, 422);
+  const result = await rocioProcessInbound(env, {
+    companyId,
+    obligationId: obligation.id,
+    text,
+    actor: user.email,
+    messageId: body?.messageId ? cleanText(body.messageId, 160) : null,
+  });
+  const updated = await recuperaLoadObligation(env, companyId, obligation.id);
+  return json({
+    jobId: result.jobId,
+    status: result.status,
+    classification: result.classification,
+    applied: result.applied,
+    obligation: recuperaMapObligationRow(updated),
+  }, 201);
+}
+
 async function handleRecuperaApi(request, env, url, user) {
   if (!url.pathname.startsWith('/api/recupera/')) return null;
   if (url.pathname === '/api/recupera/install' && request.method === 'POST') return recuperaInstallPlaybook(request, env, user);
   if (url.pathname === '/api/recupera/installation' && request.method === 'GET') return recuperaGetInstallation(request, env, user);
   if (url.pathname === '/api/recupera/obligations' && request.method === 'GET') return recuperaListObligations(request, env, user);
   if (url.pathname === '/api/recupera/obligations/import' && request.method === 'POST') return recuperaImportObligations(request, env, user);
+  if (url.pathname === '/api/recupera/rocio/classify' && request.method === 'POST') return recuperaClassifyIntentRequest(request, env, user);
   const activateMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/activate$/);
   if (activateMatch && request.method === 'POST') return recuperaActivateObligationRequest(request, env, user, activateMatch[1]);
   const markPaidMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/mark-paid$/);
   if (markPaidMatch && request.method === 'POST') return recuperaMarkPaidObligation(request, env, user, markPaidMatch[1]);
   const portalLinkMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/portal-link$/);
   if (portalLinkMatch && request.method === 'POST') return recuperaCreatePortalLink(request, env, user, portalLinkMatch[1]);
+  const inboundMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/inbound-message$/);
+  if (inboundMatch && request.method === 'POST') return recuperaInboundMessageRequest(request, env, user, inboundMatch[1]);
+  if (url.pathname === '/api/recupera/exceptions' && request.method === 'GET') return recuperaListExceptions(request, env, user);
+  const resolveMatch = url.pathname.match(/^\/api\/recupera\/exceptions\/([^/]+)\/([^/]+)\/resolve$/);
+  if (resolveMatch && request.method === 'POST') return recuperaResolveException(request, env, user, resolveMatch[1], resolveMatch[2]);
   return json({ error: 'not_found', code: 'playbook_disabled' }, 404);
 }

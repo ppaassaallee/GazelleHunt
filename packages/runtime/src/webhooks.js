@@ -120,6 +120,9 @@ async function handleInfobipWebhook(request, env) {
       ]));
     }
     await audit(env, 'infobip-webhook', 'candidate_whatsapp_reply_received', 'candidate', candidate.id, { from, providerMessageId: messageId || null, text: cleanText(message, 240) });
+    if (env.RECUPERA_ROCIO_INBOUND === 'true' && typeof rocioMaybeProcessInfobipInbound === 'function') {
+      await rocioMaybeProcessInfobipInbound(env, candidate, message, messageId || null).catch(() => {});
+    }
     matched += 1;
   }
   return json({ received: true, eventCount: received, matched });

@@ -73,6 +73,12 @@ Si ves `playbook_disabled` / 404 → falta el flag o la sesión.
 
 `RECUPERA_PORTAL_INSTANT_PAY=true` → "Ya pagué" cierra la obligación al instante (solo local/demo).
 
+`RECUPERA_ROCIO_INBOUND=true` → clasifica respuestas WhatsApp entrantes (Infobip) para candidatos Recupera con journey `stop_on_reply=0`. Sin LLM; heurísticas en español/inglés.
+
+En la UI Recupera, **Simular respuesta** permite probar sin WhatsApp:
+- **Clasificar** → `POST /api/recupera/rocio/classify`
+- **Aplicar** → `POST /api/recupera/obligations/:id/inbound-message` (crea job + aplica si confianza ≥ 80 %)
+
 ## 5. Qué NO hacer
 
 - `wrangler deploy` sin OK explícito

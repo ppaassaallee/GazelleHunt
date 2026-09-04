@@ -109,7 +109,13 @@ API HTTP mínima detrás de feature flag; sin UI ni cablear Recupera en producci
 - [x] `journeyGoalReached` `payment_received` — pagos vía `obligation_journey_links` o `subject_candidate_id`
 - [x] `test_recupera_obligation` catalog seed + `executableTest` acepta `recupera_obligation`
 - [x] UI Recupera: Activar seguimiento / Marcar pagado
-- [ ] Rocío AI employee wiring
+- [x] Migración `0023_rocio_intent_jobs.sql` — jobs de intención Rocío + `schemaStatements`
+- [x] `playbooks/recupera/rocio.js` — clasificador heurístico v1 (sin LLM) + `rocioProcessInbound`
+- [x] API: `POST /api/recupera/rocio/classify`, `POST /api/recupera/obligations/:id/inbound-message`
+- [x] Infobip webhook hook opcional (`RECUPERA_ROCIO_INBOUND=true`) para candidatos Recupera con `stop_on_reply=0`
+- [x] UI Recupera: simular respuesta (clasificar / aplicar)
+- [x] Test `playbooks/recupera/tests/rocio.test.mjs` en `pnpm test`
+- [ ] Rocío LLM / voz
 
 ## §8.F — Shell React (scaffold)
 
@@ -124,6 +130,10 @@ Shell mínimo (rail desktop, tab bar móvil, tokens light/dark). Sin integració
 - [x] UI Recupera: instalar + listar + agregar obligación (`/api/recupera/*`, proxy Vite → `:8787`)
 - [x] UI Recupera: activar seguimiento + marcar pagado (demo)
 - [x] Import CSV/paste + `autoActivate` en `POST /api/recupera/obligations/import` (`playbooks/recupera/csv.js`)
+- [x] `GET /api/recupera/exceptions` — pendientes (promesas rotas, reclamos, pagos por verificar, Rocío needs_human, aging DPD_60+/LEGAL)
+- [x] `POST /api/recupera/exceptions/:type/:id/resolve` — confirmar pago, descartar promesa/reclamo
+- [x] UI Trabajo (`WorkPage`) — lista Pendientes + hero total; Home muestra total si fetch OK
+- [x] UI Recupera: simular respuesta Rocío (clasificar / aplicar)
 - [ ] Servir desde Worker / strangler sobre `app.js`
 - [ ] Auth unificada en UI (hoy: cookies Gazelle vía proxy)
 

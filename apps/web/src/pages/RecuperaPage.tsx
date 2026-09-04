@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import {
   activateObligation,
+  classifyRocioIntent,
   createObligationPortalLink,
   getInstallation,
   importObligations,
   installRecupera,
   listObligations,
   markObligationPaid,
+  simulateInboundMessage,
   type RecuperaInstallation,
   type RecuperaObligation,
+  type RocioClassification,
 } from "@/lib/recupera";
 
 type Props = {
@@ -57,6 +60,8 @@ export function RecuperaPage({ onBack }: Props) {
   const [importNotice, setImportNotice] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState<Record<string, string>>({});
+  const [replyResult, setReplyResult] = useState<Record<string, RocioClassification | null>>({});
 
   async function refresh() {
     setError("");
@@ -194,6 +199,37 @@ export function RecuperaPage({ onBack }: Props) {
     setError("");
     try {
       await markObligationPaid(obligationId);
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function onClassifyReply(obligationId: string) {
+    const text = replyText[obligationId]?.trim();
+    if (!text) return;
+    setActionId(obligationId);
+    setError("");
+    try {
+      const result = await classifyRocioIntent(text, obligationId);
+      setReplyResult((prev) => ({ ...prev, [obligationId]: result.classification }));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function onSimulateReply(obligationId: string) {
+    const text = replyText[obligationId]?.trim();
+    if (!text) return;
+    setActionId(obligationId);
+    setError("");
+    try {
+      const result = await simulateInboundMessage(obligationId, text);
+      setReplyResult((prev) => ({ ...prev, [obligationId]: result.classification }));
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -362,8 +398,9 @@ export function RecuperaPage({ onBack }: Props) {
               obligations.slice(0, 50).map((row) => (
                 <article
                   key={row.id}
-                  className="flex flex-col gap-2 border-b border-[var(--border)] py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 border-b border-[var(--border)] py-3"
                 >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-medium">{row.payerName}</p>
                     <p className="text-sm text-[var(--text-secondary)]">
@@ -404,6 +441,47 @@ export function RecuperaPage({ onBack }: Props) {
                       </div>
                     ) : null}
                   </div>
+                  </div>
+                  {row.status === "open" ? (
+                    <div className="rounded-lg border border-dashed border-[var(--border)] p-3">
+                      <p className="text-xs font-medium text-[var(--text-secondary)]">Simular respuesta</p>
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <input
+                          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                          placeholder="Ej. Prometo pagar el viernes"
+                          value={replyText[row.id] || ""}
+                          onChange={(e) => setReplyText((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={busy || actionId === row.id}
+                            onClick={() => void onClassifyReply(row.id)}
+                            className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium disabled:opacity-50"
+                          >
+                            Clasificar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy || actionId === row.id}
+                            onClick={() => void onSimulateReply(row.id)}
+                            className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
+                          >
+                            Aplicar
+                          </button>
+                        </div>
+                      </div>
+                      {replyResult[row.id] ? (
+                        <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                          {replyResult[row.id]?.intent}
+                          {replyResult[row.id]?.promiseDate ? ` · ${replyResult[row.id]?.promiseDate}` : ""}
+                          {" · "}
+                          {Math.round((replyResult[row.id]?.confidence || 0) * 100)}%
+                          {replyResult[row.id]?.needsHuman ? " · revisión humana" : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </article>
               ))
             )}
