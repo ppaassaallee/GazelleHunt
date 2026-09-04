@@ -36,7 +36,7 @@ Partir `server-worker.js` en módulos de `packages/runtime` con los mismos nombr
 | `journeys` (contact_journeys, enrollments, events) | extraído + test |
 | `templates` (message_templates) | extraído + test |
 | `portal` (candidate_portal_links) | extraído + test |
-| ai | pendiente |
+| `ai` (OpenAI / Gemini provider layer) | extraído + test |
 
 Patrón: script plano en `packages/runtime/src/*`, concatenado en `build.mjs` antes del legacy server (mismo mecanismo que engine/AI). Cero cambios de esquema. Sin deploy a producción de Gazelle sin OK explícito.
 

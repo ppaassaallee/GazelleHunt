@@ -14,6 +14,8 @@ const source = (
   + '\n'
   + (await readFile(new URL('../../../packages/runtime/src/portal.js', import.meta.url), 'utf8'))
   + '\n'
+  + (await readFile(new URL('../../../packages/runtime/src/ai.js', import.meta.url), 'utf8'))
+  + '\n'
   + (await readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'))
 ).replace('export default {', 'globalThis.__worker = {');
 const fetchCalls = [];

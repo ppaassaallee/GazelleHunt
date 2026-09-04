@@ -23,6 +23,7 @@ const [
   runtimeJourneys,
   runtimeTemplates,
   runtimePortal,
+  runtimeAi,
 ] = await Promise.all([
   readFile(resolve(legacy, 'index.html'), 'utf8'),
   readFile(resolve(legacy, 'styles.css'), 'utf8'),
@@ -38,6 +39,7 @@ const [
   readFile(resolve(runtimeRoot, 'journeys.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'templates.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'portal.js'), 'utf8'),
+  readFile(resolve(runtimeRoot, 'ai.js'), 'utf8'),
 ]);
 
 const ogPath = resolve(root, 'public/og.png');
@@ -69,6 +71,7 @@ ${runtimeMessaging}
 ${runtimeJourneys}
 ${runtimeTemplates}
 ${runtimePortal}
+${runtimeAi}
 ${server}
 `;
 
