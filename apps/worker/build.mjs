@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(fileURLToPath(import.meta.url));
 const legacy = resolve(root, 'src/legacy');
 const runtimeRoot = resolve(root, '../../packages/runtime/src');
+const recuperaRoot = resolve(root, '../../playbooks/recupera');
 
 const [
   html,
@@ -26,6 +27,8 @@ const [
   runtimePortal,
   runtimeAi,
   runtimeWebhooks,
+  recuperaStage,
+  recuperaApi,
 ] = await Promise.all([
   readFile(resolve(legacy, 'index.html'), 'utf8'),
   readFile(resolve(legacy, 'styles.css'), 'utf8'),
@@ -44,6 +47,8 @@ const [
   readFile(resolve(runtimeRoot, 'portal.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'ai.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'webhooks.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'stage.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'api.js'), 'utf8'),
 ]);
 
 const ogPath = resolve(root, 'public/og.png');
@@ -78,6 +83,8 @@ ${runtimeTemplates}
 ${runtimePortal}
 ${runtimeAi}
 ${runtimeWebhooks}
+${recuperaStage}
+${recuperaApi}
 ${server}
 `;
 

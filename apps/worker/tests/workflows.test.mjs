@@ -5,7 +5,7 @@ import '../src/legacy/assessment-engine.js';
 import '../src/legacy/ai-assessment.js';
 import '../src/legacy/pdf-report.js';
 
-const [appSource, indexSource, legacyServerSource, readmeSource, buildSource, auditSource, messagingSource, contactabilitySource, journeysSource, templatesSource, portalSource, aiSource, webhooksSource] = await Promise.all([
+const [appSource, indexSource, legacyServerSource, readmeSource, buildSource, auditSource, messagingSource, contactabilitySource, journeysSource, templatesSource, portalSource, aiSource, webhooksSource, recuperaStageSource, recuperaApiSource] = await Promise.all([
   readFile(new URL('../src/legacy/app.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/legacy/index.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/legacy/server-worker.js', import.meta.url), 'utf8'),
@@ -19,8 +19,10 @@ const [appSource, indexSource, legacyServerSource, readmeSource, buildSource, au
   readFile(new URL('../../../packages/runtime/src/portal.js', import.meta.url), 'utf8'),
   readFile(new URL('../../../packages/runtime/src/ai.js', import.meta.url), 'utf8'),
   readFile(new URL('../../../packages/runtime/src/webhooks.js', import.meta.url), 'utf8'),
+  readFile(new URL('../../../playbooks/recupera/stage.js', import.meta.url), 'utf8'),
+  readFile(new URL('../../../playbooks/recupera/api.js', import.meta.url), 'utf8'),
 ]);
-const serverSource = `${auditSource}\n${messagingSource}\n${contactabilitySource}\n${journeysSource}\n${templatesSource}\n${portalSource}\n${aiSource}\n${webhooksSource}\n${legacyServerSource}`;
+const serverSource = `${auditSource}\n${messagingSource}\n${contactabilitySource}\n${journeysSource}\n${templatesSource}\n${portalSource}\n${aiSource}\n${webhooksSource}\n${recuperaStageSource}\n${recuperaApiSource}\n${legacyServerSource}`;
 
 const appElement = { innerHTML: '' };
 const fetchCalls = [];
@@ -370,6 +372,7 @@ for (const route of [
   '/api/tests', '/api/lists', '/api/batches', '/api/results', '/api/admin/users',
   '/api/outcomes',
   '/api/brevo/configure-webhook',
+  '/api/recupera/install', '/api/recupera/installation', '/api/recupera/obligations', '/api/recupera/obligations/import',
 ]) assert.match(serverSource, new RegExp(route.replaceAll('/', '\\/')));
 
 for (const securityControl of [

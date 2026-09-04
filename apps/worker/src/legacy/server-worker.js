@@ -4206,6 +4206,8 @@ async function handleApi(request, env, context) {
   const aiAnalysisMatch = url.pathname.match(/^\/api\/assessments\/([^/]+)\/ai-analysis$/);
   if (aiAnalysisMatch && request.method === 'POST') return regenerateAiAnalysis(env, user, cleanText(aiAnalysisMatch[1], 100), context);
   if (aiAnalysisMatch && request.method === 'PATCH') return advanceAiAnalysis(env, user, cleanText(aiAnalysisMatch[1], 100), context);
+  const recuperaResponse = await handleRecuperaApi(request, env, url, user);
+  if (recuperaResponse) return recuperaResponse;
   return json({ error: 'API route not found.' }, 404);
 }
 

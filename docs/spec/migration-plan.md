@@ -39,7 +39,7 @@ Partir `server-worker.js` en módulos de `packages/runtime` con los mismos nombr
 | `ai` (OpenAI / Gemini provider layer) | extraído + test |
 | `webhooks` (Brevo / Infobip inbound) | extraído + test |
 
-Patrón: script plano en `packages/runtime/src/*`, concatenado en `build.mjs` antes del legacy server (orden: audit → messaging → contactability → journeys → templates → portal → ai → webhooks → server). Cero cambios de esquema. Sin deploy a producción de Gazelle sin OK explícito.
+Patrón: script plano en `packages/runtime/src/*` y `playbooks/recupera/{stage,api}.js`, concatenado en `build.mjs` antes del legacy server (orden: audit → messaging → contactability → journeys → templates → portal → ai → webhooks → recupera stage → recupera api → server). Cero cambios de esquema. Sin deploy a producción de Gazelle sin OK explícito.
 
 ## §8.C — Drizzle + gaps del motor
 
@@ -88,7 +88,7 @@ Retry, contactabilidad, batch size, `ryvo_staff`.
 ## §8.E — Recupera scaffold (en progreso)
 
 **Entregable:** paquete declarativo `playbooks/recupera/` + tablas `playbook_installations` (`0019`) y obligaciones Recupera (`0020`).
-Sin rutas Worker, sin UI, sin cablear Recupera en producción.
+API HTTP mínima detrás de feature flag; sin UI ni cablear Recupera en producción sin `RECUPERA_ENABLED` o tenant habilitado.
 
 **En progreso:**
 
@@ -100,7 +100,9 @@ Sin rutas Worker, sin UI, sin cablear Recupera en producción.
 - [x] `playbooks/recupera/engine.js` — funciones puras de etapa (DPD, promesa, pago)
 - [x] Test `playbooks/recupera/tests/engine.test.mjs` en `pnpm test`
 - [x] `journeyGoalReached` stub `payment_received` (sin tocar SELECT Gazelle)
-- [ ] Instalación por tenant vía API
+- [x] `playbooks/recupera/stage.js` + `playbooks/recupera/api.js` — API HTTP detrás de feature flag (`RECUPERA_ENABLED` o `playbooks_enabled_json`)
+- [x] Rutas: `POST /api/recupera/install`, `GET /api/recupera/installation`, `GET /api/recupera/obligations`, `POST /api/recupera/obligations/import`
+- [x] Test `apps/worker/tests/recupera-api.test.mjs` en `pnpm test`
 - [ ] Rocío AI employee wiring
 
 ## §8.F — Shell React (scaffold)
