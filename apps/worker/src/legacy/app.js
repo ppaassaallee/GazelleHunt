@@ -40,16 +40,66 @@ const icons = {
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m11 12 9-9M15 8l3 3M17 6l3 3"/>',
   gift: '<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M7.5 8C5 8 4 4 6.5 4 9 4 12 8 12 8M16.5 8C19 8 20 4 17.5 4 15 4 12 8 12 8"/>',
   workflow: '<path d="M5 7h5"/><path d="M14 7h5"/><path d="M5 17h5"/><path d="M14 17h5"/><circle cx="3" cy="7" r="2"/><circle cx="12" cy="7" r="2"/><circle cx="21" cy="7" r="2"/><circle cx="12" cy="17" r="2"/><circle cx="21" cy="17" r="2"/><path d="M12 9v6"/><path d="M14 17h5"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  userMinus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 11h-6"/>',
 };
 
-const baseNavItems = [
-  ['home', 'Overview', 'home'], ['tests', 'Test catalog', 'layers'], ['lists', 'Candidate lists', 'list'],
-  ['candidates', 'Candidates', 'users'], ['import', 'Import CSV', 'upload'], ['send', 'Direct send', 'send'],
-  ['progress', 'Send progress', 'clock'], ['journeys', 'Journeys', 'workflow'], ['referrals', 'Referrals', 'gift'], ['reports', 'Results & Reports', 'file'], ['calibration', 'Calibration', 'chart'], ['settings', 'Settings', 'settings'],
+const navSections = [
+  {
+    label: 'Start',
+    items: [['home', 'Overview', 'home']],
+  },
+  {
+    label: 'Build',
+    items: [
+      ['lists', 'Lists', 'list'],
+      ['candidates', 'Candidates', 'users'],
+      ['import', 'Import', 'upload'],
+    ],
+  },
+  {
+    label: 'Assess',
+    items: [
+      ['tests', 'Tests', 'layers'],
+      ['send', 'Send', 'send'],
+      ['progress', 'Progress', 'clock'],
+    ],
+  },
+  {
+    label: 'Follow-up',
+    items: [
+      ['journeys', 'Journeys', 'workflow'],
+      ['referrals', 'Referrals', 'gift'],
+    ],
+  },
+  {
+    label: 'Results',
+    items: [
+      ['reports', 'Reports', 'file'],
+      ['calibration', 'Calibration', 'chart'],
+    ],
+  },
+  {
+    label: 'Admin',
+    items: [
+      ['team', 'Users', 'building'],
+      ['settings', 'Settings', 'settings'],
+    ],
+  },
 ];
 
 function navItems() {
-  return state.user?.role === 'super_admin' ? [...baseNavItems.slice(0, -1), ['team', 'Users & companies', 'building'], baseNavItems.at(-1)] : baseNavItems;
+  const isSuper = state.user?.role === 'super_admin';
+  return navSections
+    .map((section) => ({
+      label: section.label,
+      items: section.items.filter(([id]) => id !== 'team' || isSuper),
+    }))
+    .filter((section) => section.items.length);
+}
+
+function flatNavItems() {
+  return navItems().flatMap((section) => section.items);
 }
 
 const state = {
@@ -61,17 +111,58 @@ const state = {
     ai: { configured: false, provider: 'OpenAI', providerKey: 'openai', model: 'gpt-4.1-mini' },
   },
   loading: true, busy: false, error: '', adminAuthenticated: null, user: null, authMode: 'login', accountPending: false,
-  resetToken: '', passwordResetSent: false, passwordResetComplete: false,
+  resetToken: '', passwordResetSent: false, passwordResetComplete: false, playbookIntent: '', returnTo: '',
   bootstrap: { ownerSetupRequired: false, ownerEmail: 'david.alejandro.pa@gmail.com' },
   tests: [], lists: [], batches: [], journeys: [], templates: [], users: [], companies: [], selectedListId: null, listCandidateSearch: '', importTargetListId: '',
   outcomes: [], calibration: { summaries: [], assessments: [] }, calibrationTestId: 'all',
   stages: [], referrals: [], journeyCandidateId: null,
   deliveryChecks: {},
   journeyDraftSteps: null,
+  journeyFunnelOpen: false,
+  journeyFunnelFilter: '',
+  journeyFunnelFrom: '',
+  journeyFunnelTo: '',
+  journeyFunnelExpanded: {},
+  listPeopleMode: 'members',
   selectedCandidateIds: [], bulkResendTestId: null, bulkResendLocale: 'previous',
   csv: null, reportResultId: null, reportSearch: '', reportTestId: 'all', reportScope: 'all', reportRole: 'all', reportListId: 'all', previewReport: null, runner: null,
   directSendReceipt: null, emailDiagnostics: null,
 };
+
+function isRecuperaBridgeTest(test) {
+  if (!test) return false;
+  return test.engine_key === 'recupera_obligation'
+    || test.id === 'test_recupera_obligation'
+    || test.code === 'RECUPERA-OBL'
+    || test.slug === 'recupera-obligation';
+}
+
+function isRecuperaList(list) {
+  if (!list) return false;
+  return String(list.name || '').trim().toLowerCase() === 'recupera';
+}
+
+function isRecuperaJourney(journey) {
+  if (!journey) return false;
+  if (journey.test_id === 'test_recupera_obligation') return true;
+  if (String(journey.name || '').toLowerCase().startsWith('recupera')) return true;
+  if (String(journey.list_name || '').trim().toLowerCase() === 'recupera') return true;
+  if (String(journey.test_name_en || '').toLowerCase().includes('recupera obligation')) return true;
+  return false;
+}
+
+/** Gazelle Hunt surfaces — never mix Recupera bridge assets into the hiring product. */
+function gazelleTests() {
+  return (state.tests || []).filter((test) => !isRecuperaBridgeTest(test));
+}
+
+function gazelleLists() {
+  return (state.lists || []).filter((list) => !isRecuperaList(list));
+}
+
+function gazelleJourneys() {
+  return (state.journeys || []).filter((journey) => !isRecuperaJourney(journey));
+}
 
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || ''}</svg>`;
@@ -135,6 +226,31 @@ async function loadWorkspace({ silent = false } = {}) {
     const auth = await fetchJson('/api/auth/me');
     state.user = auth.user;
     state.adminAuthenticated = true;
+    const safeReturn = (() => {
+      const raw = String(state.returnTo || '').trim();
+      if (!raw.startsWith('/')) return '';
+      if (raw.startsWith('//') || raw.includes('://')) return '';
+      return raw.slice(0, 300);
+    })();
+    if (safeReturn) {
+      location.assign(safeReturn);
+      return;
+    }
+    if (state.playbookIntent === 'recupera' && (location.pathname === '/' || location.pathname === '')) {
+      location.assign('/ryvo/?open=recupera');
+      return;
+    }
+    if (state.playbookIntent === 'gazellehunt' || state.playbookIntent === 'gazelle') {
+      location.assign('/ryvo/?open=gazellehunt');
+      return;
+    }
+    // On meikapen.com auth surface, do not drop into a mixed Gazelle workspace by default.
+    if (location.hostname === 'meikapen.com' || location.hostname === 'www.meikapen.com') {
+      if (location.pathname === '/' || location.pathname === '') {
+        location.assign('/ryvo/');
+        return;
+      }
+    }
     const requests = [fetchJson('/api/health'), fetchJson('/api/candidates'), fetchJson('/api/results'), fetchJson('/api/tests'), fetchJson('/api/lists'), fetchJson('/api/batches'), fetchJson('/api/journeys'), fetchJson('/api/templates'), fetchJson('/api/stages'), fetchJson('/api/referrals'), fetchJson('/api/outcomes')];
     if (state.user.role === 'super_admin') requests.push(fetchJson('/api/admin/users'));
     const [health, candidates, results, tests, lists, batches, journeys, templates, stages, referrals, outcomes, team] = await Promise.all(requests);
@@ -152,10 +268,13 @@ async function loadWorkspace({ silent = false } = {}) {
     state.calibration = { summaries: outcomes.summaries || [], assessments: outcomes.assessments || [] };
     const visibleCandidateIds = new Set(state.candidates.map((candidate) => candidate.id));
     state.selectedCandidateIds = state.selectedCandidateIds.filter((id) => visibleCandidateIds.has(id));
-    if (!state.bulkResendTestId) state.bulkResendTestId = state.tests.find((test) => test.status === 'active' && test.engine_key === 'tenure_potential')?.id || null;
+    if (!state.bulkResendTestId) state.bulkResendTestId = gazelleTests().find((test) => test.status === 'active' && test.engine_key === 'tenure_potential')?.id || null;
     state.users = team?.users || [];
     state.companies = team?.companies || [];
-    if (!state.selectedListId && state.lists.length) state.selectedListId = state.lists[0].id;
+    const visibleLists = gazelleLists();
+    if (!visibleLists.some((list) => list.id === state.selectedListId)) {
+      state.selectedListId = visibleLists[0]?.id || null;
+    }
     if (!state.results.some((result) => result.assessment_id === state.reportResultId)) state.reportResultId = state.results[0]?.assessment_id || null;
     state.error = '';
   } catch (error) {
@@ -196,10 +315,16 @@ function statusBadge(status) {
 }
 
 function shell(content) {
-  const items = navItems();
+  const items = flatNavItems();
+  const sections = navItems();
   const current = items.find(([id]) => id === state.view) || items[0];
   const user = state.user || {};
-  return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Hunt</strong><span>by Meikapen</span></div></div><nav class="nav" aria-label="Main navigation">${items.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${label}</span></button>`).join('')}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">${initials(user.name)}</div><div><strong>${esc(user.name || '')}</strong><span>${esc(user.companyName || 'Platform')} · ${esc((user.role || '').replace('_', ' '))}</span></div></div><button class="button button-quiet sidebar-signout" data-action="logout">${icon('logout')}Sign out</button></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${current[1]}</h1><p>${esc(user.companyName || 'Gazelle Platform')} · Role-based workspace</p></div></div><div class="top-actions"><span class="badge badge-${state.health.database ? 'teal' : 'orange'}">${state.health.database ? 'Audit database active' : 'Database unavailable'}</span><button class="button button-secondary icon-button" data-action="reload" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}${state.journeyCandidateId ? renderJourneyModal() : ''}`;
+  const navHtml = sections.map((section) => `
+    <div class="nav-section">
+      <p class="nav-section-label">${esc(section.label)}</p>
+      ${section.items.map(([id, label, iconName]) => `<button class="nav-button ${state.view === id ? 'active' : ''}" data-nav="${id}">${icon(iconName)}<span>${esc(label)}</span></button>`).join('')}
+    </div>`).join('');
+  return `<div class="app-shell"><aside class="sidebar" id="sidebar"><div class="brand"><div class="brand-mark">G</div><div><strong>Gazelle Hunt</strong><span>by Meikapen</span></div></div><nav class="nav" aria-label="Main navigation">${navHtml}</nav><div class="sidebar-footer"><div class="workspace"><div class="avatar">${initials(user.name)}</div><div class="workspace-copy"><strong>${esc(user.name || '')}</strong><span>${esc(user.role === 'super_admin' ? 'Super admin' : (user.companyName || 'Platform'))}</span></div><button class="button button-quiet icon-button sidebar-signout" data-action="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></div></aside><main class="main"><header class="topbar"><div class="topbar-left"><button class="button button-secondary icon-button mobile-menu" id="mobile-menu" aria-label="Open navigation">${icon('menu')}</button><div><h1>${esc(current[1])}</h1><p>${esc(user.companyName || 'Gazelle Platform')}</p></div></div><div class="top-actions"><button class="button button-secondary icon-button" data-action="reload" title="Refresh" aria-label="Refresh">${icon('refresh')}</button></div></header><div class="page">${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}${content}</div></main></div>${state.runner ? renderRunner() : ''}${state.journeyCandidateId ? renderJourneyModal() : ''}`;
 }
 
 function adminSignInPage() {
@@ -210,21 +335,85 @@ function adminSignInPage() {
   const signup = state.authMode === 'signup';
   const forgot = state.authMode === 'forgot';
   const reset = state.authMode === 'reset';
-  const title = setup ? 'Activate super administrator' : signup ? 'Create your account' : forgot ? 'Reset your password' : reset ? 'Choose a new password' : 'Sign in to Gazelle';
-  const subtitle = setup ? 'Reserved for Alejandro Pascual. This activation can be completed only once.' : signup ? 'Choose your password now. Your account remains pending until a platform super administrator approves it.' : forgot ? 'Enter your work email and we will send a secure one-time link.' : reset ? 'Use at least 12 characters. Completing this step closes previous sessions.' : 'Access candidates, lists, tests, sends, and reports for your role.';
-  const emailField = reset ? '' : `<label class="field"><span>Email</span><input class="input" id="auth-email" type="email" autocomplete="email" required value="${setup ? esc(state.bootstrap.ownerEmail) : ''}" ${setup ? 'readonly' : ''}></label>`;
-  const identityFields = signup || setup ? `<label class="field"><span>Full name</span><input class="input" id="auth-name" autocomplete="name" required></label>` : '';
-  const companyField = signup ? `<label class="field"><span>Company</span><input class="input" id="auth-company" autocomplete="organization" required></label>` : '';
-  const passwordFields = forgot ? '' : `<label class="field"><span>${reset ? 'New password' : 'Password'}</span><input class="input" id="auth-password" type="password" autocomplete="${state.authMode === 'login' ? 'current-password' : 'new-password'}" minlength="12" maxlength="128" required></label>${reset ? '<label class="field"><span>Confirm new password</span><input class="input" id="auth-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>' : ''}`;
-  const submitLabel = setup ? 'Activate account' : signup ? 'Request access' : forgot ? 'Email reset link' : reset ? 'Save new password' : 'Sign in';
+  const isRecupero = state.playbookIntent === 'recupera' || state.playbookIntent === 'recupero';
+  const title = setup
+    ? 'Activate super administrator'
+    : isRecupero && signup
+      ? 'Crea tu cuenta Recupero'
+      : isRecupero && forgot
+        ? 'Restablece tu contraseña'
+        : isRecupero && reset
+          ? 'Elige una contraseña nueva'
+          : isRecupero
+            ? 'Entra a Recupero'
+            : signup
+              ? 'Create your account'
+              : forgot
+                ? 'Reset your password'
+                : reset
+                  ? 'Choose a new password'
+                  : 'Sign in to Gazelle Hunt';
+  const subtitle = setup
+    ? 'Reserved for Alejandro Pascual. This activation can be completed only once.'
+    : isRecupero && signup
+      ? 'Crea tu contraseña y empieza a recuperar pagos. Entras a Recupero en cuanto te registres.'
+      : isRecupero && forgot
+        ? 'Escribe tu correo de trabajo y te enviamos un enlace seguro de un solo uso.'
+        : isRecupero && reset
+          ? 'Usa al menos 12 caracteres. Al guardar se cierran las sesiones anteriores.'
+          : isRecupero
+            ? 'Accede a tus cuentas, recordatorios y el seguimiento de Rocío.'
+            : signup
+              ? 'Choose your password now. Your account remains pending until a platform super administrator approves it.'
+              : forgot
+                ? 'Enter your work email and we will send a secure one-time link.'
+                : reset
+                  ? 'Use at least 12 characters. Completing this step closes previous sessions.'
+                  : 'Access candidates, lists, tests, sends, and reports for your role.';
+  const emailField = reset ? '' : `<label class="field"><span>${isRecupero ? 'Correo' : 'Email'}</span><input class="input" id="auth-email" type="email" autocomplete="email" required value="${setup ? esc(state.bootstrap.ownerEmail) : ''}" ${setup ? 'readonly' : ''}></label>`;
+  const identityFields = signup || setup ? `<label class="field"><span>${isRecupero ? 'Nombre completo' : 'Full name'}</span><input class="input" id="auth-name" autocomplete="name" required></label>` : '';
+  const companyField = signup ? `<label class="field"><span>${isRecupero ? 'Empresa' : 'Company'}</span><input class="input" id="auth-company" autocomplete="organization" required></label>` : '';
+  const passwordFields = forgot ? '' : `<label class="field"><span>${reset ? (isRecupero ? 'Nueva contraseña' : 'New password') : (isRecupero ? 'Contraseña' : 'Password')}</span><input class="input" id="auth-password" type="password" autocomplete="${state.authMode === 'login' ? 'current-password' : 'new-password'}" minlength="12" maxlength="128" required></label>${reset ? `<label class="field"><span>${isRecupero ? 'Confirmar nueva contraseña' : 'Confirm new password'}</span><input class="input" id="auth-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>` : ''}`;
+  const submitLabel = setup
+    ? 'Activate account'
+    : isRecupero && signup
+      ? 'Empezar Recupero'
+      : isRecupero && forgot
+        ? 'Enviar enlace'
+        : isRecupero && reset
+          ? 'Guardar contraseña'
+          : isRecupero
+            ? 'Entrar'
+            : signup
+              ? 'Request access'
+              : forgot
+                ? 'Email reset link'
+                : reset
+                  ? 'Save new password'
+                  : 'Sign in';
   const authSwitch = state.authMode === 'login'
-    ? '<button data-auth-mode="signup">Create an account</button><button data-auth-mode="forgot">Forgot password?</button>'
-    : '<button data-auth-mode="login">Back to sign in</button>';
+    ? `<button data-auth-mode="signup">${isRecupero ? 'Crear una cuenta' : 'Create an account'}</button><button data-auth-mode="forgot">${isRecupero ? '¿Olvidaste tu contraseña?' : 'Forgot password?'}</button>`
+    : `<button data-auth-mode="login">${isRecupero ? 'Volver a iniciar sesión' : 'Back to sign in'}</button>`;
   const onLegacyHost = typeof location !== 'undefined' && /\.workers\.dev$/i.test(location.hostname);
   const migrateNotice = onLegacyHost
-    ? `<div class="notice" role="status"><strong>New address:</strong> use <a href="https://gazellehunt.meikapen.com/">https://gazellehunt.meikapen.com</a> to sign in. Same accounts — choose <em>Forgot password?</em> if this is your first login on the new host.</div>`
+    ? `<div class="notice" role="status"><strong>New address:</strong> use <a href="https://meikapen.com/">https://meikapen.com</a> to sign in.</div>`
     : '';
-  return `<main class="auth-app"><section class="auth-brand"><div class="brand-mark">G</div><p class="eyebrow">Gazelle Hunt · by Meikapen</p><h1>One platform for structured candidate assessments.</h1><p>Run bilingual tests, organize candidates into reusable lists, send batches, and keep every result auditable.</p><div class="auth-proof"><span>${icon('shield')}Server-enforced company access</span><span>${icon('list')}Lists and multi-test batches</span><span>${icon('file')}Bilingual PDF reports</span></div></section><section class="auth-panel"><div><p class="eyebrow">Secure account access</p><h2>${title}</h2><p>${subtitle}</p></div>${migrateNotice}<form id="auth-form" class="auth-form" data-mode="${state.authMode}">${emailField}${identityFields}${companyField}${passwordFields}${setup ? `<label class="field"><span>Owner activation key</span><input class="input" id="auth-bootstrap" type="password" autocomplete="one-time-code" required></label>` : ''}${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}<button class="button button-primary auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Please wait…' : submitLabel}</button></form><div class="auth-switch">${authSwitch}${state.bootstrap.ownerSetupRequired && state.authMode !== 'setup' ? '<button data-auth-mode="setup">Alejandro: activate owner account</button>' : ''}</div><p class="auth-security">Passwords are never stored in plain text. Reset links expire after 60 minutes and work once.</p></section></main>`;
+  const brandMark = isRecupero ? 'R' : 'G';
+  const brandEyebrow = isRecupero ? 'Recupero · by Meikapen' : 'Gazelle Hunt · by Meikapen';
+  const brandHeadline = isRecupero
+    ? 'Que te paguen. Sin perseguir a nadie.'
+    : 'One platform for structured candidate assessments.';
+  const brandBody = isRecupero
+    ? 'Recuerda, da seguimiento y facilita el pago por WhatsApp, correo y llamada — desde un solo lugar.'
+    : 'Run bilingual tests, organize candidates into reusable lists, send batches, and keep every result auditable.';
+  const brandProof = isRecupero
+    ? `<div class="auth-proof"><span>${icon('shield')}Acceso seguro</span><span>${icon('list')}Cuentas y seguimiento</span><span>${icon('file')}Confirmación de pago</span></div>`
+    : `<div class="auth-proof"><span>${icon('shield')}Server-enforced company access</span><span>${icon('list')}Lists and multi-test batches</span><span>${icon('file')}Bilingual PDF reports</span></div>`;
+  const panelEyebrow = isRecupero ? 'Acceso seguro' : 'Secure account access';
+  const securityNote = isRecupero
+    ? 'Las contraseñas nunca se guardan en texto plano. Los enlaces de restablecimiento caducan en 60 minutos y se usan una sola vez.'
+    : 'Passwords are never stored in plain text. Reset links expire after 60 minutes and work once.';
+  return `<main class="auth-app${isRecupero ? ' auth-app-recupero' : ' auth-app-gazelle'}"><section class="auth-brand"><div class="brand-mark">${brandMark}</div><p class="eyebrow">${brandEyebrow}</p><h1>${brandHeadline}</h1><p>${brandBody}</p>${brandProof}</section><section class="auth-panel"><div><p class="eyebrow">${panelEyebrow}</p><h2>${title}</h2><p>${subtitle}</p></div>${migrateNotice}<form id="auth-form" class="auth-form" data-mode="${state.authMode}">${emailField}${identityFields}${companyField}${passwordFields}${setup ? `<label class="field"><span>Owner activation key</span><input class="input" id="auth-bootstrap" type="password" autocomplete="one-time-code" required></label>` : ''}${state.error ? `<div class="notice notice-error">${esc(state.error)}</div>` : ''}<button class="button button-primary auth-submit" type="submit" ${state.busy ? 'disabled' : ''}>${state.busy ? (isRecupero ? 'Un momento…' : 'Please wait…') : submitLabel}</button></form><div class="auth-switch">${authSwitch}${state.bootstrap.ownerSetupRequired && state.authMode !== 'setup' ? '<button data-auth-mode="setup">Alejandro: activate owner account</button>' : ''}</div><p class="auth-security">${securityNote}</p></section></main>`;
 }
 
 function pageIntro(kicker, title, description, action = '') {
@@ -236,13 +425,15 @@ function metric(label, value, note, iconName) {
 }
 
 function renderHome() {
+  const tests = gazelleTests();
+  const lists = gazelleLists();
   const completed = state.candidates.filter((candidate) => candidate.assessment_id).length;
   const activeBatches = state.batches.filter((batch) => ['queued', 'processing'].includes(batch.status)).length;
   const pendingUsers = state.users.filter((user) => user.status === 'pending').length;
   return `<div class="stack"><section class="workflow-hero"><div><span class="badge badge-teal">${esc(state.user?.companyName || 'Gazelle Platform')}</span><h2>Build a list, assign tests, and send one auditable batch.</h2><p>Candidate lists are the operating unit. A candidate can belong to multiple lists, and each list can carry one or more tests as the catalog grows.</p><div class="mission-actions"><button class="button button-primary" data-nav="lists">${icon('list')}Create or open a list</button><button class="button button-secondary" data-nav="tests">${icon('layers')}Browse test catalog</button></div></div><div class="workflow-steps"><div><span>1</span><strong>List</strong><small>Define the hiring cohort</small></div><div><span>2</span><strong>Tests</strong><small>Select the assessment set</small></div><div><span>3</span><strong>Batch</strong><small>Send and monitor delivery</small></div></div></section>
-    <section class="grid grid-4">${metric('Candidate lists', state.lists.length, 'Reusable cohorts', 'list')}${metric('Available tests', state.tests.filter((test) => test.status === 'active').length, 'Extensible catalog', 'layers')}${metric('Audited results', completed, 'Scoped to your role', 'shield')}${metric('Active batches', activeBatches, 'Queued or processing', 'send')}</section>
+    <section class="grid grid-4">${metric('Candidate lists', lists.length, 'Reusable cohorts', 'list')}${metric('Available tests', tests.filter((test) => test.status === 'active').length, 'Extensible catalog', 'layers')}${metric('Audited results', completed, 'Scoped to your role', 'shield')}${metric('Active batches', activeBatches, 'Queued or processing', 'send')}</section>
     ${pendingUsers ? `<button class="pending-strip" data-nav="team">${icon('users')}<span><strong>${pendingUsers} account${pendingUsers === 1 ? '' : 's'} awaiting approval</strong><small>Assign a company and role before access is granted.</small></span></button>` : ''}
-    <section><div class="section-title"><div><h3>Test catalog</h3><p>The platform is multi-test; only validated executable engines can be sent.</p></div><button class="button button-secondary" data-nav="tests">View all</button></div><div class="grid grid-3">${state.tests.slice(0, 3).map(testCatalogCard).join('') || '<div class="empty-panel"><h3>No tests available</h3></div>'}</div></section>
+    <section><div class="section-title"><div><h3>Test catalog</h3><p>The platform is multi-test; only validated executable engines can be sent.</p></div><button class="button button-secondary" data-nav="tests">View all</button></div><div class="grid grid-3">${tests.slice(0, 3).map(testCatalogCard).join('') || '<div class="empty-panel"><h3>No tests available</h3></div>'}</div></section>
     <section class="grid grid-2"><article class="card"><div class="card-header"><div><h3>Tenure Potential boundaries</h3><p>The first executable assessment remains transparent.</p></div></div><div class="card-body guardrail-list">${guardrail('No retention probability', 'The questionnaire index does not claim a 90-day or 180-day probability.', 'Locked')}${guardrail('Separate evidence outputs', 'The 1–5 AI alignment rating and narrative do not alter the questionnaire index.', 'Auditable')}${guardrail('No automatic decision', 'No automatic hire, reject, pass, fail, or ranking action is produced.', 'Locked')}</div></article><article class="card"><div class="card-header"><div><h3>Access scope</h3><p>Visibility is enforced on the server.</p></div>${icon('shield')}</div><div class="card-body stack"><div class="scope-line"><strong>${esc((state.user?.role || '').replace('_', ' '))}</strong><span>${state.user?.role === 'recruiter' ? 'Your candidates and lists only' : state.user?.role === 'admin' ? 'All candidates and lists in your company' : 'All companies, users, candidates, and lists'}</span></div><div class="scope-line"><strong>Company</strong><span>${esc(state.user?.companyName || 'All companies')}</span></div><div class="scope-line"><strong>Email</strong><span>${state.health.email?.configured ? 'Brevo connected' : 'Brevo configuration required before sending'}</span></div></div></article></section></div>`;
 }
 
@@ -255,31 +446,122 @@ function dimensionCard(title, weight, text) { return `<article class="card dimen
 function guardrail(title, text, badge) { return `<div class="guardrail"><div><strong>${title}</strong><span>${text}</span></div><span class="badge badge-orange">${badge}</span></div>`; }
 
 function renderTests() {
-  const active = state.tests.filter((test) => test.status === 'active').length;
+  const tests = gazelleTests();
+  const active = tests.filter((test) => test.status === 'active').length;
   const create = state.user?.role === 'super_admin' ? `<section class="card"><div class="card-header"><div><h3>Add a future test</h3><p>New entries start as drafts. A catalog entry cannot be sent until its scoring engine and validation package are implemented.</p></div>${icon('plus')}</div><form class="card-body form-grid" id="test-form"><label class="field"><span>English name</span><input class="input" id="test-name-en" required></label><label class="field"><span>Spanish name</span><input class="input" id="test-name-es" required></label><label class="field"><span>Slug</span><input class="input" id="test-slug" placeholder="customer-service-judgment" required></label><label class="field"><span>Estimated minutes</span><input class="input" id="test-minutes" type="number" min="1" max="180" value="15"></label><label class="field form-wide"><span>English description</span><textarea class="textarea" id="test-description-en" required></textarea></label><label class="field form-wide"><span>Spanish description</span><textarea class="textarea" id="test-description-es" required></textarea></label><div class="form-span"><button class="button button-primary" type="submit">${icon('plus')}Create draft</button></div></form></section>` : '';
-  return `<div class="stack">${pageIntro('Multi-test architecture', 'Test catalog', 'Tests are versioned entities. Active means the assessment has an executable engine; draft means design work remains.', `<span class="badge badge-teal">${active} active</span>`)}<section class="grid grid-3">${state.tests.map(testCatalogCard).join('')}</section>${create}</div>`;
+  return `<div class="stack">${pageIntro('Multi-test architecture', 'Test catalog', 'Tests are versioned entities. Active means the assessment has an executable engine; draft means design work remains.', `<span class="badge badge-teal">${active} active</span>`)}<section class="grid grid-3">${tests.map(testCatalogCard).join('')}</section>${create}</div>`;
 }
 
 function renderLists() {
-  const selected = state.lists.find((list) => list.id === state.selectedListId) || state.lists[0];
+  const lists = gazelleLists();
+  const selected = lists.find((list) => list.id === state.selectedListId) || lists[0];
   const listSearch = (state.listCandidateSearch || '').toLowerCase();
-  const companyCandidates = selected ? state.candidates.filter((candidate) => {
-    if (candidate.company_id !== selected.company_id) return false;
+  const peopleMode = state.listPeopleMode === 'add' ? 'add' : 'members';
+  const memberIds = new Set(selected?.member_ids || []);
+  const companyPool = selected
+    ? state.candidates.filter((candidate) => candidate.company_id === selected.company_id)
+    : [];
+  const members = companyPool.filter((candidate) => memberIds.has(candidate.id));
+  const memberMatches = members.filter((candidate) => {
     if (!listSearch) return true;
     return `${candidate.name} ${candidate.email} ${candidate.role} ${candidate.site || ''}`.toLowerCase().includes(listSearch);
-  }) : [];
-  const activeTests = state.tests.filter((test) => test.status === 'active');
-  const companyChoice = state.user?.role === 'super_admin' ? `<label class="field"><span>Company</span><select class="select" id="list-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></label>` : '';
-  const deleteHint = selected && !selected.can_delete ? `Cannot delete after sends, invitations, or journeys exist. Archive keeps the audit trail.` : `Only unused lists can be deleted.`;
+  });
+  const addPool = companyPool.filter((candidate) => {
+    if (!listSearch) return true;
+    return `${candidate.name} ${candidate.email} ${candidate.role} ${candidate.site || ''}`.toLowerCase().includes(listSearch);
+  });
+  const activeTests = gazelleTests().filter((test) => test.status === 'active');
+  const companyChoice = state.user?.role === 'super_admin'
+    ? `<label class="field"><span>Company</span><select class="select" id="list-company">${state.companies.map((company) => `<option value="${company.id}">${esc(company.name)}</option>`).join('')}</select></label>`
+    : '';
+  const deleteHint = selected && !selected.can_delete
+    ? 'Archive keeps the audit trail when the list already has sends or journeys.'
+    : 'Unused lists can be deleted.';
   const sendDisabledReason = !state.health.email?.configured
     ? 'Connect Brevo before starting a batch.'
     : !Number(selected?.member_count || 0)
-      ? 'Add or import candidates before sending.'
+      ? 'Add candidates before sending.'
       : !Number(selected?.test_count || 0)
-        ? 'Select at least one active test before sending.'
+        ? 'Select at least one test before sending.'
         : '';
-  const editor = selected ? `<section class="list-editor"><div class="list-editor-head"><div><p class="eyebrow">${esc(selected.company_name)}</p><h3>${esc(selected.name)}</h3><p>${esc(selected.description || 'No description')}</p></div><div class="list-head-actions"><span class="badge badge-neutral">${Number(selected.member_count)} candidates · ${Number(selected.test_count)} tests</span>${actionIconButton('upload', 'Import into list', 'data-action="import-selected-list"')}${actionIconButton('archive', 'Archive list', `data-archive-list="${selected.id}"`)}${actionIconButton('trash', 'Delete unused list', `data-delete-list="${selected.id}" ${selected.can_delete ? '' : 'disabled'}`, true)}</div></div><div class="list-flow"><div class="${Number(selected.member_count) ? 'done' : 'active'}"><span>1</span><strong>Add candidates</strong><small>Pick existing people or import CSV into this list.</small></div><div class="${Number(selected.test_count) ? 'done' : ''}"><span>2</span><strong>Select tests</strong><small>Choose the assessment set for this cohort.</small></div><div class="${Number(selected.member_count) && Number(selected.test_count) ? 'active' : ''}"><span>3</span><strong>Send batch</strong><small>Create tracked invitations with provider evidence.</small></div><div><span>4</span><strong>Journeys</strong><small>Enroll this list in reminder journeys.</small></div></div><form id="list-editor-form"><div class="list-editor-grid"><div class="selection-panel"><div class="selection-title"><div><h4>Candidates</h4><p>A candidate can belong to multiple lists.</p></div><span>${companyCandidates.length} shown</span></div><div class="selection-tools"><div class="search">${icon('search')}<input class="input" id="list-candidate-search" value="${esc(state.listCandidateSearch || '')}" placeholder="Search candidates to add"></div>${actionIconButton('upload', 'Import CSV', 'data-action="import-selected-list"')}</div><div class="check-list">${companyCandidates.map((candidate) => `<label><input type="checkbox" name="list-candidate" value="${candidate.id}" ${selected.member_ids.includes(candidate.id) ? 'checked' : ''}><span><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}</small></span></label>`).join('') || '<div class="empty-panel compact"><h3>No candidates found</h3><p>Import a CSV into this list or clear the search.</p></div>'}</div></div><div class="selection-panel"><div class="selection-title"><div><h4>Tests</h4><p>Select one or more active tests for this list.</p></div><span>${activeTests.length} active</span></div><div class="check-list">${activeTests.map((test) => `<label><input type="checkbox" name="list-test" value="${test.id}" ${selected.test_ids.includes(test.id) ? 'checked' : ''}><span><strong>${esc(test.name_en)}</strong><small>${esc(test.name_es)} · ${Number(test.estimated_minutes)} min</small></span></label>`).join('')}</div></div></div><div class="list-actions"><div class="list-action-note"><strong>${selected.can_delete ? 'Unused list' : 'Audit protected'}</strong><span>${esc(deleteHint)}</span></div><button class="button button-secondary" type="submit">${icon('check')}Save candidates and tests</button><label class="compact-select"><span>Email language</span><select class="select" id="batch-locale"><option value="en">English</option><option value="es">Español</option></select></label><button class="button button-primary" type="button" data-batch-list="${selected.id}" ${sendDisabledReason || state.busy ? 'disabled' : ''}>${icon('send')}Send selected tests</button>${actionIconButton('workflow', 'Assign journey', 'data-nav="journeys"')}</div>${sendDisabledReason ? `<p class="field-help list-help">${esc(sendDisabledReason)}</p>` : ''}</form></section>` : `<div class="empty-panel"><h3>Create the first candidate list</h3><p>Lists connect candidates, tests, and batch delivery.</p></div>`;
-  return `<div class="stack">${pageIntro('Core workflow', 'Candidate lists', 'Create reusable cohorts, assign tests, schedule sends, and enroll journeys.', '')}<div class="lists-layout"><aside class="lists-rail"><form class="card card-body list-create" id="list-form"><h3>New list</h3><label class="field"><span>Name</span><input class="input" id="list-name" required placeholder="July customer care cohort"></label><label class="field"><span>Description</span><textarea class="textarea" id="list-description" maxlength="500"></textarea></label>${companyChoice}<button class="button button-primary" type="submit">${icon('plus')}Create list</button></form><div class="list-nav">${state.lists.map((list) => `<button class="list-nav-item ${selected?.id === list.id ? 'active' : ''}" data-list-id="${list.id}"><span><strong>${esc(list.name)}</strong><small>${esc(list.company_name)} · ${Number(list.member_count)} candidates · ${Number(list.batch_count || 0)} sends</small></span><span>${Number(list.test_count)}</span></button>`).join('')}</div></aside>${editor}</div></div>`;
+
+  const memberRows = memberMatches.map((candidate) => `<div class="list-person-row">
+    <div class="list-person-copy"><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}</small></div>
+    <div class="list-person-actions">
+      ${actionIconButton('pencil', 'Edit candidate', `data-journey="${candidate.id}"`)}
+      ${actionIconButton('userMinus', 'Remove from list', `data-remove-list-member="${candidate.id}"`)}
+      ${actionIconButton('users', 'Open in Candidates', `data-open-candidate="${candidate.id}"`)}
+    </div>
+  </div>`).join('') || `<div class="list-people-empty">${listSearch ? 'No members match this search.' : 'No one in this list yet. Add people to get started.'}</div>`;
+
+  const addRows = addPool.map((candidate) => {
+    const inList = memberIds.has(candidate.id);
+    return `<label class="list-add-row">
+      <input type="checkbox" name="list-candidate" value="${candidate.id}" ${inList ? 'checked' : ''}>
+      <span><strong>${esc(candidate.name)}</strong><small>${esc(candidate.role)} · ${esc(candidate.email)}${inList ? ' · in list' : ''}</small></span>
+    </label>`;
+  }).join('') || `<div class="list-people-empty">${listSearch ? 'No candidates match this search.' : 'No candidates in this company yet.'}</div>`;
+
+  const peoplePanel = peopleMode === 'members'
+    ? `<div class="selection-panel list-people-panel">
+        <div class="selection-title">
+          <div><h4>In this list</h4><p>${members.length} members · quick actions per person</p></div>
+          <div class="list-mode-switch">
+            ${actionIconButton('users', 'Show list members', `data-list-people-mode="members" aria-pressed="${peopleMode === 'members'}"`)}
+            ${actionIconButton('plus', 'Add people from catalog', `data-list-people-mode="add" aria-pressed="${peopleMode === 'add'}"`)}
+          </div>
+        </div>
+        <div class="selection-tools"><div class="search">${icon('search')}<input class="input" id="list-candidate-search" value="${esc(state.listCandidateSearch || '')}" placeholder="Search members"></div>${actionIconButton('upload', 'Import CSV', 'data-action="import-selected-list"')}</div>
+        <div class="list-people-list">${memberRows}</div>
+      </div>`
+    : `<div class="selection-panel list-people-panel">
+        <div class="selection-title">
+          <div><h4>Add from catalog</h4><p>All company candidates · check to include in this list</p></div>
+          <div class="list-mode-switch">
+            ${actionIconButton('users', 'Show list members', `data-list-people-mode="members" aria-pressed="${peopleMode === 'members'}"`)}
+            ${actionIconButton('plus', 'Add people from catalog', `data-list-people-mode="add" aria-pressed="${peopleMode === 'add'}"`)}
+          </div>
+        </div>
+        <div class="selection-tools"><div class="search">${icon('search')}<input class="input" id="list-candidate-search" value="${esc(state.listCandidateSearch || '')}" placeholder="Search catalog"></div>${actionIconButton('upload', 'Import CSV', 'data-action="import-selected-list"')}</div>
+        <div class="check-list list-add-list">${addRows}</div>
+      </div>`;
+
+  const editor = selected ? `<section class="list-editor">
+    <div class="list-editor-head">
+      <div><p class="eyebrow">${esc(selected.company_name)}</p><h3>${esc(selected.name)}</h3><p>${esc(selected.description || 'No description')}</p></div>
+      <div class="list-head-actions">
+        <span class="badge badge-neutral">${Number(selected.member_count)} · ${Number(selected.test_count)} tests</span>
+        ${actionIconButton('upload', 'Import into list', 'data-action="import-selected-list"')}
+        ${actionIconButton('archive', 'Archive list', `data-archive-list="${selected.id}"`)}
+        ${actionIconButton('trash', 'Delete unused list', `data-delete-list="${selected.id}" ${selected.can_delete ? '' : 'disabled'}`, true)}
+      </div>
+    </div>
+    <div class="list-flow compact-flow">
+      <div class="${Number(selected.member_count) ? 'done' : 'active'}"><span>1</span><strong>People</strong></div>
+      <div class="${Number(selected.test_count) ? 'done' : ''}"><span>2</span><strong>Tests</strong></div>
+      <div class="${Number(selected.member_count) && Number(selected.test_count) ? 'active' : ''}"><span>3</span><strong>Send</strong></div>
+      <div><span>4</span><strong>Journeys</strong></div>
+    </div>
+    <form id="list-editor-form">
+      <div class="list-editor-grid">
+        ${peoplePanel}
+        <div class="selection-panel">
+          <div class="selection-title"><div><h4>Tests</h4><p>Assessment set for this list</p></div><span>${activeTests.length}</span></div>
+          <div class="check-list">${activeTests.map((test) => `<label><input type="checkbox" name="list-test" value="${test.id}" ${selected.test_ids.includes(test.id) ? 'checked' : ''}><span><strong>${esc(test.name_en)}</strong><small>${esc(test.name_es)} · ${Number(test.estimated_minutes)} min</small></span></label>`).join('')}</div>
+        </div>
+      </div>
+      <div class="list-actions">
+        <div class="list-action-note"><strong>${selected.can_delete ? 'Unused list' : 'Audit protected'}</strong><span>${esc(deleteHint)}</span></div>
+        ${actionIconButton('check', 'Save candidates and tests', 'type="submit" form="list-editor-form"')}
+        <label class="compact-select"><span>Language</span><select class="select" id="batch-locale"><option value="en">English</option><option value="es">Español</option></select></label>
+        ${actionIconButton('send', sendDisabledReason || 'Send selected tests', `data-batch-list="${selected.id}" ${sendDisabledReason || state.busy ? 'disabled' : ''}`)}
+        ${actionIconButton('workflow', 'Open journeys', 'data-nav="journeys"')}
+      </div>
+      ${sendDisabledReason ? `<p class="field-help list-help">${esc(sendDisabledReason)}</p>` : ''}
+    </form>
+  </section>` : `<div class="empty-panel"><h3>Create the first list</h3><p>Lists connect people, tests, and sends.</p></div>`;
+
+  return `<div class="stack">${pageIntro('Core workflow', 'Lists', 'Select a list to manage its people. Use Candidates for the full company directory.', '')}<div class="lists-layout"><aside class="lists-rail"><form class="card card-body list-create" id="list-form"><h3>New list</h3><label class="field"><span>Name</span><input class="input" id="list-name" required placeholder="July customer care cohort"></label><label class="field"><span>Description</span><textarea class="textarea" id="list-description" maxlength="500"></textarea></label>${companyChoice}<button class="button button-primary icon-button" type="submit" title="Create list" aria-label="Create list">${icon('plus')}</button></form><div class="list-nav">${lists.map((list) => `<button class="list-nav-item ${selected?.id === list.id ? 'active' : ''}" data-list-id="${list.id}"><span><strong>${esc(list.name)}</strong><small>${Number(list.member_count)} people · ${Number(list.batch_count || 0)} sends</small></span><span>${Number(list.test_count)}</span></button>`).join('')}</div></aside>${editor}</div></div>`;
 }
 
 function renderTeam() {
@@ -309,7 +591,7 @@ function renderCandidates() {
   const resendDisabled = !state.health.email?.configured || !selectedIds.length || !selectedTestId || state.busy;
   const resendHelp = !state.health.email?.configured ? '<p class="field-help">Connect Brevo in Settings before sending tests.</p>' : '<p class="field-help">Candidates with available attempts can be sent for the first time or resent. Previous language falls back to Spanish for first sends.</p>';
   const bulkBar = `<div class="candidate-bulk-bar"><div class="bulk-selection"><strong>${selectedIds.length} selected</strong><span>${eligibleIds.size} eligible in this view</span></div><label class="compact-select"><span>Test</span><select class="select" id="bulk-resend-test">${testOptions}</select></label><label class="compact-select"><span>Email language</span><select class="select" id="bulk-resend-locale"><option value="previous" ${state.bulkResendLocale === 'previous' ? 'selected' : ''}>Previous or Spanish</option><option value="en" ${state.bulkResendLocale === 'en' ? 'selected' : ''}>English</option><option value="es" ${state.bulkResendLocale === 'es' ? 'selected' : ''}>Español</option></select></label><button class="button button-primary" data-action="bulk-resend" ${resendDisabled ? 'disabled' : ''}>${icon('send')}Send / resend ${selectedIds.length}</button>${resendHelp}</div>`;
-  return `${pageIntro('Role-scoped records', 'Candidates', `${scope}. Invitation and assessment states come from the audit database.`, `<button class="button button-primary" data-nav="import">${icon('plus')}Import candidates</button>`)}<section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search candidates"></div><select class="select" id="candidate-status">${['All', 'Not invited', 'accepted', 'delivered', 'Completed', 'failed'].map((status) => `<option ${state.filteredStatus === status ? 'selected' : ''}>${status}</option>`).join('')}</select></div><span class="badge badge-neutral">${candidates.length} records</span></div>${bulkBar}${candidateTable(candidates, selectedTestId, selectedIds)}</section>`;
+  return `${pageIntro('Company directory', 'Candidates', `${scope}. Full directory — use Lists to work with a cohort.`, actionIconButton('upload', 'Import candidates', 'data-nav="import"'))}<section class="card"><div class="card-header"><div class="toolbar"><div class="search">${icon('search')}<input class="input" id="candidate-search" value="${esc(state.search)}" placeholder="Search all candidates"></div><select class="select" id="candidate-status">${['All', 'Not invited', 'accepted', 'delivered', 'Completed', 'failed'].map((status) => `<option ${state.filteredStatus === status ? 'selected' : ''}>${status}</option>`).join('')}</select></div><span class="badge badge-neutral">${candidates.length}</span></div>${bulkBar}${candidateTable(candidates, selectedTestId, selectedIds)}</section>`;
 }
 
 function bulkResendEligible(candidate, testId) {
@@ -578,7 +860,8 @@ function channelStatusCard(channel, config = {}) {
 }
 
 function actionIconButton(iconName, label, attrs = '', danger = false) {
-  return `<button class="button icon-button material-action ${danger ? 'danger' : ''}" type="button" ${attrs} title="${esc(label)}" aria-label="${esc(label)}">${icon(iconName)}</button>`;
+  const hasType = /\btype\s*=/.test(attrs);
+  return `<button class="button icon-button material-action ${danger ? 'danger' : ''}" ${hasType ? '' : 'type="button"'} ${attrs} title="${esc(label)}" aria-label="${esc(label)}">${icon(iconName)}</button>`;
 }
 
 function channelIcon(channel) {
@@ -586,9 +869,14 @@ function channelIcon(channel) {
 }
 
 function journeyNode({ type = 'action', number = '', title, subtitle, channel = '', meta = '', controls = '' }) {
+  if (type === 'trigger') {
+    return `<div class="flow-node flow-trigger" title="${esc(title)} · ${esc(subtitle)}" aria-label="${esc(title)}. ${esc(subtitle)}">
+      <div class="flow-icon" aria-hidden="true"></div>
+    </div>`;
+  }
   return `<div class="flow-node flow-${type} ${channel ? `flow-${channel}` : ''}">
     <span class="flow-number">${esc(number)}</span>
-    <div class="flow-icon">${esc(channel ? channelIcon(channel) : type === 'trigger' ? 'TR' : 'OK')}</div>
+    <div class="flow-icon">${esc(channel ? channelIcon(channel) : 'OK')}</div>
     <div class="flow-node-copy"><strong>${esc(title)}</strong><span>${esc(subtitle)}</span>${meta ? `<small>${esc(meta)}</small>` : ''}</div>
     ${controls}
   </div>`;
@@ -692,8 +980,29 @@ function renderTemplateManager() {
   return `${form}<section class="template-grid">${rows || '<div class="empty-panel"><h3>No templates yet</h3><p>Create approved WhatsApp templates and reusable email/SMS content before building journeys.</p></div>'}</section>`;
 }
 
+function journeyFunnelDateValue(journey) {
+  const raw = journey.updated_at || journey.created_at || '';
+  if (!raw) return null;
+  const day = String(raw).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
 function renderJourneyFunnel() {
-  const rows = state.journeys.map((journey) => {
+  const journeys = gazelleJourneys();
+  const textFilter = String(state.journeyFunnelFilter || '').trim().toLowerCase();
+  const from = String(state.journeyFunnelFrom || '').trim();
+  const to = String(state.journeyFunnelTo || '').trim();
+  const filtered = journeys.filter((journey) => {
+    if (textFilter && !`${journey.name} ${journey.list_name || ''} ${journey.test_name_en || ''}`.toLowerCase().includes(textFilter)) {
+      return false;
+    }
+    const day = journeyFunnelDateValue(journey);
+    if (from && (!day || day < from)) return false;
+    if (to && (!day || day > to)) return false;
+    return true;
+  });
+  const sectionOpen = Boolean(state.journeyFunnelOpen);
+  const rows = filtered.map((journey) => {
     const members = Number(journey.list_member_count || 0);
     const enrolled = Number(journey.enrollment_count || 0);
     const contacted = Number(journey.contacted_candidate_count || 0);
@@ -704,25 +1013,52 @@ function renderJourneyFunnel() {
       ['List', members],
       ['Enrolled', enrolled],
       ['Contacted', contacted],
-      ['Completed', completed],
+      ['Done', completed],
       ['Pending', pending],
       ['Failed', failed],
     ];
-    const max = Math.max(1, ...stages.map(([, value]) => value));
-    return `<article class="journey-funnel-row"><div><strong>${esc(journey.name)}</strong><span>${esc(journey.list_name)} · ${esc(journey.test_name_en)}</span></div><div class="journey-funnel-bars">${stages.map(([label, value]) => `<label><span>${esc(label)}</span><i><em style="width:${Math.max(5, Math.round((value / max) * 100))}%"></em></i><b>${value}</b></label>`).join('')}</div></article>`;
+    const open = Boolean(state.journeyFunnelExpanded?.[journey.id]);
+    const day = journeyFunnelDateValue(journey);
+    return `<div class="journey-funnel-row ${open ? 'is-open' : ''}">
+      <button type="button" class="journey-funnel-toggle" data-funnel-row="${esc(journey.id)}" aria-expanded="${open ? 'true' : 'false'}" title="${open ? 'Collapse' : 'Expand'}">
+        <span class="journey-funnel-chevron" aria-hidden="true">${icon(open ? 'up' : 'down')}</span>
+        <span class="journey-funnel-copy"><strong>${esc(journey.name)}</strong><small>${esc(journey.list_name)}${day ? ` · ${esc(day)}` : ''}</small></span>
+        <span class="journey-funnel-count">${enrolled}</span>
+      </button>
+      <div class="journey-funnel-detail">
+        ${stages.map(([label, value]) => `<span class="journey-funnel-chip"><em>${esc(label)}</em><b>${value}</b></span>`).join('')}
+      </div>
+    </div>`;
   }).join('');
-  return `<section class="card"><div class="card-header"><div><h3>Journey funnel</h3><p>Track where each list stands inside its journey lifecycle.</p></div>${icon('chart')}</div><div class="card-body journey-funnel">${rows || '<div class="empty-panel compact"><h3>No journey funnel yet</h3><p>Create and enroll a journey to see list progress.</p></div>'}</div></section>`;
+  const hasFilters = Boolean(textFilter || from || to);
+  return `<section class="card journey-funnel-section ${sectionOpen ? 'is-open' : ''}">
+    <div class="card-header journey-funnel-head">
+      <div><h3>Journey funnel</h3><p>Track where each list stands inside its journey lifecycle.</p></div>
+      ${actionIconButton(sectionOpen ? 'up' : 'down', sectionOpen ? 'Collapse funnel' : 'Expand funnel', 'data-funnel-section-toggle')}
+    </div>
+    <div class="journey-funnel-section-body">
+      <div class="journey-funnel-toolbar">
+        <div class="search">${icon('search')}<input class="input" id="journey-funnel-filter" value="${esc(state.journeyFunnelFilter || '')}" placeholder="Filter by name or list"></div>
+        <label class="journey-funnel-date"><span>From</span><input class="input" id="journey-funnel-from" type="date" value="${esc(state.journeyFunnelFrom || '')}"></label>
+        <label class="journey-funnel-date"><span>To</span><input class="input" id="journey-funnel-to" type="date" value="${esc(state.journeyFunnelTo || '')}"></label>
+        <span class="badge badge-neutral">${filtered.length}/${journeys.length}</span>
+      </div>
+      <div class="journey-funnel">${rows || `<div class="journey-funnel-empty">${hasFilters ? 'No journeys match these filters.' : 'No journeys yet.'}</div>`}</div>
+    </div>
+  </section>`;
 }
 
 function renderContactability() {
   const messaging = state.health.messaging || {};
-  const activeTests = state.tests.filter((test) => test.status === 'active' && test.engine_key === 'tenure_potential');
-  const activeJourneys = state.journeys.filter((journey) => journey.status === 'active').length;
-  const queued = state.journeys.reduce((sum, journey) => sum + Number(journey.queued_event_count || 0), 0);
-  const accepted = state.journeys.reduce((sum, journey) => sum + Number(journey.accepted_event_count || 0), 0);
-  const failed = state.journeys.reduce((sum, journey) => sum + Number(journey.failed_event_count || 0), 0);
+  const activeTests = gazelleTests().filter((test) => test.status === 'active' && test.engine_key === 'tenure_potential');
+  const journeys = gazelleJourneys();
+  const lists = gazelleLists();
+  const activeJourneys = journeys.filter((journey) => journey.status === 'active').length;
+  const queued = journeys.reduce((sum, journey) => sum + Number(journey.queued_event_count || 0), 0);
+  const accepted = journeys.reduce((sum, journey) => sum + Number(journey.accepted_event_count || 0), 0);
+  const failed = journeys.reduce((sum, journey) => sum + Number(journey.failed_event_count || 0), 0);
   const approvedWhatsapp = state.templates.filter((template) => template.channel === 'whatsapp' && ['approved', 'active'].includes(template.status)).length;
-  const listOptions = state.lists.map((list) => `<option value="${list.id}">${esc(list.name)} · ${esc(list.company_name)} · ${Number(list.member_count)} candidates</option>`).join('');
+  const listOptions = lists.map((list) => `<option value="${list.id}">${esc(list.name)} · ${esc(list.company_name)} · ${Number(list.member_count)} candidates</option>`).join('');
   const testOptions = activeTests.map((test) => `<option value="${test.id}">${esc(test.name_en)}</option>`).join('');
   const whatsappGuard = approvedWhatsapp
     ? `<span class="badge badge-teal">${approvedWhatsapp} approved WhatsApp template${approvedWhatsapp === 1 ? '' : 's'}</span>`
@@ -743,17 +1079,17 @@ function renderContactability() {
         <div class="journey-step-grid">${journeyStepInputs()}</div>
         <div class="notice notice-info"><strong>Publication guard:</strong> active journeys validate every step before saving. Email, SMS, and WhatsApp require configured providers; WhatsApp requires an approved template; API steps require a valid HTTPS endpoint.</div>
         <div class="notice notice-info"><strong>Execution rule:</strong> a candidate is skipped automatically once they complete the selected test. Email, SMS, and WhatsApp create auditable invitations; API webhooks trigger external systems without consuming a test attempt.</div>
-        <button class="button button-primary" type="submit" ${!state.lists.length || !activeTests.length || state.busy ? 'disabled' : ''}>${icon('plus')}Publish journey</button>
+        <button class="button button-primary" type="submit" ${!lists.length || !activeTests.length || state.busy ? 'disabled' : ''}>${icon('plus')}Publish journey</button>
       </form>
     </section>
     ${renderTemplateManager()}
     <section class="card"><div class="card-header"><div><h3>Saved journeys</h3><p>Enroll a list when the flow is ready. The scheduled Worker checks due events every minute.</p></div></div>
-      <div class="journey-flow-list">${state.journeys.map((journey) => `<article class="journey-flow-card">
+      <div class="journey-flow-list">${journeys.map((journey) => `<article class="journey-flow-card">
         <div class="journey-flow-head"><div><strong>${esc(journey.name)}</strong><span>${esc(journey.company_name)} · ${esc(journey.test_name_en)}</span></div>${statusBadge(journey.status)}</div>
         ${journeyFlowPreview(journey)}
         <div class="flow-stats"><span>${Number(journey.enrollment_count || 0)} enrolled</span><span>${Number(journey.completed_count || 0)} completed</span><span>${Number(journey.queued_event_count || 0)} queued</span><span>${Number(journey.accepted_event_count || 0)} accepted</span><span>${Number(journey.skipped_event_count || 0)} skipped</span><span>${Number(journey.failed_event_count || 0)} failed</span></div>
         <div class="journey-flow-actions">${actionIconButton(journey.status === 'active' ? 'clock' : 'check', journey.status === 'active' ? 'Pause journey' : 'Activate journey', `data-journey-status="${journey.id}" data-status="${journey.status === 'active' ? 'paused' : 'active'}"`)}<button class="button button-primary" data-enroll-journey="${journey.id}" ${journey.status !== 'active' || state.busy ? 'disabled' : ''}>${icon('users')}Enroll list</button></div>
-      </article>`).join('') || '<div class="empty-panel"><h3>No journeys yet</h3><p>Create the first flow before enrolling candidates.</p></div>'}</div>
+      </article>`).join('') || '<div class="empty-panel"><h3>No journeys yet</h3><p>Create the first Gazelle flow before enrolling candidates.</p></div>'}</div>
     </section></div>`;
 }
 
@@ -1514,6 +1850,7 @@ async function submitAuth(event) {
     name: document.getElementById('auth-name')?.value,
     companyName: document.getElementById('auth-company')?.value,
     bootstrapToken: document.getElementById('auth-bootstrap')?.value,
+    playbookIntent: state.playbookIntent || undefined,
   };
   state.busy = true; state.error = ''; render();
   try {
@@ -1538,6 +1875,24 @@ async function submitAuth(event) {
       return;
     }
     state.accountPending = false;
+    const safeReturn = (() => {
+      const raw = String(state.returnTo || '').trim();
+      if (!raw.startsWith('/')) return '';
+      if (raw.startsWith('//') || raw.includes('://')) return '';
+      return raw.slice(0, 300);
+    })();
+    if (safeReturn) {
+      location.assign(safeReturn);
+      return;
+    }
+    if (state.playbookIntent === 'recupera') {
+      location.assign(mode === 'signup' ? '/ryvo/?open=recupera&action=studio' : '/ryvo/?open=recupera');
+      return;
+    }
+    if (state.playbookIntent === 'gazellehunt' || state.playbookIntent === 'gazelle') {
+      location.assign('/ryvo/?open=gazellehunt');
+      return;
+    }
     await loadWorkspace();
   } catch (error) {
     state.error = error.message;
@@ -1559,6 +1914,7 @@ async function createList(event) {
     state.lists = response.lists || [];
     state.selectedListId = response.listId;
     state.listCandidateSearch = '';
+    state.listPeopleMode = 'add';
     toast('Candidate list created.');
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
@@ -1608,16 +1964,36 @@ async function updateList(event) {
   const list = state.lists.find((entry) => entry.id === state.selectedListId);
   if (!list) return;
   const candidateInputs = [...document.querySelectorAll('input[name="list-candidate"]')];
-  const visibleCandidateIds = candidateInputs.map((input) => input.value);
-  const checkedCandidateIds = candidateInputs.filter((input) => input.checked).map((input) => input.value);
-  const hiddenSelectedIds = list.member_ids.filter((candidateId) => !visibleCandidateIds.includes(candidateId));
-  const candidateIds = [...new Set([...hiddenSelectedIds, ...checkedCandidateIds])];
   const testIds = [...document.querySelectorAll('input[name="list-test"]:checked')].map((input) => input.value);
+  let candidateIds = list.member_ids || [];
+  if (candidateInputs.length) {
+    const visibleCandidateIds = candidateInputs.map((input) => input.value);
+    const checkedCandidateIds = candidateInputs.filter((input) => input.checked).map((input) => input.value);
+    const hiddenSelectedIds = (list.member_ids || []).filter((candidateId) => !visibleCandidateIds.includes(candidateId));
+    candidateIds = [...new Set([...hiddenSelectedIds, ...checkedCandidateIds])];
+  }
   state.busy = true;
   try {
     const response = await fetchJson(`/api/lists/${encodeURIComponent(list.id)}`, { method: 'PATCH', body: JSON.stringify({ candidateIds, testIds }) });
     state.lists = response.lists || [];
+    state.listPeopleMode = 'members';
     toast('List membership and tests saved.');
+  } catch (error) { toast(error.message); }
+  finally { state.busy = false; render(); }
+}
+
+async function removeListMember(candidateId) {
+  const list = state.lists.find((entry) => entry.id === state.selectedListId);
+  if (!list) return;
+  const candidateIds = (list.member_ids || []).filter((id) => id !== candidateId);
+  state.busy = true;
+  try {
+    const response = await fetchJson(`/api/lists/${encodeURIComponent(list.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ candidateIds, testIds: list.test_ids || [] }),
+    });
+    state.lists = response.lists || [];
+    toast('Removed from list.');
   } catch (error) { toast(error.message); }
   finally { state.busy = false; render(); }
 }
@@ -2019,12 +2395,60 @@ function bindEvents() {
   document.getElementById('list-editor-form')?.addEventListener('submit', updateList);
   document.getElementById('test-form')?.addEventListener('submit', createTest);
   document.getElementById('password-form')?.addEventListener('submit', changePassword);
-  document.querySelectorAll('[data-list-id]').forEach((button) => button.addEventListener('click', () => { state.selectedListId = button.dataset.listId; state.listCandidateSearch = ''; render(); }));
+  document.querySelectorAll('[data-list-id]').forEach((button) => button.addEventListener('click', () => {
+    state.selectedListId = button.dataset.listId;
+    state.listCandidateSearch = '';
+    state.listPeopleMode = 'members';
+    render();
+  }));
+  document.querySelectorAll('[data-list-people-mode]').forEach((button) => button.addEventListener('click', () => {
+    state.listPeopleMode = button.dataset.listPeopleMode === 'add' ? 'add' : 'members';
+    state.listCandidateSearch = '';
+    render();
+  }));
+  document.querySelectorAll('[data-remove-list-member]').forEach((button) => button.addEventListener('click', () => removeListMember(button.dataset.removeListMember)));
+  document.querySelectorAll('[data-open-candidate]').forEach((button) => button.addEventListener('click', () => {
+    state.view = 'candidates';
+    state.search = state.candidates.find((item) => item.id === button.dataset.openCandidate)?.name || '';
+    state.filteredStatus = 'All';
+    render();
+  }));
   document.querySelectorAll('[data-archive-list]').forEach((button) => button.addEventListener('click', () => archiveList(button.dataset.archiveList)));
   document.querySelectorAll('[data-delete-list]').forEach((button) => button.addEventListener('click', () => deleteList(button.dataset.deleteList)));
   document.querySelectorAll('[data-batch-list]').forEach((button) => button.addEventListener('click', () => sendBatch(button.dataset.batchList)));
   document.querySelectorAll('[data-enroll-journey]').forEach((button) => button.addEventListener('click', () => enrollContactabilityJourney(button.dataset.enrollJourney)));
   document.querySelectorAll('[data-journey-status]').forEach((button) => button.addEventListener('click', () => updateContactabilityJourneyStatus(button.dataset.journeyStatus, button.dataset.status)));
+  document.querySelectorAll('[data-funnel-section-toggle]').forEach((button) => button.addEventListener('click', () => {
+    state.journeyFunnelOpen = !state.journeyFunnelOpen;
+    render();
+  }));
+  document.querySelectorAll('[data-funnel-row]').forEach((button) => button.addEventListener('click', () => {
+    const id = button.dataset.funnelRow;
+    state.journeyFunnelExpanded = { ...(state.journeyFunnelExpanded || {}), [id]: !state.journeyFunnelExpanded?.[id] };
+    render();
+  }));
+  const restoreFunnelField = (id, apply) => {
+    const field = document.getElementById(id);
+    if (!field) return;
+    field.addEventListener('input', () => {
+      const cursor = field.selectionStart;
+      apply(field.value || '');
+      render();
+      const next = document.getElementById(id);
+      if (next && (next.type === 'text' || next.tagName === 'INPUT' && next.type !== 'date')) {
+        next.focus();
+        try { next.setSelectionRange(cursor, cursor); } catch { /* ignore */ }
+      } else if (next) next.focus();
+    });
+    field.addEventListener('change', () => {
+      apply(field.value || '');
+      render();
+      document.getElementById(id)?.focus();
+    });
+  };
+  restoreFunnelField('journey-funnel-filter', (value) => { state.journeyFunnelFilter = value; });
+  restoreFunnelField('journey-funnel-from', (value) => { state.journeyFunnelFrom = value; });
+  restoreFunnelField('journey-funnel-to', (value) => { state.journeyFunnelTo = value; });
   document.querySelectorAll('[data-add-journey-step]').forEach((button) => button.addEventListener('click', addJourneyStep));
   document.querySelectorAll('[data-insert-journey-step]').forEach((button) => button.addEventListener('click', () => insertJourneyStep(button.dataset.insertJourneyStep)));
   document.querySelectorAll('[data-remove-journey-step]').forEach((button) => button.addEventListener('click', () => removeJourneyStep(button.dataset.removeJourneyStep)));
@@ -2052,7 +2476,14 @@ function bindEvents() {
     state.selectedCandidateIds = [...selected];
     render();
   }));
-  document.getElementById('list-candidate-search')?.addEventListener('input', (event) => { state.listCandidateSearch = event.target.value; render(); });
+  document.getElementById('list-candidate-search')?.addEventListener('input', (event) => {
+    const cursor = event.target.selectionStart;
+    state.listCandidateSearch = event.target.value;
+    render();
+    const input = document.getElementById('list-candidate-search');
+    input?.focus();
+    if (Number.isInteger(cursor)) input?.setSelectionRange(cursor, cursor);
+  });
   document.getElementById('csv-file')?.addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const parsed = parseCsv(reader.result); const targetList = state.lists.find((list) => list.id === state.importTargetListId); state.csv = { name: file.name, ...parsed, mapping: parsed.headers.map(guessedMapping), defaultRole: 'Bilingual Customer Care', defaultSite: '', listId: targetList?.id || '', companyId: targetList?.company_id || state.user?.companyId || state.companies[0]?.id || '' }; render(); }; reader.readAsText(file); });
   document.querySelectorAll('.mapping-select').forEach((select) => select.addEventListener('change', () => {
     const column = Number(select.dataset.column);
@@ -2133,8 +2564,31 @@ function bindRunner() {
 const initialSearch = new URLSearchParams(location.search);
 const inviteToken = initialSearch.get('invite');
 state.resetToken = initialSearch.get('reset') || '';
+state.playbookIntent = String(
+  initialSearch.get('playbook')
+  || initialSearch.get('playbookIntent')
+  || document.documentElement?.dataset?.playbook
+  || '',
+).trim().slice(0, 40).toLowerCase();
+state.returnTo = String(initialSearch.get('returnTo') || '').trim().slice(0, 300);
+const authParam = String(initialSearch.get('auth') || '').trim().toLowerCase();
 if (state.resetToken) state.authMode = 'reset';
+else if (authParam === 'signup' || authParam === 'register') state.authMode = 'signup';
+else if (authParam === 'forgot') state.authMode = 'forgot';
+else if (authParam === 'login' || authParam === 'signin') state.authMode = 'login';
+
+const wantsAuthSurface = Boolean(state.resetToken)
+  || ['login', 'signin', 'signup', 'register', 'forgot', 'reset'].includes(authParam);
+
 if (location.pathname.startsWith('/candidate')) globalThis.GazelleCandidatePortal.start();
 else if (inviteToken) startInvite(inviteToken);
-else if (state.resetToken) { state.loading = false; state.adminAuthenticated = false; render(); }
-else { render(); loadWorkspace(); }
+else if (wantsAuthSurface) {
+  // Paint the product-branded auth UI immediately — do not flash the Gazelle workspace shell.
+  state.loading = false;
+  state.adminAuthenticated = false;
+  render();
+  loadWorkspace({ silent: true }).catch(() => {});
+} else {
+  render();
+  loadWorkspace();
+}

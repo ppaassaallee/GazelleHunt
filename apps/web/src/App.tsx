@@ -9,16 +9,47 @@ import { WorkPage } from "@/pages/WorkPage";
 import { InsightsPage } from "@/pages/InsightsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import type { NavItem } from "@/components/nav";
-import type { MeikapenUser } from "@/lib/auth";
+import { isMeikapenAdmin, type MeikapenUser } from "@/lib/auth";
+
+type ProductMode = "admin" | "recupera" | "gazellehunt";
+
+function parseProductFromLocation(): {
+  mode: ProductMode;
+  action: RecuperaOpenAction;
+} {
+  if (typeof window === "undefined") return { mode: "admin", action: null };
+  const params = new URLSearchParams(window.location.search);
+  const open = params.get("open");
+  const actionRaw = params.get("action");
+  const action: RecuperaOpenAction =
+    actionRaw === "studio" ||
+    actionRaw === "add" ||
+    actionRaw === "import" ||
+    actionRaw === "onboarding"
+      ? actionRaw
+      : null;
+  if (open === "recupera" || open === "recupero") {
+    return { mode: "recupera", action };
+  }
+  if (open === "gazellehunt" || open === "gazelle") {
+    return { mode: "gazellehunt", action: null };
+  }
+  return { mode: "admin", action: null };
+}
 
 function AuthenticatedApp({ user }: { user: MeikapenUser }) {
+  const initial = parseProductFromLocation();
+  const [mode, setMode] = useState<ProductMode>(initial.mode);
   const [active, setActive] = useState<NavItem>("home");
-  const [recuperaOpen, setRecuperaOpen] = useState(false);
-  const [recuperaAction, setRecuperaAction] = useState<RecuperaOpenAction>(null);
+  const [recuperaAction, setRecuperaAction] = useState<RecuperaOpenAction>(
+    initial.action,
+  );
   const [commandOpen, setCommandOpen] = useState(false);
+  const admin = isMeikapenAdmin(user);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      if (mode !== "admin") return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandOpen(true);
@@ -26,56 +57,103 @@ function AuthenticatedApp({ user }: { user: MeikapenUser }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [mode]);
+
+  useEffect(() => {
+    if (initial.mode === "admin") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("open");
+    url.searchParams.delete("action");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [initial.mode]);
+
+  useEffect(() => {
+    if (mode !== "gazellehunt") return;
+    // Gazelle Hunt workspace is the legacy app on the same meikapen.com host (/app)
+    // so the session cookie set at login stays valid.
+    window.location.replace("/app");
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "admin") return;
+    if (admin) return;
+    // Non-admins don't use the Meikapen platform shell — send them to a product landing.
+    window.location.replace("https://meikapen.com/recupero");
+  }, [mode, admin]);
 
   function navigate(item: NavItem) {
-    setRecuperaOpen(false);
-    setRecuperaAction(null);
     setActive(item);
   }
 
-  function openRecupera(opts?: { action?: RecuperaOpenAction }) {
-    setActive("playbooks");
-    setRecuperaAction(opts?.action ?? null);
-    setRecuperaOpen(true);
+  if (mode === "gazellehunt") {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-[var(--background)] text-[var(--text-secondary)]">
+        <p className="text-sm">Abriendo Gazelle Hunt…</p>
+      </div>
+    );
+  }
+
+  if (mode === "recupera") {
+    return (
+      <RecuperaPage
+        key={String(recuperaAction)}
+        initialAction={recuperaAction}
+        isolated
+        onBack={
+          admin
+            ? () => {
+                setRecuperaAction(null);
+                setMode("admin");
+                setActive("home");
+              }
+            : undefined
+        }
+      />
+    );
+  }
+
+  if (!admin) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-[var(--background)] text-[var(--text-secondary)]">
+        <p className="text-sm">Redirigiendo…</p>
+      </div>
+    );
   }
 
   return (
     <>
       <Shell active={active} onNavigate={navigate} onOpenCommand={() => setCommandOpen(true)}>
-        {recuperaOpen ? (
-          <RecuperaPage
-            key={String(recuperaAction)}
-            initialAction={recuperaAction}
-            onBack={() => {
-              setRecuperaOpen(false);
+        {active === "home" && (
+          <HomePage
+            user={user}
+            onOpenPlaybooks={() => setActive("playbooks")}
+            onOpenRecupera={() => {
               setRecuperaAction(null);
+              setMode("recupera");
+            }}
+            onOpenWork={() => setActive("work")}
+          />
+        )}
+        {active === "playbooks" && (
+          <PlaybooksPage
+            onOpenRecupera={() => {
+              setRecuperaAction(null);
+              setMode("recupera");
             }}
           />
-        ) : (
-          <>
-            {active === "home" && (
-              <HomePage
-                user={user}
-                onOpenPlaybooks={() => setActive("playbooks")}
-                onOpenRecupera={() => openRecupera()}
-                onOpenWork={() => setActive("work")}
-              />
-            )}
-            {active === "playbooks" && (
-              <PlaybooksPage onOpenRecupera={() => openRecupera()} />
-            )}
-            {active === "work" && <WorkPage />}
-            {active === "insights" && <InsightsPage />}
-            {active === "settings" && <SettingsPage user={user} />}
-          </>
         )}
+        {active === "work" && <WorkPage />}
+        {active === "insights" && <InsightsPage />}
+        {active === "settings" && <SettingsPage user={user} />}
       </Shell>
       <CommandPalette
         open={commandOpen}
         onClose={() => setCommandOpen(false)}
         onNavigate={navigate}
-        onOpenRecupera={openRecupera}
+        onOpenRecupera={() => {
+          setRecuperaAction(null);
+          setMode("recupera");
+        }}
       />
     </>
   );

@@ -125,7 +125,7 @@ export function CommandPalette({ open, onClose, onNavigate, onOpenRecupera }: Pr
         },
         {
           id: "act-studio",
-          label: "Personalizar estrategia",
+          label: "Flujos y plantillas",
           group: "Acciones" as const,
           run: () => onOpenRecupera({ action: "studio" }),
         },

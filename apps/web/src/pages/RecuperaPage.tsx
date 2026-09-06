@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Sparkles,
   Upload,
+  Workflow,
   X,
 } from "lucide-react";
 import { ContextMenu } from "@/components/ContextMenu";
@@ -35,8 +36,10 @@ import {
 export type RecuperaOpenAction = "add" | "import" | "onboarding" | "studio" | null;
 
 type Props = {
-  onBack: () => void;
+  onBack?: () => void;
   initialAction?: RecuperaOpenAction;
+  /** Product mode: no Meikapen shell / playbook mixing. */
+  isolated?: boolean;
 };
 
 type Panel = "none" | "add" | "csv" | "reply";
@@ -69,7 +72,7 @@ function stageTone(stageKey: string) {
   return "text-[var(--text-secondary)]";
 }
 
-export function RecuperaPage({ onBack, initialAction = null }: Props) {
+export function RecuperaPage({ onBack, initialAction = null, isolated = false }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -323,10 +326,12 @@ export function RecuperaPage({ onBack, initialAction = null }: Props) {
     <div className="mx-auto max-w-4xl px-5 py-8 md:px-8 md:py-10">
       <div className="mb-8 flex items-start justify-between gap-4">
         <div className="flex items-start gap-2">
-          <IconButton label="Volver a playbooks" icon={ArrowLeft} onClick={onBack} tone="ghost" />
+          {!isolated && onBack ? (
+            <IconButton label="Volver a playbooks" icon={ArrowLeft} onClick={onBack} tone="ghost" />
+          ) : null}
           <div>
             <p className="text-[11px] font-medium tracking-[0.14em] text-[var(--text-secondary)] uppercase">
-              Recupera · by Meikapen
+              Recupero · by Meikapen
             </p>
             <h1 className="mt-1 text-[28px] font-semibold tracking-tight">Cobranza</h1>
             <p className="mt-1 text-sm text-[var(--text-secondary)]">Rocío powered by Meikapen</p>
@@ -358,7 +363,7 @@ export function RecuperaPage({ onBack, initialAction = null }: Props) {
                   },
                   {
                     id: "studio",
-                    label: "Personalizar estrategia",
+                    label: "Flujos y plantillas",
                     onSelect: () => setStudioOpen(true),
                   },
                   {
@@ -434,6 +439,14 @@ export function RecuperaPage({ onBack, initialAction = null }: Props) {
               {obligations.length} cuentas · estrategia{" "}
               {installation.config?.strategyKey || "EQUILIBRADA"}
             </p>
+            <button
+              type="button"
+              onClick={() => setStudioOpen(true)}
+              className="mt-5 inline-flex h-9 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border)] px-3 text-sm font-medium transition-colors duration-[var(--motion)] hover:bg-[var(--hover)]"
+            >
+              <Workflow size={16} strokeWidth={1.75} aria-hidden />
+              Ver flujos y plantillas
+            </button>
           </section>
 
           {panel === "add" ? (
@@ -685,7 +698,7 @@ export function RecuperaPage({ onBack, initialAction = null }: Props) {
                 },
                 {
                   id: "studio",
-                  label: "Personalizar estrategia",
+                  label: "Flujos y plantillas",
                   onSelect: () => setStudioOpen(true),
                 },
               ]}

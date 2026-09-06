@@ -78,7 +78,7 @@ export function PlaybooksPage({ onOpenRecupera }: Props) {
           description="by Meikapen · contratación"
           status="Abrir"
           active
-          href="/gazellehunt"
+          href="/ryvo/?open=gazellehunt"
         />
         <PlaybookRow
           name="Recupera"

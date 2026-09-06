@@ -22,7 +22,8 @@
 - [x] Smoke paths + password reset
 - [x] Aviso login en workers.dev
 - [x] **Recupera encendido en prod**
-- [ ] Apex `meikapen.com` + `www` → Custom Domain en dashboard (DNS NS ya Cloudflare; attach wrangler 409)
+- [x] Apex `meikapen.com` + `www` → Worker zone routes (`meikapen.com/*`, `www.meikapen.com/*`)
+- [x] Marketing canónico: `https://meikapen.com/recupera` (gazellehunt `/recupera` → 301)
 - [ ] Infobip webhook + botón WA → host nuevo
 - [ ] Brevo webhook → host nuevo
 - [ ] Google OAuth redirect (si aplica candidatos)

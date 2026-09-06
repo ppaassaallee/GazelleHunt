@@ -870,6 +870,106 @@ async function recuperaInboundMessageRequest(request, env, user, obligationId) {
   }, 201);
 }
 
+/**
+ * Starter templates for the studio. Placeholders are limited to {{name}}, {{brand}} and {{role}}:
+ * the runtime resolves {{link}} to an assessment invitation, which is meaningless for a payer.
+ */
+function recuperaStudioDefaultTemplates(companyId) {
+  return [
+    {
+      id: `tpl_recupera_wa_${companyId}`,
+      channel: 'whatsapp',
+      provider: 'infobip',
+      name: 'Recupera · recordatorio WhatsApp',
+      providerTemplateName: 'recupera_recordatorio',
+      status: 'draft',
+      subjectEn: null,
+      subjectEs: null,
+      messageEn: 'Hi {{name}}, {{brand}} here about your account {{role}}. Reply to this message and we will send your payment link.',
+      messageEs: 'Hola {{name}}, le escribimos de {{brand}} por su cuenta {{role}}. Responda a este mensaje y le enviamos su enlace de pago.',
+    },
+    {
+      id: `tpl_recupera_email_${companyId}`,
+      channel: 'email',
+      provider: 'brevo',
+      name: 'Recupera · recordatorio correo',
+      providerTemplateName: 'recupera_recordatorio_email',
+      status: 'active',
+      subjectEn: 'Your account {{role}} with {{brand}}',
+      subjectEs: 'Su cuenta {{role}} con {{brand}}',
+      messageEn: 'Hi {{name}}, your account {{role}} with {{brand}} has a pending balance. Reply to this message and we will send your payment link.',
+      messageEs: 'Hola {{name}}, su cuenta {{role}} con {{brand}} tiene saldo pendiente. Responda a este mensaje y le enviamos su enlace de pago.',
+    },
+    {
+      id: `tpl_recupera_sms_${companyId}`,
+      channel: 'sms',
+      provider: 'infobip',
+      name: 'Recupera · recordatorio SMS',
+      providerTemplateName: 'recupera_recordatorio_sms',
+      status: 'active',
+      subjectEn: null,
+      subjectEs: null,
+      messageEn: '{{brand}}: {{name}}, your account {{role}} is pending. Reply to arrange payment.',
+      messageEs: '{{brand}}: {{name}}, su cuenta {{role}} está pendiente. Responda para coordinar el pago.',
+    },
+  ];
+}
+
+async function recuperaEnsureStudioTemplates(env, companyId, userId) {
+  const existing = await env.DB.prepare(`SELECT COUNT(*) AS count FROM message_templates WHERE company_id = ?`).bind(companyId).first();
+  if (Number(existing?.count) > 0) return false;
+  const now = new Date().toISOString();
+  const statements = recuperaStudioDefaultTemplates(companyId).map((template) => env.DB.prepare(`
+    INSERT OR IGNORE INTO message_templates
+      (id, company_id, channel, provider, name, provider_template_name, provider_template_id, language, status, subject_en, subject_es, message_en, message_es, created_by_user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, NULL, 'es', ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    template.id, companyId, template.channel, template.provider, template.name, template.providerTemplateName,
+    template.status, template.subjectEn, template.subjectEs, template.messageEn, template.messageEs, userId, now, now,
+  ));
+  await env.DB.batch(statements);
+  return true;
+}
+
+async function recuperaEnsureStageJourneys(env, companyId, userId, listId, testId) {
+  const created = [];
+  for (const stageKey of RECUPERA_AGING_STAGE_KEYS) {
+    const journeyName = recuperaJourneyName(stageKey);
+    // recuperaEnsureJourney only reuses `active` journeys; check every status here so a
+    // paused or archived stage flow is never silently duplicated on each studio visit.
+    const existing = await env.DB.prepare(`
+      SELECT id FROM contact_journeys WHERE company_id = ? AND name = ? AND test_id = ? AND list_id = ? LIMIT 1
+    `).bind(companyId, journeyName, testId, listId).first();
+    if (existing?.id) continue;
+    await recuperaEnsureJourney(env, companyId, userId, stageKey, listId, testId);
+    created.push(stageKey);
+  }
+  return created;
+}
+
+async function recuperaGetStudio(request, env, user) {
+  if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
+  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
+  const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
+  if (!company) return json({ error: 'Company not found.', code: 'company_not_found' }, 404);
+  await ensureSchema(env);
+  const testId = await recuperaEnsureTest(env);
+  const listId = await recuperaEnsureList(env, companyId, user.id);
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT OR IGNORE INTO candidate_list_tests (list_id, test_id, added_by_user_id, added_at) VALUES (?, ?, ?, ?)
+  `).bind(listId, testId, user.id, now).run();
+  const createdStages = await recuperaEnsureStageJourneys(env, companyId, user.id, listId, testId);
+  const seededTemplates = await recuperaEnsureStudioTemplates(env, companyId, user.id);
+  if (createdStages.length || seededTemplates) {
+    await audit(env, user.email, 'recupera_studio_seeded', 'company', companyId, { stages: createdStages, templates: seededTemplates });
+  }
+  const journeys = (await listContactJourneys(env, user)).filter((journey) => journey.company_id === companyId);
+  const templates = (await listMessageTemplates(env, user)).filter((template) => template.company_id === companyId);
+  return json({ listId, testId, journeys, templates });
+}
+
 async function handleRecuperaApi(request, env, url, user) {
   if (!url.pathname.startsWith('/api/recupera/')) return null;
   if (url.pathname === '/api/recupera/install' && request.method === 'POST') return recuperaInstallPlaybook(request, env, user);
@@ -887,6 +987,7 @@ async function handleRecuperaApi(request, env, url, user) {
   if (paymentLinkMatch && request.method === 'POST') return recuperaCreatePaymentLinkRequest(request, env, user, paymentLinkMatch[1]);
   const inboundMatch = url.pathname.match(/^\/api\/recupera\/obligations\/([^/]+)\/inbound-message$/);
   if (inboundMatch && request.method === 'POST') return recuperaInboundMessageRequest(request, env, user, inboundMatch[1]);
+  if (url.pathname === '/api/recupera/studio' && request.method === 'GET') return recuperaGetStudio(request, env, user);
   if (url.pathname === '/api/recupera/insights' && request.method === 'GET') return recuperaGetInsights(request, env, user);
   if (url.pathname === '/api/recupera/exceptions' && request.method === 'GET') return recuperaListExceptions(request, env, user);
   const resolveMatch = url.pathname.match(/^\/api\/recupera\/exceptions\/([^/]+)\/([^/]+)\/resolve$/);

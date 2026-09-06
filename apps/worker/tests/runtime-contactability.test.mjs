@@ -38,7 +38,8 @@ assert.equal(blocked.reason, 'do_not_contact');
 const optedOut = contactability.canContact({ opt_out_channels_json: '["whatsapp"]' }, 'whatsapp');
 assert.equal(optedOut.ok, false);
 assert.equal(optedOut.reason, 'opt_out');
-const emailAllowed = contactability.canContact({ opt_out_channels_json: '["whatsapp"]' }, 'email');
+// Explicit time: canContact() defaults to the wall clock, which lands in quiet hours after 21:00.
+const emailAllowed = contactability.canContact({ opt_out_channels_json: '["whatsapp"]' }, 'email', new Date('2026-01-05T12:00:00.000Z'), { defaultTimezone: 'UTC' });
 assert.equal(emailAllowed.ok, true);
 
 const quietBlocked = contactability.canContact({}, 'email', new Date('2026-01-05T06:00:00.000Z'), { defaultTimezone: 'UTC' });

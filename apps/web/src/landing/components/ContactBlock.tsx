@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "@/landing/components/Button";
 
 type Props = {
   heading: string;
@@ -77,13 +78,9 @@ export function ContactBlock({ heading, noteLabel = "Optional note", source }: P
             />
           </label>
           <div className="flex items-center justify-between gap-4 pt-4">
-            <button
-              type="submit"
-              disabled={status === "sending"}
-              className="border-0 bg-transparent p-0 text-[14px] tracking-[0.04em] text-[var(--landing-fg)] transition-opacity duration-[var(--landing-ease)] hover:opacity-70 disabled:opacity-40"
-            >
+            <Button type="submit" variant="primary" tone="dark" disabled={status === "sending"}>
               {status === "sending" ? "Sending…" : "Send →"}
-            </button>
+            </Button>
             {status === "sent" ? (
               <p className="text-[13px] text-[var(--landing-fg-muted)]" role="status">
                 Received.

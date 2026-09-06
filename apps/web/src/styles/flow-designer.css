@@ -1,0 +1,982 @@
+/*
+ * Recupera Journey Studio — flow designer.
+ * Ported from Gazelle Hunt (apps/worker/src/legacy/styles.css: .flow-*, .journey-*, .template-*).
+ * Same visual language (grid canvas, dashed spine, colored channel borders, circular trigger),
+ * scoped under .mk-studio and re-pointed at Meikapen shell tokens so dark mode works.
+ */
+.mk-studio {
+  --flow-line: var(--border, rgba(55, 53, 47, 0.09));
+  --flow-muted: var(--text-secondary, #787774);
+  --flow-surface: var(--surface, #ffffff);
+  --flow-canvas: var(--background, #fbfcfd);
+  --flow-dot: var(--border, rgba(55, 53, 47, 0.2));
+  --flow-spine: var(--text-secondary, #9aa8ad);
+  --flow-teal: var(--accent, #2383e2);
+  --flow-email: var(--accent, #2383e2);
+  --flow-whatsapp: #21a65b;
+  --flow-sms: #d9971c;
+  --flow-api: #4777c4;
+  --flow-trigger: #24d3ad;
+  --flow-goal: var(--success, #0f7b6c);
+}
+
+/* Channel pills */
+.mk-studio .channel-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 2px 3px 2px 0;
+  padding: 4px 8px;
+  border-radius: 5px;
+  color: var(--text-primary);
+  background: var(--surface-secondary);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mk-studio .channel-pill.email {
+  color: #0f5d56;
+  background: #dff4ef;
+}
+.mk-studio .channel-pill.whatsapp {
+  color: #106236;
+  background: #dcf7e7;
+}
+.mk-studio .channel-pill.sms {
+  color: #6d4a08;
+  background: #fff1cf;
+}
+.mk-studio .channel-pill.api {
+  color: #294d84;
+  background: #e5eefc;
+}
+
+/* Designer chrome */
+.mk-studio .flow-designer {
+  overflow: hidden;
+  border: 1px solid var(--flow-line);
+  border-radius: var(--radius-card, 12px);
+  background: var(--flow-surface);
+  box-shadow: var(--shadow-soft, 0 18px 40px rgba(25, 35, 40, 0.08));
+}
+.mk-studio .flow-designer-topbar {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--flow-line);
+  background: var(--flow-surface);
+}
+.mk-studio .flow-designer-title,
+.mk-studio .flow-designer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mk-studio .flow-designer-title strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.mk-studio .flow-designer-actions {
+  justify-content: flex-end;
+}
+/* Canvas */
+.mk-studio .flow-canvas {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0;
+  padding: 40px 18px;
+  background-color: var(--flow-canvas);
+  background-image: radial-gradient(var(--flow-dot) 1px, transparent 1px);
+  background-size: 10px 10px;
+}
+.mk-studio .flow-canvas::before {
+  content: "";
+  position: absolute;
+  top: 78px;
+  bottom: 92px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: linear-gradient(var(--flow-spine) 50%, transparent 0) 0 0 / 2px 16px repeat-y;
+  opacity: 0.45;
+}
+
+/* Nodes */
+.mk-studio .flow-node {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 15px 14px;
+  border: 1px solid var(--flow-line);
+  border-radius: 6px;
+  background: var(--flow-surface);
+  box-shadow: var(--shadow-soft, 0 8px 18px rgba(22, 34, 42, 0.09));
+  text-align: left;
+  box-sizing: border-box;
+}
+.mk-studio .flow-node.flow-trigger {
+  width: 74px;
+  height: 74px;
+  min-width: 74px;
+  max-width: 74px;
+  min-height: 74px;
+  max-height: 74px;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  gap: 0;
+  grid-template-columns: 1fr;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--flow-trigger);
+  box-shadow: 0 10px 24px rgba(36, 211, 173, 0.28);
+  overflow: hidden;
+}
+.mk-studio .flow-node.flow-goal {
+  border-color: color-mix(in srgb, var(--flow-goal) 45%, transparent);
+  background: color-mix(in srgb, var(--flow-goal) 7%, var(--flow-surface));
+}
+.mk-studio .flow-node.flow-whatsapp {
+  border-left: 8px solid var(--flow-whatsapp);
+}
+.mk-studio .flow-node.flow-sms {
+  border-left: 8px solid var(--flow-sms);
+}
+.mk-studio .flow-node.flow-email {
+  border-left: 8px solid var(--flow-email);
+}
+.mk-studio .flow-node.flow-api {
+  border-left: 8px solid var(--flow-api);
+}
+.mk-studio .flow-number {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--flow-teal);
+  transform: translateX(-50%);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 0 0 3px var(--flow-canvas);
+}
+.mk-studio .flow-goal .flow-number {
+  background: var(--flow-goal);
+}
+.mk-studio .flow-trigger .flow-number,
+.mk-studio .flow-trigger .flow-node-copy {
+  display: none;
+}
+.mk-studio .flow-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--flow-email);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+.mk-studio .flow-trigger .flow-icon {
+  background: transparent;
+  color: #fff;
+}
+.mk-studio .flow-whatsapp .flow-icon {
+  background: var(--flow-whatsapp);
+}
+.mk-studio .flow-sms .flow-icon {
+  background: var(--flow-sms);
+}
+.mk-studio .flow-api .flow-icon {
+  background: var(--flow-api);
+}
+.mk-studio .flow-goal .flow-icon {
+  background: var(--flow-goal);
+}
+.mk-studio .flow-node-copy {
+  min-width: 0;
+}
+.mk-studio .flow-node-copy strong,
+.mk-studio .flow-node-copy span,
+.mk-studio .flow-node-copy small {
+  display: block;
+}
+.mk-studio .flow-node-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.mk-studio .flow-node-copy span {
+  margin-top: 4px;
+  color: var(--flow-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.mk-studio .flow-node-copy small {
+  margin-top: 5px;
+  color: var(--flow-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Connectors */
+.mk-studio .flow-connector {
+  position: relative;
+  z-index: 2;
+  width: 2px;
+  height: 78px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+.mk-studio .flow-connector span {
+  position: absolute;
+  left: 18px;
+  min-width: max-content;
+  padding: 4px 9px;
+  border: 1px solid var(--flow-line);
+  border-radius: 999px;
+  color: var(--flow-muted);
+  background: var(--flow-surface);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: var(--shadow-soft, 0 3px 8px rgba(22, 34, 42, 0.06));
+}
+.mk-studio .flow-connector.compact {
+  height: 34px;
+}
+.mk-studio .flow-inline-add {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--flow-line);
+  border-radius: 50%;
+  color: var(--text-primary);
+  background: var(--flow-surface);
+  box-shadow: var(--shadow-soft, 0 6px 16px rgba(22, 34, 42, 0.08));
+  cursor: pointer;
+  transition: border-color var(--motion, 180ms) ease, color var(--motion, 180ms) ease;
+}
+.mk-studio .flow-inline-add:hover {
+  border-color: var(--flow-teal);
+  color: var(--flow-teal);
+}
+.mk-studio .flow-node-actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+  align-self: start;
+}
+
+/* Step configuration */
+.mk-studio .flow-config {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: 8px;
+  border-top: 1px solid var(--flow-line);
+}
+.mk-studio .flow-config summary {
+  padding: 10px 0 0;
+  color: var(--flow-teal);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.mk-studio .flow-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+}
+.mk-studio .flow-designer-footer {
+  min-height: 54px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--flow-line);
+  color: var(--flow-muted);
+  background: var(--flow-surface);
+  font-size: 12px;
+}
+.mk-studio .journey-step-card {
+  min-width: 0;
+  margin: 0;
+}
+.mk-studio .journey-step-card legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* Saved flows */
+.mk-studio .journey-flow-list {
+  display: grid;
+  gap: 16px;
+}
+.mk-studio .journey-flow-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--flow-line);
+  border-radius: var(--radius-card, 12px);
+  background: var(--flow-surface);
+  box-shadow: var(--shadow-soft, none);
+}
+.mk-studio .journey-flow-card.selected {
+  border-color: var(--flow-teal);
+}
+.mk-studio .journey-flow-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.mk-studio .journey-flow-head strong,
+.mk-studio .journey-flow-head span {
+  display: block;
+}
+.mk-studio .journey-flow-head strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.mk-studio .journey-flow-head span {
+  margin-top: 4px;
+  color: var(--flow-muted);
+  font-size: 12px;
+}
+.mk-studio .saved-flow {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  padding: 18px 14px;
+  border-radius: var(--radius-sm, 8px);
+  background-color: var(--flow-canvas);
+  background-image: radial-gradient(var(--flow-dot) 1px, transparent 1px);
+  background-size: 10px 10px;
+  overflow-x: auto;
+}
+.mk-studio .saved-flow .flow-node {
+  width: min(100%, 520px);
+  min-height: 70px;
+  padding: 13px;
+}
+.mk-studio .saved-flow .flow-node.flow-trigger {
+  width: 74px;
+  height: 74px;
+  min-width: 74px;
+  max-width: 74px;
+  min-height: 74px;
+  max-height: 74px;
+  padding: 0;
+  gap: 0;
+  grid-template-columns: 1fr;
+}
+.mk-studio .flow-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.mk-studio .flow-stats span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--surface-secondary);
+  color: var(--flow-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.mk-studio .journey-flow-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Template manager */
+.mk-studio .template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.mk-studio .template-card {
+  padding: 16px;
+  border: 1px solid var(--flow-line);
+  border-radius: var(--radius-card, 12px);
+  background: var(--flow-surface);
+  display: grid;
+  gap: 9px;
+  align-content: start;
+}
+.mk-studio .template-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+.mk-studio .template-card strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.mk-studio .template-card p,
+.mk-studio .template-card small {
+  margin: 0;
+  color: var(--flow-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.mk-studio .template-card p {
+  font-size: 12px;
+}
+.mk-studio .template-card small {
+  font-size: 11px;
+}
+.mk-studio .template-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+.mk-studio .template-create-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+}
+
+/* Form primitives (Meikapen equivalents of Gazelle .field/.input/.select/.textarea) */
+.mk-studio .flow-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+.mk-studio .flow-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.mk-studio .flow-field > span {
+  color: var(--flow-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.mk-studio .flow-field small {
+  color: var(--flow-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.mk-studio .flow-wide {
+  grid-column: 1 / -1;
+}
+.mk-studio .flow-input,
+.mk-studio .flow-select,
+.mk-studio .flow-textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--flow-line);
+  border-radius: var(--radius-control, 10px);
+  color: var(--text-primary);
+  background: var(--background);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--motion, 180ms) ease;
+}
+.mk-studio .flow-input:focus,
+.mk-studio .flow-select:focus,
+.mk-studio .flow-textarea:focus {
+  border-color: var(--flow-teal);
+}
+.mk-studio .flow-textarea {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.mk-studio .flow-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.mk-studio .flow-badge-ok {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.mk-studio .flow-badge-warn {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.mk-studio .flow-badge-off {
+  color: var(--text-secondary);
+  background: var(--surface-secondary);
+}
+.mk-studio .flow-badge-bad {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.mk-studio .flow-empty {
+  display: grid;
+  gap: 6px;
+  padding: 40px 20px;
+  border: 1px dashed var(--flow-line);
+  border-radius: var(--radius-card, 12px);
+  text-align: center;
+}
+.mk-studio .flow-empty strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.mk-studio .flow-empty span {
+  color: var(--flow-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .mk-studio .template-grid,
+  .mk-studio .flow-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .mk-studio .template-grid,
+  .mk-studio .flow-form-grid,
+  .mk-studio .flow-controls {
+    grid-template-columns: 1fr;
+  }
+  .mk-studio .flow-designer-topbar {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .mk-studio .flow-node {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+  .mk-studio .flow-node-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+/* React Flow canvas (studio v2) */
+.mk-studio .mk-rf-canvas {
+  position: relative;
+  height: min(70vh, 640px);
+  min-height: 420px;
+  margin: 12px 0 18px;
+  border: 1px solid var(--flow-line);
+  border-radius: var(--radius-card, 12px);
+  overflow: hidden;
+  background: #f8fafb;
+}
+.mk-studio .mk-rf-node {
+  min-width: 220px;
+  max-width: 320px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--flow-line);
+  background: #fff;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.mk-studio .mk-rf-node strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+.mk-studio .mk-rf-node span {
+  color: var(--flow-muted);
+  line-height: 1.35;
+}
+.mk-studio .mk-rf-trigger {
+  border-radius: 999px;
+  text-align: center;
+  border-color: var(--flow-goal, #0f7b6c);
+}
+.mk-studio .mk-rf-goal {
+  border-color: var(--flow-goal, #0f7b6c);
+  background: color-mix(in srgb, var(--flow-goal, #0f7b6c) 8%, white);
+}
+.mk-studio .mk-rf-send {
+  border-left-width: 4px;
+}
+.mk-studio .mk-rf-whatsapp { border-left-color: #25d366; }
+.mk-studio .mk-rf-email { border-left-color: #2364aa; }
+.mk-studio .mk-rf-sms { border-left-color: #7c3aed; }
+.mk-studio .mk-rf-webhook { border-left-color: #64748b; }
+.mk-studio .mk-rf-node.is-selected {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--flow-goal, #0f7b6c) 35%, transparent);
+}
+.mk-studio .mk-rf-node.is-invalid {
+  border-style: dashed;
+  border-color: #b42318;
+}
+.mk-studio .mk-rf-node em {
+  color: #b42318;
+  font-style: normal;
+  font-size: 11px;
+}
+.mk-studio .mk-rf-add-end {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--flow-line);
+  background: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mk-studio .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* ===== Studio v2 layout ===== */
+.mk-studio-v2 { color: var(--text-primary, #0f172a); }
+.mk-studio-grid {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-height: 70vh;
+}
+.mk-flow-list {
+  border: 1px solid var(--flow-line, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+}
+.mk-flow-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--flow-line, #e2e8f0);
+  font-size: 13px;
+}
+.mk-flow-list-items {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  display: grid;
+  gap: 4px;
+}
+.mk-flow-list-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+}
+.mk-flow-list-item:hover,
+.mk-flow-list-item.is-active { background: #f1f5f9; }
+.mk-flow-list-copy { display: grid; gap: 2px; min-width: 0; }
+.mk-flow-list-copy strong { font-size: 13px; }
+.mk-flow-list-copy small { color: var(--flow-muted, #64748b); font-size: 11px; }
+.mk-flow-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 10px;
+}
+.mk-studio-main { min-width: 0; }
+.mk-builder {
+  border: 1px solid var(--flow-line, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.mk-builder-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--flow-line, #e2e8f0);
+}
+.mk-builder-name {
+  border: 0;
+  outline: none;
+  font-size: 18px;
+  font-weight: 650;
+  width: min(100%, 420px);
+  background: transparent;
+}
+.mk-builder-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.mk-builder-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  min-height: 520px;
+}
+.mk-inspector {
+  border-left: 1px solid var(--flow-line, #e2e8f0);
+  background: #fbfcfd;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.mk-inspector-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px;
+  border-bottom: 1px solid var(--flow-line, #e2e8f0);
+}
+.mk-inspector-kicker { font-size: 11px; color: var(--flow-muted, #64748b); margin: 0; }
+.mk-inspector-head h3 { margin: 4px 0 0; font-size: 15px; }
+.mk-inspector-tools { display: flex; gap: 4px; }
+.mk-inspector-body {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  overflow-y: auto;
+  max-height: calc(100vh - 220px);
+}
+.mk-inspector-empty { padding: 24px 16px; color: var(--flow-muted, #64748b); display: grid; gap: 6px; }
+.mk-inspector-advanced summary { cursor: pointer; font-size: 12px; margin-bottom: 6px; }
+.mk-chip-warn {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #9f2a14;
+  background: #fff0ee;
+}
+.mk-preview { border-radius: 12px; padding: 10px; background: #fff; border: 1px solid var(--flow-line, #e2e8f0); }
+.mk-preview-label { font-size: 11px; color: var(--flow-muted, #64748b); margin: 0 0 8px; }
+.mk-preview-bubble {
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #ecfdf5;
+  font-size: 13px;
+  line-height: 1.4;
+  display: grid;
+  gap: 4px;
+}
+.mk-preview-email .mk-preview-bubble { background: #eff6ff; }
+.mk-preview-sms .mk-preview-bubble { background: #f5f3ff; }
+.mk-preview-api .mk-preview-bubble { background: #f8fafc; }
+.mk-inspector-danger { padding-top: 8px; border-top: 1px solid var(--flow-line, #e2e8f0); }
+.mk-inline-confirm { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 13px; }
+.mk-text-link {
+  border: 0;
+  background: none;
+  color: var(--accent, #0f7b6c);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}
+.mk-primary-btn, .mk-ghost-btn {
+  min-height: 40px;
+  border-radius: 999px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mk-primary-btn { background: var(--accent, #0f7b6c); color: #fff; border: 0; }
+.mk-ghost-btn { background: #fff; border: 1px solid var(--flow-line, #e2e8f0); color: inherit; }
+.mk-empty-hero { padding: 48px 24px; display: grid; justify-items: center; gap: 8px; }
+.mk-edge-label {
+  position: absolute;
+  pointer-events: all;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.mk-edge-wait {
+  background: #fff;
+  border: 1px solid var(--flow-line, #e2e8f0);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--flow-muted, #64748b);
+}
+.mk-edge-add {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--flow-line, #e2e8f0);
+  background: #fff;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.mk-rf-canvas:hover .mk-edge-add,
+.mk-edge-add:focus-visible { opacity: 1; }
+.mk-edge-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid var(--flow-line, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+  display: grid;
+}
+.mk-edge-menu button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.mk-edge-menu button:hover { background: #f1f5f9; }
+.mk-edge-menu-cancel { color: var(--flow-muted, #64748b); }
+.mk-rf-handle { opacity: 0 !important; width: 1px !important; height: 1px !important; }
+.mk-inspector-sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 50;
+  height: 80dvh;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.18);
+  display: none;
+  flex-direction: column;
+}
+.mk-inspector-sheet-handle {
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  margin: 10px auto 0;
+}
+.mk-inspector-sheet-body { overflow: auto; flex: 1; }
+.mk-templates-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.mk-templates-toolbar h2 { margin: 0; font-size: 18px; }
+.mk-templates-toolbar p { margin: 4px 0 0; color: var(--flow-muted, #64748b); font-size: 13px; }
+.mk-rocio-note {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--flow-line, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  margin-bottom: 16px;
+}
+.mk-templates-table-wrap { overflow-x: auto; border: 1px solid var(--flow-line, #e2e8f0); border-radius: 12px; background: #fff; }
+.mk-templates-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+.mk-templates-table th, .mk-templates-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--flow-line, #e2e8f0);
+  font-size: 13px;
+  vertical-align: middle;
+}
+.mk-templates-table th { color: var(--flow-muted, #64748b); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.mk-status-select select {
+  min-height: 34px;
+  border: 1px solid var(--flow-line, #e2e8f0);
+  border-radius: 8px;
+  padding: 0 8px;
+  background: #fff;
+  font-size: 12px;
+}
+.mk-templates-cards { display: none; list-style: none; padding: 0; margin: 16px 0 0; gap: 12px; }
+.mk-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  justify-content: flex-end;
+}
+.mk-drawer-panel {
+  width: min(420px, 100%);
+  height: 100%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.18);
+}
+.mk-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--flow-line, #e2e8f0);
+}
+.mk-drawer-body {
+  padding: 16px;
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+}
+.flow-empty.compact { padding: 20px 14px; }
+
+@media (max-width: 1100px) {
+  .mk-builder-workspace { grid-template-columns: 1fr; }
+  .mk-inspector--desktop { display: none; }
+  .mk-inspector-sheet { display: flex; }
+}
+
+@media (max-width: 860px) {
+  .mk-studio-grid { grid-template-columns: 1fr; }
+  .mk-flow-list--hidden-mobile { display: none; }
+  .mk-studio-grid:not(.mk-studio-grid--canvas) .mk-studio-main { display: none; }
+  .mk-templates-table-wrap { display: none; }
+  .mk-templates-cards { display: grid; }
+}

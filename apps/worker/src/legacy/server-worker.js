@@ -823,6 +823,19 @@ function isMarketingBrandPath(pathname) {
     || pathname === '/meikapen' || pathname === '/meikapen/';
 }
 
+function meikapenMarketingHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  return host === 'meikapen.com' || host === 'www.meikapen.com';
+}
+
+function redirectToMeikapenApex(url) {
+  const path = url.pathname.replace(/\/$/, '') || '/';
+  const canonicalPath = path === '/meikapen' ? '/' : path;
+  const target = new URL(`https://meikapen.com${canonicalPath}`);
+  target.search = url.search;
+  return Response.redirect(target.toString(), 301);
+}
+
 function meikapenShellEnabled(env) {
   return env.RYVO_SHELL_ENABLED === 'true' || env.MEIKAPEN_SHELL_ENABLED === 'true';
 }
@@ -833,8 +846,31 @@ function meikapenPlatformRoot(env, url) {
   return host === 'meikapen.com' || host === 'www.meikapen.com';
 }
 
+function wantsAuthUi(url) {
+  const auth = String(url.searchParams.get('auth') || '').toLowerCase();
+  return auth === 'login' || auth === 'signup' || auth === 'reset' || auth === 'forgot';
+}
+
 function serveGazelleHtml(url) {
-  return new Response(htmlAsset.replaceAll('__ORIGIN__', url.origin), {
+  const ASSET_V = '20260906.4';
+  let html = String(htmlAsset || '').replaceAll('__ORIGIN__', url.origin)
+    .replaceAll('?v=20260903.1', `?v=${ASSET_V}`)
+    .replaceAll('?v=20260906.1', `?v=${ASSET_V}`)
+    .replaceAll('?v=20260906.2', `?v=${ASSET_V}`)
+    .replaceAll('?v=20260906.3', `?v=${ASSET_V}`);
+  const playbook = String(url.searchParams.get('playbook') || url.searchParams.get('playbookIntent') || '').trim().toLowerCase();
+  const isRecupero = playbook === 'recupera' || playbook === 'recupero';
+  const isGazelle = playbook === 'gazellehunt' || playbook === 'gazelle';
+  if (isRecupero) {
+    html = html
+      .replace('<html lang="en">', '<html lang="es" data-playbook="recupera">')
+      .replaceAll('Gazelle Hunt · by Meikapen — multi-test hiring platform with role-based access, candidate lists, batch delivery, and bilingual audited reports.', 'Recupero · by Meikapen — cobranza con recordatorios, seguimiento y Rocío.')
+      .replaceAll('Gazelle Hunt · by Meikapen', 'Recupero · by Meikapen')
+      .replaceAll('Multi-test candidate assessment, lists, batch sends, and bilingual audited reports.', 'Que te paguen. Sin perseguir a nadie.');
+  } else if (isGazelle) {
+    html = html.replace('<html lang="en">', '<html lang="en" data-playbook="gazellehunt">');
+  }
+  return new Response(html, {
     headers: assetHeaders('text/html; charset=utf-8', 'no-cache', true),
   });
 }
@@ -3938,7 +3974,10 @@ async function listTests(env, user) {
       (SELECT COUNT(*) FROM candidate_list_tests clt WHERE clt.test_id = t.id) AS list_count,
       (SELECT COUNT(*) FROM invitations i WHERE i.test_id = t.id) AS invitation_count
     FROM assessment_tests t LEFT JOIN users u ON u.id = t.created_by_user_id
-    ${isSuperAdmin(user) ? '' : "WHERE t.status = 'active'"}
+    WHERE t.engine_key <> 'recupera_obligation'
+      AND t.id <> 'test_recupera_obligation'
+      AND t.code <> 'RECUPERA-OBL'
+      ${isSuperAdmin(user) ? '' : "AND t.status = 'active'"}
     ORDER BY CASE t.status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, t.created_at
   `).all();
   return result.results || [];
@@ -4702,6 +4741,7 @@ export default {
         return serveMarketingAsset(url);
       }
       if (isMarketingBrandPath(url.pathname)) {
+        if (!meikapenMarketingHost(url.hostname)) return redirectToMeikapenApex(url);
         if (marketingLandingsReady()) return serveMarketingLanding();
         if (url.pathname === '/recupera' || url.pathname === '/recupera/' || url.pathname === '/recupero' || url.pathname === '/recupero/') {
           return serveRecuperaLanding(env);
@@ -4710,6 +4750,10 @@ export default {
       }
       if (url.pathname === '/gazellehunt' || url.pathname === '/gazellehunt/') {
         if (meikapenPlatformRoot(env, url) && marketingLandingsReady()) return serveMarketingLanding();
+        return serveGazelleHtml(url);
+      }
+      // Gazelle Hunt workspace on meikapen.com (same host as auth → __Host- cookie works).
+      if (url.pathname === '/app' || url.pathname === '/app/') {
         return serveGazelleHtml(url);
       }
       if (meikapenShellEnabled(env) && (url.pathname === '/ryvo' || url.pathname.startsWith('/ryvo/'))) {
@@ -4724,6 +4768,8 @@ export default {
       if (url.pathname === '/og.png' && ogAsset) return new Response(decodeAsset(ogAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
       if (url.pathname === '/candidate-welcome.png' && candidateWelcomeAsset) return new Response(decodeAsset(candidateWelcomeAsset), { headers: assetHeaders('image/png', 'public, max-age=86400') });
       if (url.pathname === '/') {
+        // Auth UI must run on meikapen.com so landings and apps share one session cookie.
+        if (meikapenPlatformRoot(env, url) && wantsAuthUi(url)) return serveGazelleHtml(url);
         if (meikapenPlatformRoot(env, url)) {
           if (marketingLandingsReady()) return serveMarketingLanding();
           return serveMeikapenHub(env);

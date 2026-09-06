@@ -9,6 +9,7 @@ function LandingApp() {
 
   useEffect(() => {
     document.title = copy.documentTitle;
+    document.documentElement.lang = copy.formLocale === "es" || copy.brand === "recupero" ? "es" : "en";
     const description = document.querySelector('meta[name="description"]');
     if (description) description.setAttribute("content", copy.metaDescription);
     else {

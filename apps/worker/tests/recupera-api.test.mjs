@@ -29,6 +29,7 @@ for (const route of [
   '/api/recupera/obligations/',
   '/api/recupera/exceptions',
   '/api/recupera/insights',
+  '/api/recupera/studio',
   '/api/recupera/rocio/classify',
   '/inbound-message',
 ]) {
@@ -88,6 +89,12 @@ assert.match(apiSource, /rocioProcessInbound/);
 assert.match(apiSource, /recuperaClassifyIntentRequest/);
 assert.match(apiSource, /recuperaInboundMessageRequest/);
 assert.match(apiSource, /recuperaGetInsights/);
+assert.match(apiSource, /recuperaGetStudio/);
+assert.match(apiSource, /recuperaEnsureStageJourneys/);
+assert.match(apiSource, /recuperaEnsureStudioTemplates/);
+assert.match(apiSource, /recupera_studio_seeded/);
+assert.match(apiSource, /listContactJourneys/);
+assert.match(apiSource, /listMessageTemplates/);
 assert.match(apiSource, /pendingCents/);
 assert.match(apiSource, /recoveredCentsThisMonth/);
 assert.match(recomputeSource, /recuperaRecomputeStages/);
@@ -154,6 +161,7 @@ const dbState = {
   lists: [],
   listMembers: [],
   listTests: [],
+  messageTemplates: [],
   tests: [{ id: 'test_recupera_obligation', status: 'active', engine_key: 'recupera_obligation' }],
   journeys: [],
   journeySteps: [],
@@ -211,8 +219,14 @@ const db = {
             if (query.includes('FROM contact_journeys j WHERE j.company_id = ? AND j.name = ?')) {
               return dbState.journeys.find((row) => row.company_id === bindings[0] && row.name === bindings[1] && row.test_id === bindings[2] && row.list_id === bindings[3] && row.status === 'active') || null;
             }
+            if (query.includes('FROM contact_journeys WHERE company_id = ? AND name = ?')) {
+              return dbState.journeys.find((row) => row.company_id === bindings[0] && row.name === bindings[1] && row.test_id === bindings[2] && row.list_id === bindings[3]) || null;
+            }
             if (query.includes('FROM contact_journeys WHERE id = ?')) {
               return dbState.journeys.find((row) => row.id === bindings[0]) || null;
+            }
+            if (query.includes('COUNT(*) AS count FROM message_templates WHERE company_id = ?')) {
+              return { count: dbState.messageTemplates.filter((row) => row.company_id === bindings[0]).length };
             }
             if (query.includes('FROM contact_journey_enrollments WHERE journey_id = ? AND candidate_id = ?')) {
               return dbState.enrollments.find((row) => row.journey_id === bindings[0] && row.candidate_id === bindings[1] && row.test_id === bindings[2]) || null;
@@ -413,6 +427,19 @@ const db = {
                 obligation.updated_at = bindings[0];
               }
             }
+            if (query.startsWith('INSERT OR IGNORE INTO candidate_list_tests')) {
+              if (!dbState.listTests.some((row) => row.list_id === bindings[0] && row.test_id === bindings[1])) {
+                dbState.listTests.push({ list_id: bindings[0], test_id: bindings[1] });
+              }
+            }
+            if (query.startsWith('INSERT OR IGNORE INTO message_templates')) {
+              if (!dbState.messageTemplates.some((row) => row.id === bindings[0])) {
+                dbState.messageTemplates.push({
+                  id: bindings[0], company_id: bindings[1], channel: bindings[2], provider: bindings[3],
+                  name: bindings[4], provider_template_name: bindings[5], status: bindings[6],
+                });
+              }
+            }
             if (query.startsWith('INSERT INTO candidate_lists')) {
               dbState.lists.push({ id: bindings[0], company_id: bindings[1], owner_user_id: bindings[2], name: bindings[3], status: 'active' });
             }
@@ -598,6 +625,18 @@ async function processDueJourneyEvents() {
   return { processed: 0 };
 }
 
+async function listContactJourneys() {
+  return dbState.journeys.map((journey) => ({
+    ...journey,
+    steps: dbState.journeySteps.filter((step) => step.journey_id === journey.id),
+    step_count: dbState.journeySteps.filter((step) => step.journey_id === journey.id).length,
+  }));
+}
+
+async function listMessageTemplates() {
+  return dbState.messageTemplates.slice();
+}
+
 async function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -629,6 +668,8 @@ const apiContext = {
   normalizedJourneySteps,
   scheduledJourneyStepDate,
   processDueJourneyEvents,
+  listContactJourneys,
+  listMessageTemplates,
   sha256,
   randomToken,
 };
@@ -865,6 +906,30 @@ assert.ok(Array.isArray(insightsBody.aging));
 assert.equal(insightsBody.aging.length, 7);
 assert.equal(typeof insightsBody.rocio.jobsToday, 'number');
 assert.equal(typeof insightsBody.rocio.needsHuman, 'number');
+
+const studioRequest = new Request('https://example.com/api/recupera/studio', { method: 'GET' });
+const studioResponse = await api.handleRecuperaApi(studioRequest, markPaidEnv, new URL(studioRequest.url), adminUser);
+assert.equal(studioResponse.status, 200);
+const studioBody = await studioResponse.json();
+assert.ok(studioBody.listId);
+assert.equal(studioBody.testId, 'test_recupera_obligation');
+const stageJourneyNames = studioBody.journeys.map((journey) => journey.name);
+for (const stageKey of ['PRE_DUE', 'DUE', 'DPD_1_7', 'DPD_8_15', 'DPD_16_30', 'DPD_31_60', 'DPD_60_PLUS']) {
+  assert.ok(stageJourneyNames.includes(`Recupera · ${stageKey}`), `missing stage flow ${stageKey}`);
+}
+assert.ok(studioBody.journeys.every((journey) => journey.step_count > 0));
+assert.ok(studioBody.templates.some((template) => template.channel === 'whatsapp'));
+assert.ok(studioBody.templates.some((template) => template.channel === 'email'));
+assert.ok(studioBody.templates.some((template) => template.channel === 'sms'));
+assert.ok(auditCalls.some((entry) => entry.type === 'recupera_studio_seeded'));
+
+// Reopening the studio must be idempotent: no duplicate stage flows, no duplicate templates.
+const journeyCountAfterSeed = dbState.journeys.length;
+const templateCountAfterSeed = dbState.messageTemplates.length;
+const studioAgain = await api.handleRecuperaApi(studioRequest, markPaidEnv, new URL(studioRequest.url), adminUser);
+assert.equal(studioAgain.status, 200);
+assert.equal(dbState.journeys.length, journeyCountAfterSeed);
+assert.equal(dbState.messageTemplates.length, templateCountAfterSeed);
 
 const stubLink = api.createPaymentLinkStub({ obligationId: 'obl-1', amountCents: 1000, currency: 'GTQ', successUrl: 'https://example.com/p/tok' });
 assert.equal(stubLink.provider, 'stub');

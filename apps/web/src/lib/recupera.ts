@@ -1,4 +1,6 @@
 import { apiFetch } from "@/lib/api";
+import type { Journey } from "@/lib/journeys";
+import type { MessageTemplate } from "@/lib/templates";
 
 export type StrategyKey = "AMABLE" | "EQUILIBRADA" | "FIRME";
 
@@ -218,4 +220,17 @@ export function resolveException(
     `/api/recupera/exceptions/${encodeURIComponent(type)}/${encodeURIComponent(id)}/resolve`,
     { method: "POST", body: JSON.stringify({ resolution }) },
   );
+}
+
+export type RecuperaStudio = {
+  /** Recupera contact list + bridge test every stage flow is bound to. */
+  listId: string;
+  testId: string;
+  journeys: Journey[];
+  templates: MessageTemplate[];
+};
+
+/** Seeds the default Recupera flows if missing and returns flows + templates for the studio. */
+export function getRecuperaStudio() {
+  return apiFetch<RecuperaStudio>("/api/recupera/studio");
 }

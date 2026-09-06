@@ -129,7 +129,7 @@ export function HomePage({ user, onOpenPlaybooks, onOpenRecupera, onOpenWork }: 
           <ArrowUpRight size={16} className="text-[var(--text-secondary)]" />
         </button>
         <a
-          href="/gazellehunt"
+          href="/ryvo/?open=gazellehunt"
           className="flex items-center justify-between gap-4 px-5 py-4 text-[var(--text-primary)] no-underline hover:bg-[var(--hover)]"
         >
           <div>

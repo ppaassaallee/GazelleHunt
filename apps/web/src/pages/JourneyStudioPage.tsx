@@ -1,207 +1,392 @@
-import { useState } from "react";
-import { ArrowLeft, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Loader2, Plus, RefreshCw, Save, X } from "lucide-react";
 import { IconButton } from "@/components/IconButton";
-
-export type JourneyStage = {
-  id: string;
-  title: string;
-  timing: string;
-  channels: string[];
-  startLabel: string;
-  endLabel: string;
-};
-
-const STAGES: JourneyStage[] = [
-  {
-    id: "preventivo",
-    title: "Preventivo",
-    timing: "5 días antes",
-    channels: ["WhatsApp", "Email"],
-    startLabel: "5 días antes del vencimiento",
-    endLabel: "Día del vencimiento",
-  },
-  {
-    id: "vencimiento",
-    title: "Vencimiento",
-    timing: "Día 0",
-    channels: ["WhatsApp", "Link de pago"],
-    startLabel: "Día del vencimiento",
-    endLabel: "Fin del día",
-  },
-  {
-    id: "dpd_1_7",
-    title: "1–7 días",
-    timing: "Después del vencimiento",
-    channels: ["Rocío", "WhatsApp"],
-    startLabel: "1 día después del vencimiento",
-    endLabel: "7 días",
-  },
-  {
-    id: "dpd_8_15",
-    title: "8–15 días",
-    timing: "Escalamiento",
-    channels: ["WhatsApp", "Email", "SMS"],
-    startLabel: "8 días",
-    endLabel: "15 días",
-  },
-  {
-    id: "dpd_16_30",
-    title: "16–30 días",
-    timing: "Seguimiento firme",
-    channels: ["Rocío", "WhatsApp"],
-    startLabel: "16 días",
-    endLabel: "30 días",
-  },
-];
+import "@/styles/flow-designer.css";
+import type { JourneyChannel } from "@/lib/journeys";
+import { FlowCanvas } from "@/pages/journey-studio/FlowCanvas";
+import { FlowInspector } from "@/pages/journey-studio/FlowInspector";
+import { FlowList } from "@/pages/journey-studio/FlowList";
+import { TemplatesPanel } from "@/pages/journey-studio/TemplatesPanel";
+import {
+  canActivateDraft,
+  flowTitle,
+  journeyStepsToDraft,
+  toStepInput,
+} from "@/pages/journey-studio/draft";
+import { persistDraft, useDraftFlow, useStudioData } from "@/pages/journey-studio/useStudioData";
+import { layoutLinear } from "@/pages/journey-studio/layout";
 
 type Props = {
   onBack: () => void;
 };
 
+type Tab = "flows" | "templates";
+
 export function JourneyStudioPage({ onBack }: Props) {
-  const [selectedId, setSelectedId] = useState<string | null>(STAGES[2]?.id ?? null);
-  const selected = STAGES.find((stage) => stage.id === selectedId) || null;
-  const [channels, setChannels] = useState({
-    whatsapp: true,
-    rocio: true,
-    sms: false,
+  const [tab, setTab] = useState<Tab>("flows");
+  const [mobileListOpen, setMobileListOpen] = useState(true);
+  const studio = useStudioData();
+  const draft = useDraftFlow();
+
+  const selectedStep =
+    draft.selectedStepIndex !== null ? draft.draftSteps[draft.selectedStepIndex] || null : null;
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (draft.builderOpen) void saveDraft();
+      }
+      if (event.key === "Escape") {
+        draft.setConfirmDeleteIndex(null);
+        if (draft.selectedStepIndex !== null) draft.setSelectedStepIndex(null);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   });
 
+  async function saveDraft() {
+    try {
+      await studio.run("Flujo guardado como borrador.", async () => {
+        const created = await persistDraft({
+          draftName: draft.draftName,
+          draftSteps: draft.draftSteps,
+          listId: studio.listId,
+          testId: studio.testId,
+        });
+        draft.markSaved(draft.draftSteps, draft.draftName);
+        draft.setBuilderOpen(false);
+        studio.setSelectedId(created.journeyId);
+        setMobileListOpen(true);
+      });
+    } catch (err) {
+      studio.setError(err instanceof Error ? err.message : "No se pudo guardar.");
+    }
+  }
+
+  const playbookDisabled = studio.error === "Recupera no está habilitado en este entorno.";
+
+  if (playbookDisabled && !studio.loading) {
+    return (
+      <div className="mk-studio mx-auto flex min-h-[60vh] max-w-lg flex-col items-start justify-center gap-4 px-5 py-16">
+        <IconButton label="Volver" icon={ArrowLeft} onClick={onBack} tone="ghost" />
+        <h1 className="text-[28px] font-semibold tracking-tight">Recupera no está habilitado</h1>
+        <p className="text-sm text-[var(--text-secondary)]">
+          Este entorno no tiene el playbook activo. Actívalo en configuración del worker o vuelve al
+          inicio.
+        </p>
+      </div>
+    );
+  }
+
+  const selectedReadonlySteps = studio.selected
+    ? journeyStepsToDraft(studio.selected.steps || [])
+    : [];
+
   return (
-    <div className="mx-auto flex max-w-5xl gap-0 px-5 py-8 md:px-8 md:py-10">
-      <div className={`min-w-0 flex-1 ${selected ? "md:pr-6" : ""}`}>
-        <div className="mb-8 flex items-start gap-2">
+    <div className="mk-studio mk-studio-v2 mx-auto max-w-[1400px] px-4 py-6 md:px-6 md:py-8">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div className="flex items-start gap-2">
           <IconButton label="Volver" icon={ArrowLeft} onClick={onBack} tone="ghost" />
           <div>
             <p className="text-[11px] font-medium tracking-[0.14em] text-[var(--text-secondary)] uppercase">
-              Recupera
+              Recupera · Estrategia
             </p>
-            <h1 className="mt-1 text-[28px] font-semibold tracking-tight">Estrategia</h1>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              Etapas verticales. Sin spaghetti.
-            </p>
+            <h1 className="mt-1 text-[24px] font-semibold tracking-tight md:text-[28px]">
+              Flujos y plantillas
+            </h1>
           </div>
         </div>
-
-        <ol className="mx-auto flex max-w-md flex-col items-stretch">
-          {STAGES.map((stage, index) => {
-            const active = stage.id === selectedId;
-            return (
-              <li key={stage.id} className="flex flex-col items-center">
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(stage.id)}
-                  className={[
-                    "w-full rounded-[var(--radius-card)] border px-5 py-4 text-left transition-[border-color,background-color,transform] duration-[var(--motion)]",
-                    active
-                      ? "border-[var(--accent)] bg-[var(--accent-soft)] scale-[1]"
-                      : "border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--hover)]",
-                  ].join(" ")}
-                  aria-pressed={active}
-                >
-                  <p className="text-[11px] font-medium tracking-wide text-[var(--text-secondary)] uppercase">
-                    {stage.title}
-                  </p>
-                  <p className="mt-1 text-sm font-medium">{stage.timing}</p>
-                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                    {stage.channels.join(" · ")}
-                  </p>
-                </button>
-                {index < STAGES.length - 1 ? (
-                  <span className="my-2 text-[var(--text-secondary)]" aria-hidden>
-                    ↓
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
+        <div className="flex items-center gap-1">
+          <IconButton
+            label="Actualizar"
+            icon={studio.loading || studio.busy ? Loader2 : RefreshCw}
+            disabled={studio.loading || studio.busy}
+            onClick={() => void studio.refresh()}
+            className={studio.loading || studio.busy ? "[&_svg]:animate-spin" : ""}
+          />
+          {tab === "flows" ? (
+            <IconButton
+              label={draft.builderOpen ? "Cerrar borrador" : "Nuevo flujo"}
+              icon={draft.builderOpen ? X : Plus}
+              tone="accent"
+              disabled={studio.loading}
+              onClick={() => (draft.builderOpen ? draft.setBuilderOpen(false) : draft.openNew())}
+            />
+          ) : null}
+        </div>
       </div>
 
-      {selected ? (
-        <aside
-          className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-[var(--border)] bg-[var(--glass)] p-5 shadow-[var(--shadow-soft)] backdrop-blur-xl md:static md:z-0 md:max-w-xs md:rounded-[var(--radius-card)] md:border md:self-start"
-          aria-label={`Personalizar ${selected.title}`}
-        >
-          <div className="mb-4 flex items-start justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">{selected.title}</h2>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">{selected.timing}</p>
-            </div>
-            <IconButton label="Cerrar panel" icon={X} size="sm" onClick={() => setSelectedId(null)} />
-          </div>
-
-          <dl className="space-y-3 text-sm">
-            <div>
-              <dt className="text-xs text-[var(--text-secondary)]">Inicio</dt>
-              <dd className="mt-1">{selected.startLabel}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-[var(--text-secondary)]">Fin</dt>
-              <dd className="mt-1">{selected.endLabel}</dd>
-            </div>
-          </dl>
-
-          <hr className="my-5 border-[var(--border)]" />
-
-          <p className="text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase">
-            Acciones
-          </p>
-          <ul className="mt-3 space-y-2 text-sm">
-            {(
-              [
-                ["whatsapp", "WhatsApp"],
-                ["rocio", "Rocío"],
-                ["sms", "SMS"],
-              ] as const
-            ).map(([key, label]) => (
-              <li key={key}>
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={channels[key]}
-                    onChange={() =>
-                      setChannels((value) => ({ ...value, [key]: !value[key] }))
-                    }
-                    className="accent-[var(--accent)]"
-                  />
-                  {label}
-                </label>
-              </li>
-            ))}
-          </ul>
-
-          <hr className="my-5 border-[var(--border)]" />
-
-          <p className="text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase">
-            Autonomía
-          </p>
-          <p className="mt-2 text-sm">Rocío</p>
-          <p className="mt-1 rounded-[var(--radius-control)] bg-[var(--surface-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-            Ejecuta automáticamente
-          </p>
-
-          <hr className="my-5 border-[var(--border)]" />
-
-          <p className="text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase">
-            Plantilla
-          </p>
+      <div className="mb-5 flex items-center gap-1 border-b border-[var(--border)]">
+        {(
+          [
+            ["flows", "Flujos"],
+            ["templates", "Plantillas"],
+          ] as const
+        ).map(([key, label]) => (
           <button
+            key={key}
             type="button"
-            className="mt-2 flex w-full items-center justify-between rounded-[var(--radius-control)] border border-[var(--border)] px-3 py-2 text-left text-sm hover:bg-[var(--hover)]"
+            onClick={() => setTab(key)}
+            aria-pressed={tab === key}
+            className={[
+              "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150 motion-reduce:transition-none",
+              tab === key
+                ? "border-[var(--accent)] text-[var(--accent)]"
+                : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+            ].join(" ")}
           >
-            Recordatorio estándar
-            <span aria-hidden>›</span>
+            {label}
           </button>
+        ))}
+      </div>
 
-          <hr className="my-5 border-[var(--border)]" />
-
-          <p className="text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase">
-            Condiciones
-          </p>
-          <p className="mt-2 text-sm text-[var(--text-secondary)]">2 reglas</p>
-        </aside>
+      {studio.error ? (
+        <p
+          className="mb-4 rounded-[var(--radius-sm)] bg-[var(--danger-soft)] px-3 py-2 text-sm text-[var(--danger)]"
+          role="alert"
+        >
+          {studio.error}
+        </p>
       ) : null}
+      {studio.notice ? (
+        <p className="mb-4 text-sm text-[var(--text-secondary)]" role="status">
+          {studio.notice}
+        </p>
+      ) : null}
+
+      {studio.loading ? (
+        <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+          <Loader2 size={16} className="animate-spin" /> Cargando…
+        </div>
+      ) : tab === "templates" ? (
+        <TemplatesPanel
+          templates={studio.templates}
+          busy={studio.busy}
+          onCreate={async (payload) => {
+            if (!payload.name || !payload.messageEs.trim() || !payload.messageEn.trim()) {
+              studio.setError("Nombre y los dos mensajes son obligatorios.");
+              return;
+            }
+            if (payload.channel === "whatsapp" && !payload.providerTemplateName) {
+              studio.setError("WhatsApp requiere el nombre exacto de la plantilla aprobada.");
+              return;
+            }
+            await studio.saveTemplate({
+              channel: payload.channel,
+              name: payload.name,
+              messageEs: payload.messageEs,
+              messageEn: payload.messageEn,
+              language: "es",
+              providerTemplateName: payload.providerTemplateName,
+            });
+          }}
+          onStatus={(id, status, label) =>
+            void studio.setTemplateStatus(id, status, `Plantilla · ${label}.`)
+          }
+        />
+      ) : (
+        <div
+          className={`mk-studio-grid ${draft.builderOpen || !mobileListOpen ? "mk-studio-grid--canvas" : ""}`}
+        >
+          <FlowList
+            journeys={studio.journeys}
+            selectedId={studio.selectedId}
+            busy={studio.busy}
+            mobileHidden={draft.builderOpen || !mobileListOpen}
+            onSelect={(id) => {
+              studio.setSelectedId(id);
+              draft.setBuilderOpen(false);
+              setMobileListOpen(false);
+            }}
+            onActivate={(id) => void studio.setJourneyStatus(id, "active", "Flujo activado.")}
+            onPause={(id) => void studio.setJourneyStatus(id, "paused", "Flujo en pausa.")}
+            onArchive={(id) => {
+              const ok =
+                typeof globalThis.confirm !== "function" ||
+                globalThis.confirm("¿Archivar este flujo? Dejará de enviar mensajes.");
+              if (!ok) return;
+              void studio.setJourneyStatus(id, "archived", "Flujo archivado.");
+            }}
+            onDuplicate={(journey) => {
+              draft.duplicateFrom(journey);
+              setMobileListOpen(false);
+            }}
+          />
+
+          <section className="mk-studio-main">
+            {studio.journeys.length === 0 && !draft.builderOpen ? (
+              <div className="flow-empty mk-empty-hero">
+                <svg
+                  width="120"
+                  height="160"
+                  viewBox="0 0 120 160"
+                  aria-hidden
+                  className="opacity-40"
+                >
+                  <circle cx="60" cy="20" r="12" fill="none" stroke="currentColor" strokeWidth="2" />
+                  <rect
+                    x="30"
+                    y="50"
+                    width="60"
+                    height="28"
+                    rx="8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                  <rect
+                    x="30"
+                    y="96"
+                    width="60"
+                    height="28"
+                    rx="8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                  <path d="M60 32v18M60 78v18" stroke="currentColor" strokeWidth="2" />
+                </svg>
+                <strong>Aún no hay flujos</strong>
+                <span>Diseña el seguimiento que Rocío ejecuta por etapa.</span>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" className="mk-primary-btn" onClick={() => draft.openNew()}>
+                    Crear el primero
+                  </button>
+                  <button
+                    type="button"
+                    className="mk-ghost-btn"
+                    onClick={() => void studio.refresh()}
+                  >
+                    Usar los flujos por etapa
+                  </button>
+                </div>
+              </div>
+            ) : draft.builderOpen ? (
+              <div className="mk-builder">
+                <div className="mk-builder-top">
+                  <div>
+                    <input
+                      className="mk-builder-name"
+                      value={draft.draftName}
+                      maxLength={140}
+                      onChange={(event) => draft.setDraftName(event.target.value)}
+                      aria-label="Nombre del flujo"
+                    />
+                    <div className="mk-builder-meta">
+                      <span className="flow-badge flow-badge-off">Borrador</span>
+                      {draft.dirty ? <span className="mk-chip-warn">Sin guardar</span> : null}
+                      {!canActivateDraft(draft.draftSteps) ? (
+                        <span className="mk-chip-warn">WhatsApp sin plantilla</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="mk-ghost-btn md:hidden"
+                      onClick={() => {
+                        draft.setBuilderOpen(false);
+                        setMobileListOpen(true);
+                      }}
+                    >
+                      Flujos
+                    </button>
+                    <IconButton
+                      label={studio.busy ? "Guardando…" : "Guardar borrador"}
+                      icon={studio.busy ? Loader2 : Save}
+                      tone="accent"
+                      disabled={studio.busy}
+                      onClick={() => void saveDraft()}
+                      className={studio.busy ? "[&_svg]:animate-spin" : ""}
+                    />
+                  </div>
+                </div>
+
+                <div className="mk-builder-workspace">
+                  <FlowCanvas
+                    steps={draft.draftSteps}
+                    selectedStepIndex={draft.selectedStepIndex}
+                    onSelectStep={draft.setSelectedStepIndex}
+                    onInsertAt={(index, channel) =>
+                      draft.insertStep(index, (channel || "whatsapp") as JourneyChannel)
+                    }
+                  />
+                  <FlowInspector
+                    step={selectedStep}
+                    index={draft.selectedStepIndex}
+                    stepCount={draft.draftSteps.length}
+                    templates={studio.templates}
+                    mobileOpen={draft.selectedStepIndex !== null}
+                    confirmDeleteIndex={draft.confirmDeleteIndex}
+                    onClose={() => draft.setSelectedStepIndex(null)}
+                    onChange={draft.updateStep}
+                    onMove={draft.moveStep}
+                    onRequestDelete={draft.setConfirmDeleteIndex}
+                    onConfirmDelete={() => {
+                      if (draft.confirmDeleteIndex !== null) {
+                        draft.removeStep(draft.confirmDeleteIndex);
+                      }
+                    }}
+                    onCancelDelete={() => draft.setConfirmDeleteIndex(null)}
+                    onGoTemplates={() => setTab("templates")}
+                  />
+                </div>
+              </div>
+            ) : studio.selected ? (
+              <div className="mk-builder">
+                <div className="mk-builder-top">
+                  <div>
+                    <h2 className="text-lg font-semibold">{flowTitle(studio.selected.name)}</h2>
+                    <div className="mk-builder-meta">
+                      <span
+                        className={`flow-badge ${
+                          studio.selected.status === "active" ? "flow-badge-ok" : "flow-badge-off"
+                        }`}
+                      >
+                        {studio.selected.status}
+                      </span>
+                      <span className="text-xs text-[var(--text-secondary)]">
+                        {Number(studio.selected.queued_event_count || 0)} en cola ·{" "}
+                        {Number(studio.selected.accepted_event_count || 0)} enviados ·{" "}
+                        {Number(studio.selected.skipped_event_count || 0)} detenidos
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="mk-ghost-btn md:hidden"
+                      onClick={() => setMobileListOpen(true)}
+                    >
+                      Flujos
+                    </button>
+                    <IconButton
+                      label="Duplicar y editar"
+                      icon={Plus}
+                      tone="accent"
+                      onClick={() => draft.duplicateFrom(studio.selected!)}
+                    />
+                  </div>
+                </div>
+                <FlowCanvas
+                  steps={selectedReadonlySteps}
+                  selectedStepIndex={null}
+                  onSelectStep={() => {}}
+                  onInsertAt={() => {}}
+                  readOnly
+                />
+                <p className="mt-3 text-xs text-[var(--text-secondary)]">
+                  Los pasos de un flujo guardado no se editan en su lugar. Usa “Duplicar y editar”.
+                </p>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
+
+export { layoutLinear, toStepInput };

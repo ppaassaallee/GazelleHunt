@@ -11,22 +11,63 @@ export type MeikapenUser = {
   ryvoStaff?: boolean;
 };
 
+export type PlaybookIntent = "recupera" | "gazellehunt";
+
 export function getMe() {
   return apiFetch<{ user: MeikapenUser }>("/api/auth/me");
 }
 
-/** Gazelle login lives on the Worker origin (cookies are Secure + same-site). */
-export function gazelleLoginHref(): string {
-  if (typeof window === "undefined") return "/gazellehunt";
+/** Canonical public host for landings, auth, Recupero shell, and Gazelle workspace. */
+export function meikapenOrigin(): string {
+  if (typeof window === "undefined") return "https://meikapen.com";
   const { protocol, hostname, port } = window.location;
-  // Vite (:5173) cannot share __Host- session cookies with :8787 — send user to Worker.
-  if (port === "5173") return "http://127.0.0.1:8787/gazellehunt";
-  return `${protocol}//${hostname}${port ? `:${port}` : ""}/gazellehunt`;
+  if (port === "5173" || port === "8787") {
+    return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+  }
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+  }
+  return "https://meikapen.com";
 }
 
-export function meikapenAppHref(): string {
-  if (typeof window === "undefined") return "/ryvo/";
-  const { protocol, hostname, port } = window.location;
-  if (port === "5173") return "http://127.0.0.1:8787/ryvo/";
-  return `${protocol}//${hostname}${port ? `:${port}` : ""}/ryvo/`;
+function withAuthParams(
+  auth: "login" | "signup",
+  opts?: { playbook?: PlaybookIntent; returnTo?: string },
+): string {
+  const params = new URLSearchParams();
+  params.set("auth", auth);
+  if (opts?.playbook) params.set("playbook", opts.playbook);
+  if (opts?.returnTo) params.set("returnTo", opts.returnTo);
+  return `${meikapenOrigin()}/?${params.toString()}`;
+}
+
+/** Auth UI lives on meikapen.com so landings and apps share the same __Host- session cookie. */
+export function gazelleLoginHref(opts?: {
+  playbook?: PlaybookIntent;
+  returnTo?: string;
+}): string {
+  return withAuthParams("login", opts);
+}
+
+export function gazelleSignupHref(opts?: {
+  playbook?: PlaybookIntent;
+  returnTo?: string;
+}): string {
+  return withAuthParams("signup", opts);
+}
+
+export function meikapenAppHref(opts?: {
+  open?: "recupera" | "gazellehunt";
+  action?: string;
+}): string {
+  const params = new URLSearchParams();
+  if (opts?.open) params.set("open", opts.open);
+  if (opts?.action) params.set("action", opts.action);
+  const qs = params.toString();
+  const path = qs ? `/ryvo/?${qs}` : "/ryvo/";
+  return `${meikapenOrigin()}${path}`;
+}
+
+export function isMeikapenAdmin(user: MeikapenUser): boolean {
+  return Boolean(user.ryvoStaff) || user.role === "super_admin";
 }
