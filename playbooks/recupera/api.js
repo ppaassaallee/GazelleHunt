@@ -1019,7 +1019,10 @@ async function recuperaGetStudio(request, env, user) {
   }
   const strategyPrefix = `Recupera · ${studioStrategy} · `;
   const journeys = (await listContactJourneys(env, user)).filter(
-    (journey) => journey.company_id === companyId && String(journey.name || '').startsWith(strategyPrefix),
+    (journey) =>
+      journey.company_id === companyId
+      && String(journey.name || '').startsWith(strategyPrefix)
+      && String(journey.name || '').endsWith(' · if_no_reply'),
   );
   const templates = (await listMessageTemplates(env, user)).filter((template) => template.company_id === companyId);
   return json({ listId, testId, strategyKey: studioStrategy, journeys, templates });
