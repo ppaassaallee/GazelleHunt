@@ -2,6 +2,7 @@ import { AuthEntry } from "@/landing/components/AuthEntry";
 import { ContactBlock } from "@/landing/components/ContactBlock";
 import { FooterMinimal } from "@/landing/components/FooterMinimal";
 import { FourColumnList } from "@/landing/components/FourColumnList";
+import { HeroProductStage } from "@/landing/components/HeroProductStage";
 import { HeroSection } from "@/landing/components/HeroSection";
 import { HowItWorks } from "@/landing/components/HowItWorks";
 import { PlaybookCards } from "@/landing/components/PlaybookCards";
@@ -42,14 +43,33 @@ export function LandingShell({ copy }: Props) {
       label: stage.label,
       title: stage.title,
       bubble: stage.bubble || stage.title,
+      channel: stage.channel,
     })) || [];
+  const showTimeline = Boolean(copy.journeyHeading && copy.journeyBody && stages.length);
+  const heroProduct =
+    copy.brand === "recupero" || copy.brand === "gazellehunt" ? copy.brand : null;
 
   const footerLinks = [...(copy.footerLinks || [])];
-  // Keep a single #cuenta anchor in the footer for deep links (AuthEntry removed on playbook landings).
   const hasCuenta = footerLinks.some((l) => l.href === "#cuenta" || l.href.includes("auth=login"));
   if (auth && !hasCuenta) {
     footerLinks.unshift({ href: "#cuenta", label: "Cuenta" });
   }
+
+  const howBlock =
+    copy.howHeading && copy.howSteps ? (
+      <Reveal>
+        <HowItWorks heading={copy.howHeading} steps={copy.howSteps} />
+      </Reveal>
+    ) : null;
+
+  const timelineBlock = showTimeline ? (
+    <StageTimeline
+      heading={copy.journeyHeading!}
+      body={copy.journeyBody!}
+      stages={stages}
+      goalLabel={copy.journeyGoalLabel}
+    />
+  ) : null;
 
   return (
     <div className="bg-white text-[var(--landing-ink)]" data-brand={copy.brand}>
@@ -73,27 +93,27 @@ export function LandingShell({ copy }: Props) {
           trustLine={copy.trustLine}
           imageSrc={copy.heroImage}
           imageAlt=""
-        />
+        >
+          {heroProduct ? <HeroProductStage brand={heroProduct} /> : null}
+        </HeroSection>
       </div>
 
       {copy.playbooksHeading && copy.playbooks ? (
         <PlaybookCards heading={copy.playbooksHeading} cards={copy.playbooks} />
       ) : null}
 
-      {copy.howHeading && copy.howSteps ? (
-        <Reveal>
-          <HowItWorks heading={copy.howHeading} steps={copy.howSteps} />
-        </Reveal>
-      ) : null}
-
-      {copy.journeyHeading && copy.journeyBody && stages.length ? (
-        <StageTimeline
-          heading={copy.journeyHeading}
-          body={copy.journeyBody}
-          stages={stages}
-          goalLabel={copy.journeyGoalLabel}
-        />
-      ) : null}
+      {/* Recupera: timeline is the brand differentiator — second section */}
+      {copy.brand === "recupero" ? (
+        <>
+          {timelineBlock}
+          {howBlock}
+        </>
+      ) : (
+        <>
+          {howBlock}
+          {timelineBlock}
+        </>
+      )}
 
       {copy.featureHeading && copy.featureBody && copy.featurePoints && copy.brand === "recupero" ? (
         <RocioBlock
@@ -118,7 +138,10 @@ export function LandingShell({ copy }: Props) {
               </h2>
               <div className="mt-8 space-y-5">
                 {copy.featureBody.map((paragraph) => (
-                  <p key={paragraph} className="max-w-[var(--landing-measure)] text-[15px] leading-relaxed text-[var(--landing-ink-muted)]">
+                  <p
+                    key={paragraph}
+                    className="max-w-[var(--landing-measure)] text-[15px] leading-relaxed text-[var(--landing-ink-muted)]"
+                  >
                     {paragraph}
                   </p>
                 ))}

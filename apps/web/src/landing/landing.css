@@ -183,3 +183,91 @@ select:focus-visible {
 .landing-btn--ghost:hover:not(:disabled) {
   opacity: 0.7;
 }
+
+/* Hero — Revolut-inspired composition without cloning their theme */
+.landing-hero__solid {
+  background:
+    radial-gradient(ellipse 80% 55% at 70% 35%, color-mix(in srgb, var(--brand-accent) 28%, transparent), transparent 70%),
+    linear-gradient(160deg, #141414 0%, #0c0c0c 45%, #080808 100%);
+}
+
+.landing-hero__veil {
+  background: rgba(8, 8, 8, 0.52);
+}
+
+.landing-hero__fade {
+  background: linear-gradient(transparent 0%, rgba(8, 8, 8, 0.72) 100%);
+  pointer-events: none;
+}
+
+.landing-product-stage {
+  position: relative;
+  width: min(100%, 420px);
+  margin-inline: auto;
+}
+
+.landing-product-stage__frame {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  padding: 1.35rem 1.25rem 1.25rem;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.landing-product-card {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(12, 12, 12, 0.55);
+  padding: 0.7rem 0.8rem;
+}
+
+.landing-product-stat {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(12, 12, 12, 0.55);
+  padding: 0.85rem 0.9rem;
+}
+
+.landing-product-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.7rem 0.8rem;
+}
+
+.landing-timeline-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.25rem;
+  margin-inline: -0.25rem;
+  padding-inline: 0.25rem;
+}
+
+.landing-timeline-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.landing-timeline-snap {
+  flex: 0 0 min(78vw, 280px);
+  scroll-snap-align: start;
+}
+
+@media (min-width: 768px) {
+  .landing-product-stage {
+    margin-inline: 0 0 auto;
+  }
+}
+

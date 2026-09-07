@@ -32,6 +32,7 @@ export type JourneyStageCopy = {
   label: string;
   title: string;
   bubble?: string;
+  channel?: "whatsapp" | "email" | "call" | "system";
 };
 
 export type ProofStateCopy = {
@@ -44,7 +45,7 @@ export type LandingCopy = {
   brandLabel: string;
   documentTitle: string;
   metaDescription: string;
-  heroImage: string;
+  heroImage?: string;
   heroEyebrow?: string;
   headline: string;
   subcopy: string;
@@ -132,7 +133,6 @@ export const MEIKAPEN_COPY: LandingCopy = {
   documentTitle: "Meikapen — Instala. Activa. Sucede.",
   metaDescription:
     "Playbooks ejecutables para resultados de negocio. Instala un playbook, actívalo y el resultado sucede.",
-  heroImage: "/marketing/landing/hero-meikapen.jpg",
   headline: "Playbooks que producen resultados.",
   subcopy:
     "Instala un playbook, actívalo sobre tus canales y equipos, y el resultado sucede.",
@@ -201,7 +201,6 @@ export const RECUPERO_COPY: LandingCopy = {
   documentTitle: "Recupera — Que te paguen. Sin perseguir a nadie.",
   metaDescription:
     "Recupera recuerda, da seguimiento y facilita el pago por WhatsApp, email y llamada. Empieza gratis. Desde Q30 al mes.",
-  heroImage: "/marketing/landing/hero-recupero.jpg",
   headline: "Que te paguen.\nSin perseguir a nadie.",
   subcopy:
     "Recupera recuerda, da seguimiento y facilita el pago por WhatsApp, email y llamada. Tú dices quién debe. Nosotros hacemos el resto.",
@@ -356,7 +355,6 @@ export const GAZELLEHUNT_COPY: LandingCopy = {
   documentTitle: "Gazelle Hunt — Contrata a quien sí rinde.",
   metaDescription:
     "Gazelle Hunt envía la evaluación, recuerda a cada persona por email y WhatsApp, y te muestra quién completó y cómo le fue.",
-  heroImage: "/marketing/landing/hero-gazellehunt.jpg",
   headline: "Contrata a quien sí rinde.\nSin perseguir candidatos.",
   subcopy:
     "Gazelle Hunt envía la evaluación, recuerda a cada persona por email y WhatsApp y te muestra quién completó y cómo le fue.",
