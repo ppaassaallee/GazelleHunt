@@ -5,8 +5,22 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, recomputeSource, promisesSource, csvSource, rocioSource, paymentsSource, apiSource, legacyServerSource, buildSource, auditSource, webhooksSource] = await Promise.all([
+const [
+  stageSource,
+  stagePlaybooksSource,
+  recomputeSource,
+  promisesSource,
+  csvSource,
+  rocioSource,
+  paymentsSource,
+  apiSource,
+  legacyServerSource,
+  buildSource,
+  auditSource,
+  webhooksSource,
+] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
+  readFile(new URL('stage-playbooks.js', recuperaRoot), 'utf8'),
   readFile(new URL('recompute.js', recuperaRoot), 'utf8'),
   readFile(new URL('promises.js', recuperaRoot), 'utf8'),
   readFile(new URL('csv.js', recuperaRoot), 'utf8'),
@@ -19,7 +33,7 @@ const [stageSource, recomputeSource, promisesSource, csvSource, rocioSource, pay
   readFile(new URL('../../../packages/runtime/src/webhooks.js', import.meta.url), 'utf8'),
 ]);
 
-const serverSource = `${stageSource}\n${recomputeSource}\n${promisesSource}\n${csvSource}\n${paymentsSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
+const serverSource = `${stageSource}\n${stagePlaybooksSource}\n${recomputeSource}\n${promisesSource}\n${csvSource}\n${paymentsSource}\n${apiSource}\n${auditSource}\n${webhooksSource}\n${legacyServerSource}`;
 
 for (const route of [
   '/api/recupera/install',
@@ -121,6 +135,8 @@ assert.match(csvSource, /recuperaCsvParseAmount/);
 assert.match(apiSource, /RECUPERA_IMPORT_MAX_ROWS = 500/);
 assert.match(buildSource, /recuperaRoot/);
 assert.match(buildSource, /recuperaStage/);
+assert.match(buildSource, /stage-playbooks\.js/);
+assert.match(buildSource, /recuperaStagePlaybooks/);
 assert.match(buildSource, /recuperaCsv/);
 assert.match(buildSource, /recuperaRocio/);
 assert.match(buildSource, /recuperaPayments/);
@@ -674,7 +690,7 @@ const apiContext = {
   randomToken,
 };
 apiContext.globalThis = apiContext;
-vm.runInNewContext(`${stageSource}\n${csvSource}\n${rocioSource}\n${paymentsSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled, recuperaActivateObligation, createPaymentLinkStub, recuperaHandlePaymentWebhook, recuperaPaymentsEnabled };`, apiContext);
+vm.runInNewContext(`${stageSource}\n${stagePlaybooksSource}\n${csvSource}\n${rocioSource}\n${paymentsSource}\n${apiSource}\n;globalThis.__recuperaApi = { handleRecuperaApi, recuperaPlaybookEnabled, recuperaGloballyEnabled, recuperaParsePlaybooksEnabled, recuperaActivateObligation, createPaymentLinkStub, recuperaHandlePaymentWebhook, recuperaPaymentsEnabled };`, apiContext);
 const api = apiContext.__recuperaApi;
 const adminUser = { id: 'admin-1', email: 'admin@example.com', role: 'admin', companyId: 'co-1', ryvoStaff: 0 };
 
@@ -915,7 +931,7 @@ assert.ok(studioBody.listId);
 assert.equal(studioBody.testId, 'test_recupera_obligation');
 const stageJourneyNames = studioBody.journeys.map((journey) => journey.name);
 for (const stageKey of ['PRE_DUE', 'DUE', 'DPD_1_7', 'DPD_8_15', 'DPD_16_30', 'DPD_31_60', 'DPD_60_PLUS']) {
-  assert.ok(stageJourneyNames.includes(`Recupera · ${stageKey}`), `missing stage flow ${stageKey}`);
+  assert.ok(stageJourneyNames.includes(`Recupera · EQUILIBRADA · ${stageKey}`), `missing stage flow ${stageKey}`);
 }
 assert.ok(studioBody.journeys.every((journey) => journey.step_count > 0));
 assert.ok(studioBody.templates.some((template) => template.channel === 'whatsapp'));

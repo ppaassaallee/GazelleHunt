@@ -28,6 +28,7 @@ const [
   runtimeAi,
   runtimeWebhooks,
   recuperaStage,
+  recuperaStagePlaybooks,
   recuperaRecompute,
   recuperaPromises,
   recuperaCsv,
@@ -54,6 +55,7 @@ const [
   readFile(resolve(runtimeRoot, 'ai.js'), 'utf8'),
   readFile(resolve(runtimeRoot, 'webhooks.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'stage.js'), 'utf8'),
+  readFile(resolve(recuperaRoot, 'stage-playbooks.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'recompute.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'promises.js'), 'utf8'),
   readFile(resolve(recuperaRoot, 'csv.js'), 'utf8'),
@@ -175,6 +177,7 @@ ${runtimePortal}
 ${runtimeAi}
 ${runtimeWebhooks}
 ${recuperaStage}
+${recuperaStagePlaybooks}
 ${recuperaRecompute}
 ${recuperaPromises}
 ${recuperaCsv}

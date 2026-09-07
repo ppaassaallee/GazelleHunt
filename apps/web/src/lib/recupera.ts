@@ -31,8 +31,11 @@ export type RecuperaObligation = {
   currency: string;
   dueDate: string;
   stageKey: string;
+  strategyKey?: StrategyKey | string;
   status: string;
   subjectCandidateId?: string | null;
+  rocioMode?: "off" | "if_no_reply" | "stage";
+  includePreventive?: boolean;
 };
 
 export type ObligationInput = {
@@ -98,18 +101,28 @@ export function importObligations(
   });
 }
 
+export type ActivateObligationOptions = {
+  strategyKey?: StrategyKey;
+  rocioMode?: "off" | "if_no_reply" | "stage";
+  includePreventive?: boolean;
+};
+
 export type ActivateObligationResult = {
   obligation: RecuperaObligation;
   candidateId: string;
   journeyId: string;
   enrollmentId: string;
   alreadyActive?: boolean;
+  preview?: string[];
 };
 
-export function activateObligation(obligationId: string) {
+export function activateObligation(
+  obligationId: string,
+  options: ActivateObligationOptions = {},
+) {
   return apiFetch<ActivateObligationResult>(
     `/api/recupera/obligations/${encodeURIComponent(obligationId)}/activate`,
-    { method: "POST", body: "{}" },
+    { method: "POST", body: JSON.stringify(options) },
   );
 }
 

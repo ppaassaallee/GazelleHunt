@@ -77,6 +77,7 @@ function recuperaMapInstallationRow(row) {
 }
 
 function recuperaMapObligationRow(row) {
+  const meta = typeof recuperaParseObligationMeta === 'function' ? recuperaParseObligationMeta(row) : {};
   return {
     id: row.id,
     companyId: row.company_id,
@@ -93,6 +94,8 @@ function recuperaMapObligationRow(row) {
     stageKey: row.stage_key,
     strategyKey: row.strategy_key,
     status: row.status,
+    rocioMode: recuperaNormalizeRocioMode(meta.rocioMode),
+    includePreventive: meta.includePreventive !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -269,29 +272,12 @@ function recuperaPlaceholderEmail(obligationId) {
   return `obl_${cleanText(obligationId, 36)}@recupera.local`;
 }
 
-function recuperaJourneyName(stageKey) {
-  return `Recupera · ${cleanText(stageKey, 40)}`;
+function recuperaJourneyName(stageKey, strategyKey = 'EQUILIBRADA') {
+  return recuperaJourneyNameFor(strategyKey, stageKey);
 }
 
-function recuperaDefaultJourneySteps() {
-  return normalizedJourneySteps([
-    {
-      channel: 'email',
-      delayHours: 0,
-      subjectEn: 'Payment reminder',
-      subjectEs: 'Recordatorio de pago',
-      messageEn: 'Hi {{name}}, this is a reminder from {{brand}} regarding your outstanding balance. Reference: {{role}}.',
-      messageEs: 'Hola {{name}}, le recordamos desde {{brand}} su saldo pendiente. Referencia: {{role}}.',
-    },
-    {
-      channel: 'email',
-      delayHours: 24,
-      subjectEn: 'Follow-up on your balance',
-      subjectEs: 'Seguimiento de su saldo',
-      messageEn: 'Hi {{name}}, we are following up on your balance with {{brand}}. Please contact us if you need assistance.',
-      messageEs: 'Hola {{name}}, damos seguimiento a su saldo con {{brand}}. Contáctenos si necesita ayuda.',
-    },
-  ]);
+function recuperaDefaultJourneySteps(strategyKey = 'EQUILIBRADA', stageKey = 'DUE', rocioMode = 'if_no_reply') {
+  return normalizedJourneySteps(recuperaStagePlaybookDrafts(strategyKey, stageKey, rocioMode));
 }
 
 async function recuperaLoadObligation(env, companyId, obligationId) {
@@ -371,15 +357,15 @@ async function recuperaEnsureListMember(env, listId, candidateId, userId) {
   `).bind(listId, RECUPERA_TEST_ID, userId, now).run();
 }
 
-async function recuperaEnsureJourney(env, companyId, userId, stageKey, listId, testId) {
-  const journeyName = recuperaJourneyName(stageKey);
+async function recuperaEnsureJourney(env, companyId, userId, stageKey, listId, testId, strategyKey = 'EQUILIBRADA', rocioMode = 'if_no_reply') {
+  const journeyName = recuperaJourneyName(stageKey, strategyKey);
   const existing = await env.DB.prepare(`
     SELECT j.* FROM contact_journeys j
     WHERE j.company_id = ? AND j.name = ? AND j.test_id = ? AND j.list_id = ? AND j.status = 'active'
     LIMIT 1
   `).bind(companyId, journeyName, testId, listId).first();
   if (existing) return existing;
-  const steps = recuperaDefaultJourneySteps();
+  const steps = recuperaDefaultJourneySteps(strategyKey, stageKey, rocioMode);
   const journeyId = crypto.randomUUID();
   const now = new Date().toISOString();
   const statements = [env.DB.prepare(`
@@ -422,9 +408,9 @@ async function recuperaEnrollCandidateInJourney(env, journey, candidate, testId)
   return enrollment?.id || enrollmentId;
 }
 
-async function recuperaActivateObligation(env, user, obligationId, companyId = null) {
+async function recuperaActivateObligation(env, user, obligationId, companyId = null, options = null) {
   const resolvedCompanyId = companyId || user.companyId;
-  const obligation = await recuperaLoadObligation(env, resolvedCompanyId, cleanText(obligationId, 100));
+  let obligation = await recuperaLoadObligation(env, resolvedCompanyId, cleanText(obligationId, 100));
   if (!obligation) return { ok: false, code: 'obligation_not_found' };
   if (obligation.status !== 'open') return { ok: false, code: 'obligation_not_open' };
   const existing = await recuperaExistingActivation(env, obligation.id);
@@ -437,26 +423,74 @@ async function recuperaActivateObligation(env, user, obligationId, companyId = n
       journeyId: existing.journey_id,
       enrollmentId: existing.enrollment_id,
       alreadyActive: true,
+      preview: typeof recuperaPreviewLines === 'function'
+        ? recuperaPreviewLines(obligation.strategy_key, obligation.stage_key, recuperaParseObligationMeta(obligation).rocioMode)
+        : [],
     };
   }
+
+  const installation = await env.DB.prepare(
+    `SELECT config_json FROM playbook_installations WHERE company_id = ? AND playbook_key = ?`,
+  ).bind(resolvedCompanyId, RECUPERA_PLAYBOOK_KEY).first();
+  let installStrategy = 'EQUILIBRADA';
+  if (installation?.config_json) {
+    try {
+      installStrategy = recuperaNormalizeStrategyKey(JSON.parse(installation.config_json)?.strategyKey) || 'EQUILIBRADA';
+    } catch {
+      installStrategy = 'EQUILIBRADA';
+    }
+  }
+
+  const strategyKey = recuperaNormalizeStrategyKey(options?.strategyKey) || recuperaNormalizeStrategyKey(obligation.strategy_key) || installStrategy;
+  const rocioMode = recuperaNormalizeRocioMode(options?.rocioMode ?? recuperaParseObligationMeta(obligation).rocioMode);
+  const includePreventive = options?.includePreventive !== false;
+  const activationStage = recuperaResolveActivationStage(obligation.stage_key, includePreventive);
+  const meta = {
+    ...recuperaParseObligationMeta(obligation),
+    rocioMode,
+    includePreventive,
+  };
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    UPDATE obligations
+    SET strategy_key = ?, stage_key = ?, metadata_json = ?, updated_at = ?
+    WHERE id = ? AND company_id = ?
+  `).bind(strategyKey, activationStage, JSON.stringify(meta), now, obligation.id, resolvedCompanyId).run();
+  obligation = await recuperaLoadObligation(env, resolvedCompanyId, obligation.id);
+
   await ensureSchema(env);
   const testId = await recuperaEnsureTest(env);
   const candidate = await recuperaUpsertCandidate(env, resolvedCompanyId, obligation, user.id);
-  const now = new Date().toISOString();
   await env.DB.prepare(`UPDATE obligations SET subject_candidate_id = ?, updated_at = ? WHERE id = ?`).bind(candidate.id, now, obligation.id).run();
   const listId = await recuperaEnsureList(env, resolvedCompanyId, user.id);
   await recuperaEnsureListMember(env, listId, candidate.id, user.id);
-  const journey = await recuperaEnsureJourney(env, resolvedCompanyId, user.id, obligation.stage_key, listId, testId);
+  const journey = await recuperaEnsureJourney(
+    env,
+    resolvedCompanyId,
+    user.id,
+    activationStage,
+    listId,
+    testId,
+    strategyKey,
+    rocioMode,
+  );
   const enrollmentId = await recuperaEnrollCandidateInJourney(env, journey, candidate, testId);
   if (!enrollmentId) return { ok: false, code: 'journey_steps_required' };
   await env.DB.prepare(`
     INSERT OR IGNORE INTO obligation_journey_links (obligation_id, enrollment_id, journey_id, stage_key, created_at)
     VALUES (?, ?, ?, ?, ?)
-  `).bind(obligation.id, enrollmentId, journey.id, obligation.stage_key, now).run();
+  `).bind(obligation.id, enrollmentId, journey.id, activationStage, now).run();
   processDueJourneyEvents(env).catch(() => {});
   const updated = await recuperaLoadObligation(env, resolvedCompanyId, obligation.id);
   await audit(env, user.email, 'recupera_obligation_activated', 'obligation', obligation.id, {
-    companyId: resolvedCompanyId, candidateId: candidate.id, journeyId: journey.id, enrollmentId, stageKey: obligation.stage_key,
+    companyId: resolvedCompanyId,
+    candidateId: candidate.id,
+    journeyId: journey.id,
+    enrollmentId,
+    stageKey: activationStage,
+    strategyKey,
+    rocioMode,
+    includePreventive,
   });
   return {
     ok: true,
@@ -464,6 +498,7 @@ async function recuperaActivateObligation(env, user, obligationId, companyId = n
     candidateId: candidate.id,
     journeyId: journey.id,
     enrollmentId,
+    preview: recuperaPreviewLines(strategyKey, activationStage, rocioMode),
   };
 }
 
@@ -472,7 +507,8 @@ async function recuperaActivateObligationRequest(request, env, user, obligationI
   const companyId = recuperaTargetCompanyId(user, new URL(request.url));
   if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
   if (!recuperaActivateEnabled(env)) return json({ error: 'not_found', code: 'activate_disabled' }, 404);
-  const result = await recuperaActivateObligation(env, user, obligationId, companyId);
+  const body = await request.json().catch(() => ({}));
+  const result = await recuperaActivateObligation(env, user, obligationId, companyId, body);
   if (!result.ok) {
     if (result.code === 'obligation_not_found') return json({ error: 'Obligation not found.', code: result.code }, 404);
     if (result.code === 'obligation_not_open') return json({ error: 'Only open obligations can be activated.', code: result.code }, 422);
@@ -486,6 +522,7 @@ async function recuperaActivateObligationRequest(request, env, user, obligationI
       journeyId: result.journeyId,
       enrollmentId: result.enrollmentId,
       alreadyActive: true,
+      preview: result.preview || [],
     });
   }
   return json({
@@ -493,6 +530,7 @@ async function recuperaActivateObligationRequest(request, env, user, obligationI
     candidateId: result.candidateId,
     journeyId: result.journeyId,
     enrollmentId: result.enrollmentId,
+    preview: result.preview || [],
   }, 201);
 }
 
@@ -931,17 +969,18 @@ async function recuperaEnsureStudioTemplates(env, companyId, userId) {
   return true;
 }
 
-async function recuperaEnsureStageJourneys(env, companyId, userId, listId, testId) {
+async function recuperaEnsureStageJourneys(env, companyId, userId, listId, testId, strategyKey = 'EQUILIBRADA') {
   const created = [];
+  const strategy = recuperaNormalizeStrategyKey(strategyKey) || 'EQUILIBRADA';
   for (const stageKey of RECUPERA_AGING_STAGE_KEYS) {
-    const journeyName = recuperaJourneyName(stageKey);
+    const journeyName = recuperaJourneyName(stageKey, strategy);
     // recuperaEnsureJourney only reuses `active` journeys; check every status here so a
     // paused or archived stage flow is never silently duplicated on each studio visit.
     const existing = await env.DB.prepare(`
       SELECT id FROM contact_journeys WHERE company_id = ? AND name = ? AND test_id = ? AND list_id = ? LIMIT 1
     `).bind(companyId, journeyName, testId, listId).first();
     if (existing?.id) continue;
-    await recuperaEnsureJourney(env, companyId, userId, stageKey, listId, testId);
+    await recuperaEnsureJourney(env, companyId, userId, stageKey, listId, testId, strategy, 'if_no_reply');
     created.push(stageKey);
   }
   return created;
@@ -960,7 +999,18 @@ async function recuperaGetStudio(request, env, user) {
   await env.DB.prepare(`
     INSERT OR IGNORE INTO candidate_list_tests (list_id, test_id, added_by_user_id, added_at) VALUES (?, ?, ?, ?)
   `).bind(listId, testId, user.id, now).run();
-  const createdStages = await recuperaEnsureStageJourneys(env, companyId, user.id, listId, testId);
+  const installation = await env.DB.prepare(
+    `SELECT config_json FROM playbook_installations WHERE company_id = ? AND playbook_key = ?`,
+  ).bind(companyId, RECUPERA_PLAYBOOK_KEY).first();
+  let studioStrategy = 'EQUILIBRADA';
+  if (installation?.config_json) {
+    try {
+      studioStrategy = recuperaNormalizeStrategyKey(JSON.parse(installation.config_json)?.strategyKey) || 'EQUILIBRADA';
+    } catch {
+      studioStrategy = 'EQUILIBRADA';
+    }
+  }
+  const createdStages = await recuperaEnsureStageJourneys(env, companyId, user.id, listId, testId, studioStrategy);
   const seededTemplates = await recuperaEnsureStudioTemplates(env, companyId, user.id);
   if (createdStages.length || seededTemplates) {
     await audit(env, user.email, 'recupera_studio_seeded', 'company', companyId, { stages: createdStages, templates: seededTemplates });

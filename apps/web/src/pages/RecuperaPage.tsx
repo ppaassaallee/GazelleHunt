@@ -19,6 +19,12 @@ import { IconButton } from "@/components/IconButton";
 import { JourneyStudioPage } from "@/pages/JourneyStudioPage";
 import { RecuperaOnboarding } from "@/pages/RecuperaOnboarding";
 import {
+  previewSeguimiento,
+  SeguimientoWizard,
+  type RocioMode,
+  type SeguimientoDraft,
+} from "@/pages/SeguimientoWizard";
+import {
   activateObligation,
   classifyRocioIntent,
   createObligationPortalLink,
@@ -31,6 +37,7 @@ import {
   type RecuperaInstallation,
   type RecuperaObligation,
   type RocioClassification,
+  type StrategyKey,
 } from "@/lib/recupera";
 
 export type RecuperaOpenAction = "add" | "import" | "onboarding" | "studio" | null;
@@ -94,6 +101,12 @@ export function RecuperaPage({ onBack, initialAction = null, isolated = false }:
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [replyResult, setReplyResult] = useState<RocioClassification | null>(null);
+  const [activateOpen, setActivateOpen] = useState(false);
+  const [seguimientoDraft, setSeguimientoDraft] = useState<SeguimientoDraft>({
+    strategyKey: "EQUILIBRADA",
+    rocioMode: "if_no_reply",
+    includePreventive: true,
+  });
 
   const pendingCents = useMemo(
     () => obligations.reduce((sum, row) => sum + Number(row.balanceCents || 0), 0),
@@ -237,10 +250,28 @@ export function RecuperaPage({ onBack, initialAction = null, isolated = false }:
     });
   }
 
+  async function openActivate(id: string) {
+    const row = obligations.find((item) => item.id === id);
+    setSelectedId(id);
+    setActivateOpen(true);
+    const portfolioStrategy = (installation?.config?.strategyKey || "EQUILIBRADA") as StrategyKey;
+    setSeguimientoDraft({
+      strategyKey: (row?.strategyKey as StrategyKey) || portfolioStrategy,
+      rocioMode: (row?.rocioMode as RocioMode) || "if_no_reply",
+      includePreventive: row?.includePreventive !== false,
+    });
+  }
+
   async function onActivate(id: string) {
-    await runRowAction(id, async () => {
-      await activateObligation(id);
-      setNotice("Seguimiento activado.");
+    await openActivate(id);
+  }
+
+  async function confirmActivate() {
+    if (!selectedId) return;
+    await runRowAction(selectedId, async () => {
+      const result = await activateObligation(selectedId, seguimientoDraft);
+      setNotice(result.alreadyActive ? "Seguimiento ya activo." : "Seguimiento activado.");
+      setActivateOpen(false);
       await refresh();
     });
   }
@@ -667,43 +698,70 @@ export function RecuperaPage({ onBack, initialAction = null, isolated = false }:
           </p>
           <p className="mt-2 text-sm text-[var(--text-secondary)]">Vence {selected.dueDate}</p>
           <hr className="my-5 border-[var(--border)]" />
-          <p className="text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase">
-            Próximo
-          </p>
-          <p className="mt-2 text-sm">Rocío sigue el caso · {selected.stageKey}</p>
-          <div className="mt-6 flex items-center gap-1">
-            <IconButton
-              label="Link de pago"
-              icon={Link2}
-              onClick={() => void onPortalLink(selected.id)}
+          {activateOpen ? (
+            <SeguimientoWizard
+              draft={seguimientoDraft}
+              onChange={setSeguimientoDraft}
+              preview={previewSeguimiento(
+                seguimientoDraft.strategyKey,
+                selected.stageKey,
+                seguimientoDraft.rocioMode,
+                seguimientoDraft.includePreventive,
+              )}
+              busy={actionId === selected.id}
+              onConfirm={() => void confirmActivate()}
+              onCancel={() => setActivateOpen(false)}
+              onOpenStudio={() => {
+                setActivateOpen(false);
+                setStudioOpen(true);
+              }}
             />
-            <IconButton
-              label="Marcar pagado"
-              icon={CheckCircle2}
-              tone="accent"
-              onClick={() => void onMarkPaid(selected.id)}
-            />
-            <ContextMenu
-              label="Más del caso"
-              items={[
-                {
-                  id: "activate",
-                  label: "Activar seguimiento",
-                  onSelect: () => void onActivate(selected.id),
-                },
-                {
-                  id: "reply",
-                  label: "Simular respuesta",
-                  onSelect: () => openReply(selected.id),
-                },
-                {
-                  id: "studio",
-                  label: "Flujos y plantillas",
-                  onSelect: () => setStudioOpen(true),
-                },
-              ]}
-            />
-          </div>
+          ) : (
+            <>
+              <p className="text-xs font-medium tracking-wide text-[var(--text-secondary)] uppercase">
+                Seguimiento
+              </p>
+              <p className="mt-2 text-sm">
+                {(selected.strategyKey as string) || installation?.config?.strategyKey || "EQUILIBRADA"}
+                {" · "}
+                {selected.stageKey}
+                {selected.rocioMode ? ` · Rocío: ${selected.rocioMode}` : ""}
+              </p>
+              <div className="mt-6 flex items-center gap-1">
+                <IconButton
+                  label="Link de pago"
+                  icon={Link2}
+                  onClick={() => void onPortalLink(selected.id)}
+                />
+                <IconButton
+                  label="Marcar pagado"
+                  icon={CheckCircle2}
+                  tone="accent"
+                  onClick={() => void onMarkPaid(selected.id)}
+                />
+                <ContextMenu
+                  label="Más del caso"
+                  items={[
+                    {
+                      id: "activate",
+                      label: "Cómo cobrar / activar",
+                      onSelect: () => void openActivate(selected.id),
+                    },
+                    {
+                      id: "reply",
+                      label: "Simular respuesta",
+                      onSelect: () => openReply(selected.id),
+                    },
+                    {
+                      id: "studio",
+                      label: "Ver pasos avanzados",
+                      onSelect: () => setStudioOpen(true),
+                    },
+                  ]}
+                />
+              </div>
+            </>
+          )}
         </aside>
       ) : null}
     </div>
