@@ -33,13 +33,14 @@ assert.ok(soft.every((step) => step.channel !== 'voice'));
 assert.match(soft[0].messageEs, /fecha de pago/i);
 
 const firm = api.drafts('FIRME', 'DPD_60_PLUS', 'stage');
-assert.ok(firm.some((step) => step.channel === 'voice'));
+assert.ok(firm.every((step) => ['whatsapp', 'email', 'sms', 'api'].includes(step.channel)));
 assert.ok(firm.some((step) => /escal/i.test(step.messageEs)));
 
 const preview = api.preview('EQUILIBRADA', 'DPD_1_7', 'if_no_reply');
 assert.ok(preview.some((line) => /WhatsApp/.test(line)));
 assert.ok(preview.some((line) => /Rocío/.test(line)));
 
-assert.equal(api.name('FIRME', 'DUE'), 'Recupera · FIRME · DUE');
+assert.equal(api.name('FIRME', 'DUE'), 'Recupera · FIRME · DUE · if_no_reply');
+assert.equal(api.name('FIRME', 'DUE', 'off'), 'Recupera · FIRME · DUE · off');
 
 console.log('stage-playbooks.test.mjs: ok');

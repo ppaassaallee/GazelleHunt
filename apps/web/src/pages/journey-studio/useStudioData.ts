@@ -14,7 +14,7 @@ import {
   type MessageTemplate,
   type TemplateStatus,
 } from "@/lib/templates";
-import { getRecuperaStudio } from "@/lib/recupera";
+import { getRecuperaStudio, type StrategyKey } from "@/lib/recupera";
 import {
   RECUPERA_FLOW_PREFIX,
   defaultDraftSteps,
@@ -37,6 +37,7 @@ export function useStudioData() {
   const [journeys, setJourneys] = useState<Journey[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [strategyKey, setStrategyKey] = useState<StrategyKey>("EQUILIBRADA");
 
   const applyJourneys = useCallback((all: Journey[]) => {
     const visible = filterRecuperaJourneys(all);
@@ -47,13 +48,14 @@ export function useStudioData() {
     return visible;
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (nextStrategy?: StrategyKey) => {
     setError("");
     setLoading(true);
     try {
-      const studio = await getRecuperaStudio();
+      const studio = await getRecuperaStudio(nextStrategy);
       setListId(studio.listId);
       setTestId(studio.testId);
+      setStrategyKey(studio.strategyKey || nextStrategy || "EQUILIBRADA");
       applyJourneys(studio.journeys || []);
       setTemplates(studio.templates || []);
     } catch (studioError) {
@@ -127,6 +129,7 @@ export function useStudioData() {
     selectedId,
     setSelectedId,
     selected,
+    strategyKey,
     refresh,
     run,
     setJourneyStatus,

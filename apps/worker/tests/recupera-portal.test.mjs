@@ -4,8 +4,9 @@ import vm from 'node:vm';
 import { createHash, webcrypto } from 'node:crypto';
 
 const recuperaRoot = new URL('../../../playbooks/recupera/', import.meta.url);
-const [stageSource, paymentsSource, apiSource, portalSource, legacyServerSource, buildSource] = await Promise.all([
+const [stageSource, stagePlaybooksSource, paymentsSource, apiSource, portalSource, legacyServerSource, buildSource] = await Promise.all([
   readFile(new URL('stage.js', recuperaRoot), 'utf8'),
+  readFile(new URL('stage-playbooks.js', recuperaRoot), 'utf8'),
   readFile(new URL('payments.js', recuperaRoot), 'utf8'),
   readFile(new URL('api.js', recuperaRoot), 'utf8'),
   readFile(new URL('portal-api.js', recuperaRoot), 'utf8'),
@@ -261,7 +262,7 @@ const context = {
 };
 context.globalThis = context;
 
-vm.runInNewContext(`${stageSource}\n${paymentsSource}\n${apiSource}\n${portalSource}\n;globalThis.__recupera = {
+vm.runInNewContext(`${stageSource}\n${stagePlaybooksSource}\n${paymentsSource}\n${apiSource}\n${portalSource}\n;globalThis.__recupera = {
   handleRecuperaApi,
   handleRecuperaPublicPortal,
   recuperaPlaybookEnabled,

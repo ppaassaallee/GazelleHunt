@@ -272,8 +272,8 @@ function recuperaPlaceholderEmail(obligationId) {
   return `obl_${cleanText(obligationId, 36)}@recupera.local`;
 }
 
-function recuperaJourneyName(stageKey, strategyKey = 'EQUILIBRADA') {
-  return recuperaJourneyNameFor(strategyKey, stageKey);
+function recuperaJourneyName(stageKey, strategyKey = 'EQUILIBRADA', rocioMode = 'if_no_reply') {
+  return recuperaJourneyNameFor(strategyKey, stageKey, rocioMode);
 }
 
 function recuperaDefaultJourneySteps(strategyKey = 'EQUILIBRADA', stageKey = 'DUE', rocioMode = 'if_no_reply') {
@@ -358,7 +358,7 @@ async function recuperaEnsureListMember(env, listId, candidateId, userId) {
 }
 
 async function recuperaEnsureJourney(env, companyId, userId, stageKey, listId, testId, strategyKey = 'EQUILIBRADA', rocioMode = 'if_no_reply') {
-  const journeyName = recuperaJourneyName(stageKey, strategyKey);
+  const journeyName = recuperaJourneyName(stageKey, strategyKey, rocioMode);
   const existing = await env.DB.prepare(`
     SELECT j.* FROM contact_journeys j
     WHERE j.company_id = ? AND j.name = ? AND j.test_id = ? AND j.list_id = ? AND j.status = 'active'
@@ -973,7 +973,7 @@ async function recuperaEnsureStageJourneys(env, companyId, userId, listId, testI
   const created = [];
   const strategy = recuperaNormalizeStrategyKey(strategyKey) || 'EQUILIBRADA';
   for (const stageKey of RECUPERA_AGING_STAGE_KEYS) {
-    const journeyName = recuperaJourneyName(stageKey, strategy);
+    const journeyName = recuperaJourneyName(stageKey, strategy, 'if_no_reply');
     // recuperaEnsureJourney only reuses `active` journeys; check every status here so a
     // paused or archived stage flow is never silently duplicated on each studio visit.
     const existing = await env.DB.prepare(`
@@ -988,7 +988,8 @@ async function recuperaEnsureStageJourneys(env, companyId, userId, listId, testI
 
 async function recuperaGetStudio(request, env, user) {
   if (!canManageCompanyAssets(user)) return json({ error: 'Administrator access is required.', code: 'admin_required' }, 403);
-  const companyId = recuperaTargetCompanyId(user, new URL(request.url));
+  const url = new URL(request.url);
+  const companyId = recuperaTargetCompanyId(user, url);
   if (!await recuperaPlaybookEnabled(env, companyId)) return recuperaPlaybookDisabledResponse();
   const company = await env.DB.prepare(`SELECT id FROM companies WHERE id = ? AND status = 'active'`).bind(companyId).first();
   if (!company) return json({ error: 'Company not found.', code: 'company_not_found' }, 404);
@@ -1010,14 +1011,18 @@ async function recuperaGetStudio(request, env, user) {
       studioStrategy = 'EQUILIBRADA';
     }
   }
+  studioStrategy = recuperaNormalizeStrategyKey(url.searchParams.get('strategyKey')) || studioStrategy;
   const createdStages = await recuperaEnsureStageJourneys(env, companyId, user.id, listId, testId, studioStrategy);
   const seededTemplates = await recuperaEnsureStudioTemplates(env, companyId, user.id);
   if (createdStages.length || seededTemplates) {
     await audit(env, user.email, 'recupera_studio_seeded', 'company', companyId, { stages: createdStages, templates: seededTemplates });
   }
-  const journeys = (await listContactJourneys(env, user)).filter((journey) => journey.company_id === companyId);
+  const strategyPrefix = `Recupera · ${studioStrategy} · `;
+  const journeys = (await listContactJourneys(env, user)).filter(
+    (journey) => journey.company_id === companyId && String(journey.name || '').startsWith(strategyPrefix),
+  );
   const templates = (await listMessageTemplates(env, user)).filter((template) => template.company_id === companyId);
-  return json({ listId, testId, journeys, templates });
+  return json({ listId, testId, strategyKey: studioStrategy, journeys, templates });
 }
 
 async function handleRecuperaApi(request, env, url, user) {

@@ -234,13 +234,11 @@ export function previewSeguimiento(
       band !== "preventivo" ||
       strategyKey === "FIRME");
   if (wantsRocio) {
-    const voiceHours =
-      rocioMode === "stage" || strategyKey === "FIRME" || band === "avanzado" || band === "medio"
-        ? band === "avanzado"
-          ? 12
-          : 48
-        : 96;
-    push(voiceHours, "Rocío (llamada)");
+    lines.push(
+      rocioMode === "stage"
+        ? "Rocío · en esta etapa (al conectar voz)"
+        : "Rocío · si no responden (al conectar voz)",
+    );
   }
   return lines;
 }

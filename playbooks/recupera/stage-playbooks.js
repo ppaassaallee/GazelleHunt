@@ -136,21 +136,6 @@ function recuperaStagePlaybookDrafts(strategyKey, stageKey, rocioMode) {
     (mode === 'if_no_reply' && (band === 'temprano' || band === 'medio' || band === 'avanzado')) ||
     (mode === 'if_no_reply' && strategy === 'FIRME' && band === 'preventivo');
 
-  if (wantsRocio && mode !== 'off') {
-    const voiceDelay =
-      mode === 'stage' || strategy === 'FIRME' || band === 'avanzado' || band === 'medio'
-        ? recuperaScaleHours(band === 'avanzado' ? 12 : 48, strategy)
-        : recuperaScaleHours(96, strategy);
-    drafts.push({
-      channel: 'voice',
-      delayHours: voiceDelay,
-      subjectEn: 'Rocio follow-up call',
-      subjectEs: 'Llamada de seguimiento · Rocío',
-      messageEn: 'Rocio calls {{name}} about the {{brand}} balance. Reference: {{role}}.',
-      messageEs: 'Rocío llama a {{name}} sobre el saldo con {{brand}}. Referencia: {{role}}.',
-    });
-  }
-
   return drafts;
 }
 
@@ -159,10 +144,11 @@ function recuperaResolveActivationStage(stageKey, includePreventive) {
   return stageKey;
 }
 
-function recuperaJourneyNameFor(strategyKey, stageKey) {
+function recuperaJourneyNameFor(strategyKey, stageKey, rocioMode = 'if_no_reply') {
   const strategy = recuperaStrategyKeyOrDefault(strategyKey);
   const stage = String(stageKey || 'DUE').slice(0, 40);
-  return `Recupera · ${strategy} · ${stage}`;
+  const rocio = recuperaNormalizeRocioMode(rocioMode);
+  return `Recupera · ${strategy} · ${stage} · ${rocio}`;
 }
 
 function recuperaParseObligationMeta(row) {
@@ -177,7 +163,7 @@ function recuperaParseObligationMeta(row) {
 
 function recuperaPreviewLines(strategyKey, stageKey, rocioMode) {
   const drafts = recuperaStagePlaybookDrafts(strategyKey, stageKey, rocioMode);
-  return drafts.map((step) => {
+  const lines = drafts.map((step) => {
     const when = step.delayHours <= 0 ? 'Hoy' : step.delayHours < 24 ? `+${step.delayHours} h` : `+${Math.round(step.delayHours / 24)} d`;
     const channel =
       step.channel === 'whatsapp' ? 'WhatsApp'
@@ -187,4 +173,8 @@ function recuperaPreviewLines(strategyKey, stageKey, rocioMode) {
               : step.channel;
     return `${when} · ${channel}`;
   });
+  const mode = recuperaNormalizeRocioMode(rocioMode);
+  if (mode === 'stage') lines.push('Rocío · en esta etapa (al conectar voz)');
+  if (mode === 'if_no_reply') lines.push('Rocío · si no responden (al conectar voz)');
+  return lines;
 }

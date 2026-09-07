@@ -40,9 +40,34 @@ export const STATUS_LABELS: Record<JourneyStatus, string> = {
   archived: "Archivado",
 };
 
+export type RecuperaFlowProfile = {
+  strategyKey: "AMABLE" | "EQUILIBRADA" | "FIRME" | null;
+  stageKey: string | null;
+  rocioMode: "off" | "if_no_reply" | "stage" | null;
+};
+
+export function parseRecuperaFlowName(name: string): RecuperaFlowProfile {
+  const parts = String(name || "")
+    .split("·")
+    .map((part) => part.trim());
+  if (parts[0] !== "Recupera") {
+    return { strategyKey: null, stageKey: null, rocioMode: null };
+  }
+  if (["AMABLE", "EQUILIBRADA", "FIRME"].includes(parts[1])) {
+    return {
+      strategyKey: parts[1] as RecuperaFlowProfile["strategyKey"],
+      stageKey: parts[2] || null,
+      rocioMode: ["off", "if_no_reply", "stage"].includes(parts[3])
+        ? (parts[3] as RecuperaFlowProfile["rocioMode"])
+        : "if_no_reply",
+    };
+  }
+  return { strategyKey: null, stageKey: parts[1] || null, rocioMode: null };
+}
+
 export function flowTitle(name: string) {
-  const stageKey = name.replace(/^Recupera\s*·\s*/, "").trim();
-  return STAGE_LABELS[stageKey] || name;
+  const profile = parseRecuperaFlowName(name);
+  return (profile.stageKey && STAGE_LABELS[profile.stageKey]) || name;
 }
 
 export function statusBadgeClass(status: string) {
@@ -195,7 +220,8 @@ export function approvedWhatsappTemplates(templates: MessageTemplate[]) {
 
 export function filterRecuperaJourneys(all: Journey[]) {
   const recupera = all.filter((journey) => (journey.name || "").startsWith(RECUPERA_FLOW_PREFIX));
-  return recupera.length ? recupera : all;
+  const strategic = recupera.filter((journey) => parseRecuperaFlowName(journey.name).strategyKey);
+  return strategic.length ? strategic : recupera.length ? recupera : all;
 }
 
 export function errorMessage(error: unknown) {

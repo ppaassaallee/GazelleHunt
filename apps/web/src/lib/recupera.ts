@@ -239,11 +239,13 @@ export type RecuperaStudio = {
   /** Recupera contact list + bridge test every stage flow is bound to. */
   listId: string;
   testId: string;
+  strategyKey: StrategyKey;
   journeys: Journey[];
   templates: MessageTemplate[];
 };
 
 /** Seeds the default Recupera flows if missing and returns flows + templates for the studio. */
-export function getRecuperaStudio() {
-  return apiFetch<RecuperaStudio>("/api/recupera/studio");
+export function getRecuperaStudio(strategyKey?: StrategyKey) {
+  const query = strategyKey ? `?strategyKey=${encodeURIComponent(strategyKey)}` : "";
+  return apiFetch<RecuperaStudio>(`/api/recupera/studio${query}`);
 }

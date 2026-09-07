@@ -1,7 +1,12 @@
 import { Archive, Copy, Pause, Play } from "lucide-react";
 import { IconButton } from "@/components/IconButton";
 import type { Journey } from "@/lib/journeys";
-import { STATUS_LABELS, flowTitle, statusBadgeClass } from "@/pages/journey-studio/draft";
+import {
+  STATUS_LABELS,
+  flowTitle,
+  parseRecuperaFlowName,
+  statusBadgeClass,
+} from "@/pages/journey-studio/draft";
 
 type Props = {
   journeys: Journey[];
@@ -29,7 +34,7 @@ export function FlowList({
   return (
     <aside className={`mk-flow-list ${mobileHidden ? "mk-flow-list--hidden-mobile" : ""}`}>
       <div className="mk-flow-list-head">
-        <strong>Flujos</strong>
+        <strong>Etapas de atraso</strong>
         <span>{journeys.length}</span>
       </div>
       {journeys.length === 0 ? (
@@ -41,6 +46,13 @@ export function FlowList({
         <ul className="mk-flow-list-items">
           {journeys.map((journey) => {
             const active = journey.id === selectedId;
+            const profile = parseRecuperaFlowName(journey.name);
+            const rocioLabel =
+              profile.rocioMode === "off"
+                ? "sin Rocío"
+                : profile.rocioMode === "stage"
+                  ? "Rocío en esta etapa"
+                  : "Rocío si no responden";
             return (
               <li key={journey.id}>
                 <button
@@ -51,8 +63,9 @@ export function FlowList({
                   <span className="mk-flow-list-copy">
                     <strong>{flowTitle(journey.name)}</strong>
                     <small>
-                      {Number(journey.active_enrollment_count || journey.enrollment_count || 0)} en
-                      seguimiento
+                      {profile.strategyKey
+                        ? `${profile.strategyKey.toLowerCase()} · ${rocioLabel}`
+                        : `${Number(journey.active_enrollment_count || journey.enrollment_count || 0)} en seguimiento`}
                     </small>
                   </span>
                   <span className={statusBadgeClass(journey.status)}>

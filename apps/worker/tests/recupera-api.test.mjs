@@ -931,7 +931,7 @@ assert.ok(studioBody.listId);
 assert.equal(studioBody.testId, 'test_recupera_obligation');
 const stageJourneyNames = studioBody.journeys.map((journey) => journey.name);
 for (const stageKey of ['PRE_DUE', 'DUE', 'DPD_1_7', 'DPD_8_15', 'DPD_16_30', 'DPD_31_60', 'DPD_60_PLUS']) {
-  assert.ok(stageJourneyNames.includes(`Recupera · EQUILIBRADA · ${stageKey}`), `missing stage flow ${stageKey}`);
+  assert.ok(stageJourneyNames.includes(`Recupera · EQUILIBRADA · ${stageKey} · if_no_reply`), `missing stage flow ${stageKey}`);
 }
 assert.ok(studioBody.journeys.every((journey) => journey.step_count > 0));
 assert.ok(studioBody.templates.some((template) => template.channel === 'whatsapp'));

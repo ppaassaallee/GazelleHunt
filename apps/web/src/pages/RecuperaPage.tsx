@@ -678,7 +678,7 @@ export function RecuperaPage({ onBack, initialAction = null, isolated = false }:
 
       {selected ? (
         <aside
-          className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-[var(--border)] bg-[var(--glass)] p-5 shadow-[var(--shadow-soft)] backdrop-blur-xl"
+          className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col overflow-y-auto border-l border-[var(--border)] bg-[var(--glass)] p-5 shadow-[var(--shadow-soft)] backdrop-blur-xl"
           aria-label={`Caso ${selected.payerName}`}
         >
           <div className="mb-4 flex items-start justify-between gap-2">
@@ -691,7 +691,15 @@ export function RecuperaPage({ onBack, initialAction = null, isolated = false }:
                 {selected.reference || "Sin referencia"} · {selected.stageKey}
               </p>
             </div>
-            <IconButton label="Cerrar caso" icon={X} size="sm" onClick={() => setSelectedId(null)} />
+            <IconButton
+              label="Cerrar caso"
+              icon={X}
+              size="sm"
+              onClick={() => {
+                setActivateOpen(false);
+                setSelectedId(null);
+              }}
+            />
           </div>
           <p className="text-3xl font-semibold tabular-nums">
             {formatMoney(selected.balanceCents, selected.currency)}
@@ -727,6 +735,13 @@ export function RecuperaPage({ onBack, initialAction = null, isolated = false }:
                 {selected.stageKey}
                 {selected.rocioMode ? ` · Rocío: ${selected.rocioMode}` : ""}
               </p>
+              <button
+                type="button"
+                onClick={() => void openActivate(selected.id)}
+                className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-[var(--radius-control)] bg-[var(--accent)] px-4 text-sm font-semibold text-white"
+              >
+                Configurar cómo cobrar
+              </button>
               <div className="mt-6 flex items-center gap-1">
                 <IconButton
                   label="Link de pago"

@@ -8,13 +8,16 @@ import { FlowInspector } from "@/pages/journey-studio/FlowInspector";
 import { FlowList } from "@/pages/journey-studio/FlowList";
 import { TemplatesPanel } from "@/pages/journey-studio/TemplatesPanel";
 import {
+  CHANNEL_LABELS,
   canActivateDraft,
   flowTitle,
   journeyStepsToDraft,
+  parseRecuperaFlowName,
   toStepInput,
 } from "@/pages/journey-studio/draft";
 import { persistDraft, useDraftFlow, useStudioData } from "@/pages/journey-studio/useStudioData";
 import { layoutLinear } from "@/pages/journey-studio/layout";
+import type { StrategyKey } from "@/lib/recupera";
 
 type Props = {
   onBack: () => void;
@@ -25,6 +28,7 @@ type Tab = "flows" | "templates";
 export function JourneyStudioPage({ onBack }: Props) {
   const [tab, setTab] = useState<Tab>("flows");
   const [mobileListOpen, setMobileListOpen] = useState(true);
+  const [readonlyStepIndex, setReadonlyStepIndex] = useState<number | null>(null);
   const studio = useStudioData();
   const draft = useDraftFlow();
 
@@ -83,6 +87,11 @@ export function JourneyStudioPage({ onBack }: Props) {
   const selectedReadonlySteps = studio.selected
     ? journeyStepsToDraft(studio.selected.steps || [])
     : [];
+  const selectedReadonlyStep =
+    readonlyStepIndex !== null ? selectedReadonlySteps[readonlyStepIndex] || null : null;
+  const selectedProfile = studio.selected
+    ? parseRecuperaFlowName(studio.selected.name)
+    : null;
 
   return (
     <div className="mk-studio mk-studio-v2 mx-auto max-w-[1400px] px-4 py-6 md:px-6 md:py-8">
@@ -94,8 +103,11 @@ export function JourneyStudioPage({ onBack }: Props) {
               Recupera · Estrategia
             </p>
             <h1 className="mt-1 text-[24px] font-semibold tracking-tight md:text-[28px]">
-              Flujos y plantillas
+              Estrategia de seguimiento
             </h1>
+            <p className="mt-1 max-w-xl text-sm text-[var(--text-secondary)]">
+              Elige un tono. Recupera adapta mensajes, frecuencia y canales a cada etapa de atraso.
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -141,6 +153,39 @@ export function JourneyStudioPage({ onBack }: Props) {
           </button>
         ))}
       </div>
+
+      {tab === "flows" ? (
+        <div className="mb-5 flex flex-wrap items-center gap-2" aria-label="Tono de seguimiento">
+          <span className="mr-1 text-xs font-medium text-[var(--text-secondary)]">Tono:</span>
+          {(["AMABLE", "EQUILIBRADA", "FIRME"] as StrategyKey[]).map((strategy) => (
+            <button
+              key={strategy}
+              type="button"
+              disabled={studio.loading || studio.busy}
+              onClick={() => {
+                setReadonlyStepIndex(null);
+                void studio.refresh(strategy);
+              }}
+              className={[
+                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                studio.strategyKey === strategy
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--hover)]",
+              ].join(" ")}
+              aria-pressed={studio.strategyKey === strategy}
+            >
+              {strategy === "AMABLE"
+                ? "Amable"
+                : strategy === "EQUILIBRADA"
+                  ? "Equilibrada"
+                  : "Firme"}
+            </button>
+          ))}
+          <span className="ml-1 text-xs text-[var(--text-secondary)]">
+            Cambia las 7 etapas y sus plantillas.
+          </span>
+        </div>
+      ) : null}
 
       {studio.error ? (
         <p
@@ -197,6 +242,7 @@ export function JourneyStudioPage({ onBack }: Props) {
             mobileHidden={draft.builderOpen || !mobileListOpen}
             onSelect={(id) => {
               studio.setSelectedId(id);
+              setReadonlyStepIndex(null);
               draft.setBuilderOpen(false);
               setMobileListOpen(false);
             }}
@@ -370,16 +416,76 @@ export function JourneyStudioPage({ onBack }: Props) {
                     />
                   </div>
                 </div>
-                <FlowCanvas
-                  steps={selectedReadonlySteps}
-                  selectedStepIndex={null}
-                  onSelectStep={() => {}}
-                  onInsertAt={() => {}}
-                  readOnly
-                />
-                <p className="mt-3 text-xs text-[var(--text-secondary)]">
-                  Los pasos de un flujo guardado no se editan en su lugar. Usa “Duplicar y editar”.
-                </p>
+                <div className="mk-readonly-workspace">
+                  <FlowCanvas
+                    steps={selectedReadonlySteps}
+                    selectedStepIndex={readonlyStepIndex}
+                    onSelectStep={setReadonlyStepIndex}
+                    onInsertAt={() => {}}
+                    readOnly
+                  />
+                  <aside className="mk-readonly-detail" aria-live="polite">
+                    {selectedReadonlyStep ? (
+                      <>
+                        <p className="mk-inspector-kicker">
+                          Paso {readonlyStepIndex! + 1} de {selectedReadonlySteps.length}
+                        </p>
+                        <h3 className="mt-1 text-base font-semibold">
+                          {CHANNEL_LABELS[selectedReadonlyStep.channel]}
+                        </h3>
+                        <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                          {selectedReadonlyStep.delayHours
+                            ? `${selectedReadonlyStep.delayHours} h después`
+                            : selectedReadonlyStep.businessDayOffset
+                              ? `${selectedReadonlyStep.businessDayOffset} día(s) hábil(es) después`
+                              : "Al entrar en esta etapa"}
+                        </p>
+                        <div className="mt-4 rounded-[var(--radius-card)] border border-[var(--border)] bg-white p-3">
+                          <p className="text-sm leading-relaxed">
+                            {selectedReadonlyStep.messageEs || "Sin mensaje configurado."}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="mk-primary-btn mt-4 w-full"
+                          onClick={() => draft.duplicateFrom(studio.selected!)}
+                        >
+                          Personalizar esta etapa
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mk-inspector-kicker">Detalle</p>
+                        <h3 className="mt-1 text-base font-semibold">
+                          Selecciona un paso
+                        </h3>
+                        <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                          Haz clic en cualquier mensaje del diagrama para ver su plantilla y momento.
+                        </p>
+                        {selectedProfile ? (
+                          <div className="mt-5 space-y-2 text-xs text-[var(--text-secondary)]">
+                            <p>
+                              Tono:{" "}
+                              <strong className="text-[var(--text-primary)]">
+                                {selectedProfile.strategyKey?.toLowerCase()}
+                              </strong>
+                            </p>
+                            <p>
+                              Rocío:{" "}
+                              <strong className="text-[var(--text-primary)]">
+                                {selectedProfile.rocioMode === "off"
+                                  ? "no interviene"
+                                  : selectedProfile.rocioMode === "stage"
+                                    ? "en esta etapa"
+                                    : "si no responden"}
+                              </strong>
+                            </p>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </aside>
+                </div>
               </div>
             ) : null}
           </section>

@@ -307,12 +307,12 @@ assert.match(appElement.innerHTML, /class="candidate-app"/);
 assert.doesNotMatch(appElement.innerHTML, /class="app-shell"/);
 assert.match(appElement.innerHTML, /Choose your language/);
 
-assert.match(indexSource, /styles\.css\?v=20260903\.1/);
-assert.match(indexSource, /app\.js\?v=20260903\.1/);
-assert.match(indexSource, /candidate-portal\.js\?v=20260903\.1/);
-assert.match(indexSource, /assessment-engine\.js\?v=20260903\.1/);
-assert.match(indexSource, /ai-assessment\.js\?v=20260903\.1/);
-assert.match(indexSource, /pdf-report\.js\?v=20260903\.1/);
+assert.match(indexSource, /styles\.css\?v=\d{8}\.\d+/);
+assert.match(indexSource, /app\.js\?v=\d{8}\.\d+/);
+assert.match(indexSource, /candidate-portal\.js\?v=\d{8}\.\d+/);
+assert.match(indexSource, /assessment-engine\.js\?v=\d{8}\.\d+/);
+assert.match(indexSource, /ai-assessment\.js\?v=\d{8}\.\d+/);
+assert.match(indexSource, /pdf-report\.js\?v=\d{8}\.\d+/);
 assert.match(serverSource, /\/candidate\?invite=/);
 assert.match(serverSource, /candidatePortalData/);
 assert.match(serverSource, /candidate_attempts_released/);
