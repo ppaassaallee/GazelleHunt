@@ -29,6 +29,8 @@ Origen interno (no hay que explicarlo en producto): *make it happen*.
 |---|---|
 | Gazelle Hunt | Gazelle Hunt · by Meikapen |
 | Recupera | Recupera · by Meikapen |
+
+**Nota landings:** el nombre de producto en marketing y UI es **Recupera**. La ruta pública `/recupero` (y alias `/recupera`) se mantiene por URL estable; el slug técnico `brand: "recupero"` en código no se muestra al usuario.
 | Rocío | Rocío · powered by Meikapen |
 | Sube | Sube · by Meikapen |
 | Monetiza | Monetiza · by Meikapen |

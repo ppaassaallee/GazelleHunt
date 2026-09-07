@@ -28,8 +28,8 @@ export function SplitCta({
   const [error, setError] = useState("");
   const labels =
     locale === "es"
-      ? { name: "Nombre", company: "Empresa", email: "Email", send: "Enviar →", sending: "Enviando…", received: "Recibido.", fail: "No se pudo enviar." }
-      : { name: "Name", company: "Company", email: "Email", send: "Send →", sending: "Sending…", received: "Received.", fail: "Could not send." };
+      ? { name: "Nombre", company: "Empresa", email: "Email", send: "Enviar", sending: "Enviando…", received: "Recibido.", fail: "No se pudo enviar." }
+      : { name: "Name", company: "Company", email: "Email", send: "Send", sending: "Sending…", received: "Received.", fail: "Could not send." };
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

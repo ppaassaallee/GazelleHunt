@@ -127,8 +127,16 @@ async function loadMarketingAssets() {
   text['/marketing/landing.html'] = indexHtml;
   await walkMarketingDist(dist, '/marketing', text, binary);
 
-  // Avoid double-encoding landing.html under /marketing/landing.html from walk + alias above.
+  // Prefer explicit HTML entries after walk (aliases for brand paths).
   text['/marketing/landing.html'] = indexHtml;
+  text['/marketing/'] = indexHtml;
+  text['/marketing/index.html'] = indexHtml;
+  for (const name of ['recupero.html', 'gazellehunt.html']) {
+    const filePath = resolve(dist, name);
+    if (existsSync(filePath)) {
+      text[`/marketing/${name}`] = await readFile(filePath, 'utf8');
+    }
+  }
 
   console.log(`Marketing landings: embedded ${Object.keys(text).length} text + ${Object.keys(binary).length} binary assets.`);
   return { html: indexHtml, text, binary };

@@ -15,7 +15,11 @@ export default defineConfig({
     outDir: "dist-landing",
     emptyOutDir: true,
     rollupOptions: {
-      input: resolve(__dirname, "landing.html"),
+      input: {
+        landing: resolve(__dirname, "landing.html"),
+        recupero: resolve(__dirname, "recupero.html"),
+        gazellehunt: resolve(__dirname, "gazellehunt.html"),
+      },
     },
   },
 });

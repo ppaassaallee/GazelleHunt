@@ -13,6 +13,9 @@ type Props = {
   monthly: Monthly[];
   monthlyCtaLabel: string;
   monthlyCtaHref: string;
+  eyebrow?: string;
+  intro?: string;
+  footnote?: string;
 };
 
 export function PricingPlans({
@@ -22,6 +25,9 @@ export function PricingPlans({
   monthly,
   monthlyCtaLabel,
   monthlyCtaHref,
+  eyebrow = "Precios mensuales",
+  intro = "Elige el plan que se ajusta a tu operación. Pagas mes a mes. Sin permanencia.",
+  footnote,
 }: Props) {
   return (
     <section
@@ -30,13 +36,13 @@ export function PricingPlans({
     >
       <div className="mx-auto max-w-6xl">
         <p className="text-[11px] tracking-[0.18em] text-[var(--landing-fg-soft)] uppercase">
-          Precios mensuales
+          {eyebrow}
         </p>
         <h2 className="mt-4 max-w-2xl whitespace-pre-line text-[clamp(1.75rem,3.5vw,2.75rem)] leading-[1.1] font-medium tracking-[-0.03em]">
           {heading}
         </h2>
         <p className="mt-5 max-w-[var(--landing-measure)] text-[15px] leading-relaxed text-[var(--landing-fg-muted)]">
-          Elige el plan que se ajusta a tu operación. Pagas mes a mes. Sin permanencia.
+          {intro}
         </p>
 
         <ul className="mt-14 grid gap-5 md:grid-cols-3 md:gap-6">
@@ -100,13 +106,13 @@ export function PricingPlans({
           })}
         </ul>
 
-        <p className="mt-6 text-[12px] text-[var(--landing-fg-soft)]">
-          * Dentro de uso razonable de operación. Cartera grande → Portafolio o Empresa.
-        </p>
+        {footnote ? (
+          <p className="mt-6 text-[12px] text-[var(--landing-fg-soft)]">{footnote}</p>
+        ) : null}
 
         <div className="mt-20 rounded-2xl border border-[rgba(255,255,255,0.16)] px-7 py-10 md:px-10">
           <h3 className="text-[20px] font-medium tracking-[-0.02em]">{monthlyHeading}</h3>
-          <ul className="mt-8 grid gap-8 sm:grid-cols-2">
+          <ul className={`mt-8 grid gap-8 ${monthly.length > 1 ? "sm:grid-cols-2" : ""}`}>
             {monthly.map((item) => (
               <li key={item.title} className="border-t border-[rgba(255,255,255,0.14)] pt-5">
                 <p className="text-[11px] tracking-[0.16em] text-[var(--landing-fg-soft)] uppercase">

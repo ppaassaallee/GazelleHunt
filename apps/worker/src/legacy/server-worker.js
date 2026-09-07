@@ -792,8 +792,20 @@ function marketingLandingsReady() {
   return Boolean(typeof marketingHtmlAsset !== 'undefined' && marketingHtmlAsset);
 }
 
-function serveMarketingLanding() {
-  return new Response(marketingHtmlAsset, { headers: marketingHtmlHeaders() });
+function marketingLandingHtmlForPath(pathname) {
+  const path = String(pathname || '/').replace(/\/$/, '') || '/';
+  const text = typeof marketingTextAssets !== 'undefined' ? marketingTextAssets : {};
+  if (path === '/gazellehunt') {
+    return text['/marketing/gazellehunt.html'] || marketingHtmlAsset;
+  }
+  if (path === '/recupero' || path === '/recupera') {
+    return text['/marketing/recupero.html'] || marketingHtmlAsset;
+  }
+  return text['/marketing/landing.html'] || marketingHtmlAsset;
+}
+
+function serveMarketingLanding(pathname = '/') {
+  return new Response(marketingLandingHtmlForPath(pathname), { headers: marketingHtmlHeaders() });
 }
 
 function serveMarketingAsset(url) {
@@ -4742,14 +4754,14 @@ export default {
       }
       if (isMarketingBrandPath(url.pathname)) {
         if (!meikapenMarketingHost(url.hostname)) return redirectToMeikapenApex(url);
-        if (marketingLandingsReady()) return serveMarketingLanding();
+        if (marketingLandingsReady()) return serveMarketingLanding(url.pathname);
         if (url.pathname === '/recupera' || url.pathname === '/recupera/' || url.pathname === '/recupero' || url.pathname === '/recupero/') {
           return serveRecuperaLanding(env);
         }
         return serveMeikapenHub(env);
       }
       if (url.pathname === '/gazellehunt' || url.pathname === '/gazellehunt/') {
-        if (meikapenPlatformRoot(env, url) && marketingLandingsReady()) return serveMarketingLanding();
+        if (meikapenPlatformRoot(env, url) && marketingLandingsReady()) return serveMarketingLanding(url.pathname);
         return serveGazelleHtml(url);
       }
       // Gazelle Hunt workspace on meikapen.com (same host as auth → __Host- cookie works).
@@ -4771,7 +4783,7 @@ export default {
         // Auth UI must run on meikapen.com so landings and apps share one session cookie.
         if (meikapenPlatformRoot(env, url) && wantsAuthUi(url)) return serveGazelleHtml(url);
         if (meikapenPlatformRoot(env, url)) {
-          if (marketingLandingsReady()) return serveMarketingLanding();
+          if (marketingLandingsReady()) return serveMarketingLanding('/');
           return serveMeikapenHub(env);
         }
         return serveGazelleHtml(url);

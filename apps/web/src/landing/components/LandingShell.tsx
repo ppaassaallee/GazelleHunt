@@ -157,6 +157,9 @@ export function LandingShell({ copy }: Props) {
           monthly={copy.pricingMonthly}
           monthlyCtaLabel={copy.pricingMonthlyCtaLabel}
           monthlyCtaHref={copy.pricingMonthlyCtaHref}
+          eyebrow={copy.pricingEyebrow}
+          intro={copy.pricingIntro}
+          footnote={copy.pricingFootnote}
         />
       ) : null}
 
